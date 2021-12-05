@@ -1,0 +1,113 @@
+extern crate clap;
+use clap::{App, Arg};
+
+mod task;
+mod serve;
+mod cmd;
+
+use std::path::PathBuf;
+use std::env;
+
+#[derive(Debug)]
+enum ChompError {
+    IoError(std::io::Error),
+    TaskError(task::TaskError)
+}
+
+impl From<std::io::Error> for ChompError {
+    fn from(e: std::io::Error) -> ChompError {
+        ChompError::IoError(e)
+    }
+}
+
+impl From<task::TaskError> for ChompError {
+    fn from(e: task::TaskError) -> ChompError {
+        ChompError::TaskError(e)
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), ChompError> {
+    let matches = App::new("Chomp")
+        .version("0.1.0")
+        .about("ᗧ h o m p • ᗣ")
+        .arg(
+            Arg::with_name("watch")
+                .short("w")
+                .long("watch")
+                .help("Watch the input files for changes"),
+        )
+        .arg(
+            Arg::with_name("serve")
+                .short("s")
+                .long("serve")
+                .help("Run a local dev server"),
+        )
+        .arg(
+            Arg::with_name("port")
+                .short("p")
+                .long("port")
+                .value_name("PORT")
+                .help("Custom port to serve")
+                .default_value("8080")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("j")
+                .short("j")
+                .long("jobs")
+                .value_name("N")
+                .help("Maximum number of jobs to run in parallel")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("config")
+                .short("c")
+                .long("config")
+                .value_name("CONFIG")
+                .default_value("chompfile.toml")
+                .help("Custom chompfile path")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("target")
+                .value_name("TARGET")
+                .help("Generate a target or list of targets")
+                .default_value("install build")
+                .multiple(true)
+        )
+        .get_matches();
+
+    let mut target: Vec<String> = Vec::new();
+    for item in matches.values_of("target").unwrap() {
+        target.push(String::from(item));
+    }
+
+    task::run(task::RunOptions {
+        cwd: env::current_dir()?,
+        target,
+        cfg_file: PathBuf::from(matches.value_of("config").unwrap_or_default()),
+    }).await?;
+
+    Ok(())
+}
+
+// if let Some(ref s) = matches.subcommand {
+//     match s.name.as_str() {
+//         "serve" => {
+//             if let Err(e) = serve::serve(serve::ServeOptions {
+//                 port: matches.value_of("port").unwrap_or("8080").parse().unwrap(),
+//                 ipfs: true,
+//             })
+//             .await
+//             {
+//                 eprintln!("{:?}", e);
+//                 std::process::exit(1);
+//             }
+//         }
+//         "compile" => {
+//             i
+//         }
+//         _ => {}
+//     }
+// }
