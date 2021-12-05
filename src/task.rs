@@ -228,7 +228,7 @@ impl<'a> Runner<'a> {
         job.state = if failed { JobState::Failed } else { JobState::Completed };
         job.future = None;
         println!(
-            "  ✓ {} ᗧ [{:?}]",
+            "  √ {} ◌ [{:?}]",
             job.name,
             job.end_time.unwrap() - job.start_time.unwrap()
         );
