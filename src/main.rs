@@ -2,7 +2,6 @@ extern crate clap;
 use clap::{App, Arg};
 
 mod task;
-mod serve;
 mod cmd;
 
 use std::path::PathBuf;
