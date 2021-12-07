@@ -20,12 +20,13 @@ use crate::cmd;
 #[derive(Debug, Serialize, Deserialize)]
 struct Chompfile {
     version: f32,
-    task: Option<BTreeMap<String, ChompTask>>,
+    task: Option<Vec<ChompTask>>,
     group: Option<BTreeMap<String, BTreeMap<String, ChompTask>>>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize)]
 struct ChompTask {
+    name: Option<String>,
     target: Option<String>,
     deps: Option<Vec<String>>,
     env: Option<BTreeMap<String, String>>,
@@ -76,7 +77,7 @@ enum JobState {
 
 #[derive(Derivative)]
 struct Job<'a> {
-    name: &'a str,
+    idx: usize,
     task: &'a ChompTask,
     deps: Vec<usize>,
     drives: Vec<usize>,
@@ -100,9 +101,9 @@ struct Runner<'a> {
 }
 
 impl<'a> Job<'a> {
-    fn new(name: &'a str, task: &'a ChompTask) -> Job<'a> {
+    fn new(idx: usize, task: &'a ChompTask) -> Job<'a> {
         Job {
-            name,
+            idx,
             task,
             deps: Vec::new(),
             drives: Vec::new(),
@@ -112,6 +113,18 @@ impl<'a> Job<'a> {
             end_time: None,
             future: None,
             live: false,
+        }
+    }
+
+    fn display_name (&self) -> String {
+        match &self.task.name {
+            Some(name) => String::from(format!(":{}", name)),
+            None => {
+                match &self.task.run {
+                    Some(run) => String::from(format!("{}", run)),
+                    None => String::from(format!("[task {}]", self.idx))
+                }
+            }
         }
     }
 }
@@ -128,23 +141,25 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn add_job(&mut self, name: &'a str, task: &'a ChompTask) -> usize {
+    fn add_job(&mut self, idx: usize, task: &'a ChompTask) -> usize {
         let num = self.jobs.len();
-        self.jobs.push(Job::new(name, task));
+        self.jobs.push(Job::new(idx, task));
         return num;
     }
 
     fn initialize_tasks(&mut self) -> Result<(), TaskError> {
         // expand all tasks into all jobs
         if let Some(tasks) = self.chompfile.task.as_ref() {
-            for (name, task) in tasks {
-                let job_num = self.add_job(&name, &task);
+            for (idx, task) in tasks.iter().enumerate() {
+                let job_num = self.add_job(idx, task);
 
                 // map task name to task job
-                if self.task_jobs.contains_key(name) {
-                    panic!("Already has job");
+                if let Some(name) = &task.name {
+                    if self.task_jobs.contains_key(name) {
+                        panic!("Already has job");
+                    }
+                    self.task_jobs.insert(name.to_string(), job_num);
                 }
-                self.task_jobs.insert(name.to_string(), job_num);
 
                 // if a file target, set to file job
                 if let Some(target) = task.target.as_ref() {
@@ -188,7 +203,7 @@ impl<'a> Runner<'a> {
                                 self.jobs[file_job].drives.push(i);
                             }
                             None => {
-                                eprintln!("Task Link Failure: No file job for \"{}\" in \"{}\", perhaps you meant to write \":{}\"?", dep, self.jobs[i].name, dep);
+                                eprintln!("Task Link Failure: No file job for \"{}\" in \"{}\", perhaps you meant to write \":{}\"?", dep, self.jobs[i].display_name(), dep);
                                 self.jobs[i].state = JobState::Failed;
                                 i += 1;
                                 // (TaskError::TaskNotFound(
@@ -228,8 +243,8 @@ impl<'a> Runner<'a> {
         job.state = if failed { JobState::Failed } else { JobState::Completed };
         job.future = None;
         println!(
-            "  √ {} ◌ [{:?}]",
-            job.name,
+            "√ {} [{:?}]",
+            job.display_name(),
             job.end_time.unwrap() - job.start_time.unwrap()
         );
     }
@@ -245,7 +260,7 @@ impl<'a> Runner<'a> {
             self.mark_complete(job_num, false);
             return Ok(None);
         }
-        println!("  ● {}", job.name);
+        println!("● {}", job.display_name());
         let run: &str = job.task.run.as_ref().unwrap();
         let future = self.cmd_pool.run(run, &job.task.env);
         job.future = Some(future.boxed().shared());
