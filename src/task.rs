@@ -1,21 +1,20 @@
+use std::io::ErrorKind::NotFound;
+use std::time::Duration;
+use std::time::UNIX_EPOCH;
 use crate::cmd::CmdPool;
-use async_std::fs;
-use async_std::process::Child;
-use async_std::process::Command;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
 use std::collections::BTreeMap;
 extern crate num_cpus;
+use async_recursion::async_recursion;
+use capturing_glob::glob;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Instant;
-
-use capturing_glob::glob;
-use serde::{Deserialize, Serialize};
+use async_std::fs;
 
 use derivative::Derivative;
-
-use crate::cmd;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Chompfile {
@@ -75,14 +74,15 @@ enum JobState {
     Failed,
 }
 
-#[derive(Derivative)]
+#[derive(Debug, Derivative)]
 struct Job<'a> {
     idx: usize,
     task: &'a ChompTask,
     deps: Vec<usize>,
     drives: Vec<usize>,
     state: JobState,
-    target_mtime: Option<Instant>,
+    mtime: Option<Duration>,
+    target: Option<&'a str>,
     start_time_deps: Option<Instant>,
     start_time: Option<Instant>,
     end_time: Option<Instant>,
@@ -91,19 +91,35 @@ struct Job<'a> {
     live: bool,
 }
 
+#[derive(Debug)]
 enum Node<'a> {
     Job(Job<'a>),
     File(File),
 }
 
+#[derive(Debug)]
 enum FileState {
+    Uninitialized,
     NotFound,
 }
 
+#[derive(Debug)]
 struct File {
-    idx: usize,
+    name: String,
     drives: Vec<usize>,
     state: FileState,
+    mtime: Option<Duration>,
+}
+
+impl File {
+    fn new(name: String) -> File {
+        File {
+            name,
+            mtime: None,
+            drives: Vec::new(),
+            state: FileState::Uninitialized,
+        }
+    }
 }
 
 struct Runner<'a> {
@@ -113,8 +129,7 @@ struct Runner<'a> {
     nodes: Vec<Node<'a>>,
 
     task_jobs: BTreeMap<String, usize>,
-    file_jobs: BTreeMap<String, usize>,
-    files: BTreeMap<String, usize>,
+    file_nodes: BTreeMap<String, usize>,
 }
 
 impl<'a> Job<'a> {
@@ -125,7 +140,8 @@ impl<'a> Job<'a> {
             deps: Vec::new(),
             drives: Vec::new(),
             state: JobState::Uninitialized,
-            target_mtime: None,
+            target: None,
+            mtime: None,
             start_time_deps: None,
             start_time: None,
             end_time: None,
@@ -135,12 +151,15 @@ impl<'a> Job<'a> {
     }
 
     fn display_name(&self) -> String {
-        match &self.task.name {
-            Some(name) => String::from(format!(":{}", name)),
-            None => match &self.task.run {
-                Some(run) => String::from(format!("{}", run)),
-                None => String::from(format!("[task {}]", self.idx)),
-            },
+        match self.target {
+            Some(target) => String::from(target),
+            None => match &self.task.name {
+                Some(name) => String::from(format!(":{}", name)),
+                None => match &self.task.run {
+                    Some(run) => String::from(format!("{}", run)),
+                    None => String::from(format!("[task {}]", self.idx)),
+                },
+            }
         }
     }
 }
@@ -153,8 +172,7 @@ impl<'a> Runner<'a> {
             chompfile,
             nodes: Vec::new(),
             task_jobs: BTreeMap::new(),
-            file_jobs: BTreeMap::new(),
-            files: BTreeMap::new(),
+            file_nodes: BTreeMap::new(),
         }
     }
 
@@ -162,6 +180,26 @@ impl<'a> Runner<'a> {
         let num = self.nodes.len();
         self.nodes.push(Node::Job(Job::new(idx, task)));
         return num;
+    }
+
+    fn add_file(&mut self, file: String) -> usize {
+        let num = self.nodes.len();
+        self.nodes.push(Node::File(File::new(file)));
+        return num;
+    }
+
+    fn get_job(&self, num: usize) -> Option<&Job> {
+        match self.nodes[num] {
+            Node::Job(ref job) => Some(job),
+            _ => None,
+        }
+    }
+
+    fn get_job_mut(&mut self, num: usize) -> Option<&mut Job<'a>> {
+        match self.nodes[num] {
+            Node::Job(ref mut job) => Some(job),
+            _ => None,
+        }
     }
 
     fn initialize_tasks(&mut self) {
@@ -180,12 +218,12 @@ impl<'a> Runner<'a> {
 
                 // if a file target, set to file job
                 if let Some(target) = &task.target {
-                    match self.file_jobs.get(target) {
+                    match self.file_nodes.get(target) {
                         Some(_) => {
                             panic!("Multiple targets pointing to same file");
                         }
                         None => {
-                            self.file_jobs.insert(target.to_string(), job_num);
+                            self.file_nodes.insert(target.to_string(), job_num);
                         }
                     }
                 }
@@ -194,11 +232,7 @@ impl<'a> Runner<'a> {
     }
 
     fn mark_complete(&mut self, job_num: usize, failed: bool) {
-        let job = match self.nodes[job_num] {
-            Node::Job(ref mut job) => job,
-            _ => panic!("Expected job"),
-        };
-
+        let job = self.get_job_mut(job_num).unwrap();
         job.end_time = Some(Instant::now());
         job.state = if failed {
             JobState::Failed
@@ -215,9 +249,8 @@ impl<'a> Runner<'a> {
             );
         } else {
             println!(
-                "√ {} [{:?}]",
+                "● {} [cached]",
                 job.display_name(),
-                job.end_time.unwrap() - job.start_time_deps.unwrap()
             );
         }
     }
@@ -226,22 +259,52 @@ impl<'a> Runner<'a> {
         &mut self,
         job_num: usize,
     ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>, TaskError> {
-        let job = match self.nodes[job_num] {
-            Node::Job(ref mut job) => job,
-            _ => panic!("Expected job"),
+        let job = match &self.nodes[job_num] {
+            Node::Job(job) => job,
+            Node::File(_) => panic!("Expected job")
         };
         // CMD Exec
         if job.task.run.is_none() {
             self.mark_complete(job_num, false);
             return Ok(None);
         }
-        println!("● {}", job.display_name());
+        // If we have an mtime, check if we need to do work
+        if let Some(mtime) = job.mtime {
+            let mut all_fresh = true;
+            for dep in job.deps.iter() {
+                let dep_change = match &self.nodes[*dep] {
+                    Node::Job(dep) => match dep.mtime {
+                        Some(dep_mtime) if dep_mtime > mtime => true,
+                        None => true,
+                        _ => false,
+                    },
+                    Node::File(dep) => match dep.mtime {
+                        Some(dep_mtime) if dep_mtime > mtime => true,
+                        None => true,
+                        _ => false,
+                    }
+                };
+                if dep_change {
+                    all_fresh = false;
+                    break;
+                }
+            }
+            if all_fresh {
+                self.mark_complete(job_num, false);
+                return Ok(None);
+            }
+        }
+        println!("○ {}", job.display_name());
+
         let run: &str = job.task.run.as_ref().unwrap();
         let future = self.cmd_pool.run(run, &job.task.env);
-        job.future = Some(future.boxed().shared());
-        job.state = JobState::Running;
-        job.start_time = Some(Instant::now());
-        Ok(Some(job.future.clone().unwrap()))
+        {
+            let job = self.get_job_mut(job_num).unwrap();
+            job.future = Some(future.boxed().shared());
+            job.state = JobState::Running;
+            job.start_time = Some(Instant::now());
+            Ok(Some(job.future.clone().unwrap()))
+        }
     }
 
     fn drive_all(
@@ -250,168 +313,131 @@ impl<'a> Runner<'a> {
         jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
     ) -> Result<JobState, TaskError> {
-        let state = match &self.nodes[job_num] {
-            Node::Job(job) => job.state,
-            _ => panic!("Expected job"),
-        };
-        return match state {
-            JobState::Uninitialized => {
-                panic!("Expected initialized job");
-            }
-            JobState::Running => {
-                let job = match &self.nodes[job_num] {
-                    Node::Job(job) => job,
-                    _ => panic!("Expected job"),
-                };
-                if let Some(future) = &job.future {
-                    if !jobs.contains(&job_num) {
-                        jobs.push(job_num);
-                        futures.push(future.clone());
-                    }
-                    Ok(JobState::Running)
-                } else {
-                    panic!("Unexpected internal state");
+        match &self.nodes[job_num] {
+            Node::Job(job) => match job.state {
+                JobState::Uninitialized => {
+                    panic!("Expected initialized job");
                 }
-            }
-            JobState::Pending => {
-                let mut all_completed = true;
-                let job = match self.nodes[job_num] {
-                    Node::Job(ref mut job) => job,
-                    _ => panic!("Expected job"),
-                };
-                job.live = true;
-                let deps = job.deps.clone();
-                for dep in deps {
-                    let dep_state = self.drive_all(dep, jobs, futures)?;
-                    match dep_state {
-                        JobState::Fresh => {}
-                        _ => {
-                            all_completed = false;
-                        }
-                    }
-                }
-                // deps all completed -> execute this job
-                if all_completed {
-                    return match self.run_job(job_num)? {
-                        Some(future) => {
-                            futures.push(future);
+                JobState::Running => {
+                    let job = self.get_job(job_num).unwrap();
+                    if let Some(future) = &job.future {
+                        if !jobs.contains(&job_num) {
                             jobs.push(job_num);
-                            Ok(JobState::Running)
+                            futures.push(future.clone());
                         }
-                        None => {
-                            // already complete -> skip straight to driving parents
-                            let job = match &self.nodes[job_num] {
-                                Node::Job(job) => job,
-                                _ => panic!("Expected job"),
-                            };
-                            let drives = job.drives.clone();
-                            for drive in drives {
-                                let job = match self.nodes[job_num] {
-                                    Node::Job(ref mut job) => job,
-                                    _ => panic!("Expected job"),
-                                };
-                                if job.live {
-                                    self.drive_all(drive, jobs, futures)?;
-                                }
-                            }
-                            Ok(JobState::Fresh)
-                        }
-                    };
+                        Ok(JobState::Running)
+                    } else {
+                        panic!("Unexpected internal state");
+                    }
                 }
-                Ok(JobState::Pending)
+                JobState::Pending => {
+                    let mut all_completed = true;
+                    let job = self.get_job_mut(job_num).unwrap();
+                    job.live = true;
+                    let deps = job.deps.clone();
+                    for dep in deps {
+                        let dep_state = self.drive_all(dep, jobs, futures)?;
+                        match dep_state {
+                            JobState::Fresh => {}
+                            _ => {
+                                all_completed = false;
+                            }
+                        }
+                    }
+                    // deps all completed -> execute this job
+                    if all_completed {
+                        return match self.run_job(job_num)? {
+                            Some(future) => {
+                                futures.push(future);
+                                jobs.push(job_num);
+                                Ok(JobState::Running)
+                            }
+                            None => {
+                                // already complete -> skip straight to driving parents
+                                // let drives = self.get_job(job_num).unwrap().drives.clone();
+                                // for drive in drives {
+                                //     if self.get_job(job_num).unwrap().live {
+                                //         self.drive_all(drive, jobs, futures)?;
+                                //     }
+                                // }
+                                Ok(JobState::Fresh)
+                            }
+                        };
+                    }
+                    Ok(JobState::Pending)
+                }
+                JobState::Failed => Ok(JobState::Failed),
+                JobState::Fresh => Ok(JobState::Fresh),
+            },
+            Node::File(file) => {
+                panic!("FILE DRIVE");
             }
-            JobState::Failed => Ok(JobState::Failed),
-            JobState::Fresh => Ok(JobState::Fresh),
-        };
+        }
     }
 
     // expand out the full job graph for the given targets
-    async fn expand_targets(&mut self, targets: &Vec<String>) -> Result<(), TaskError> {
-        for target in targets {
-            let name = if target.as_bytes()[0] as char == ':' {
-                &target[1..]
-            } else {
-                &target
-            };
+    #[async_recursion]
+    async fn expand_target(
+        &mut self,
+        target: &str,
+        drives: Option<usize>,
+    ) -> Result<(), TaskError> {
+        let name = if target.as_bytes()[0] as char == ':' {
+            &target[1..]
+        } else {
+            &target
+        };
 
-            let job_num = match self.task_jobs.get(name) {
+        let job_num = match self.task_jobs.get(name) {
+            Some(&job_num) => job_num,
+            None => match self.file_nodes.get(name) {
                 Some(&job_num) => job_num,
-                None => match self.file_jobs.get(name) {
-                    Some(&job_num) => job_num,
-                    // no target found -> create a new file job for it
-                    None => {
-                        println!("CREATING FILE JOB FOR {}", name);
-                        panic!("TODO");
-                    }
-                },
-            };
+                // no target found -> create a new file job for it
+                None => self.add_file(String::from(name)),
+            },
+        };
 
-            if let Node::Job(Job {
-                task:
-                    ChompTask {
-                        deps: Some(ref task_deps),
-                        ..
-                    },
-                ..
-            }) = self.nodes[job_num]
-            {
-                for dep in task_deps {
-                    if dep.as_bytes()[0] as char == ':' {
-                        match self.task_jobs.get(&dep[1..]) {
-                            Some(&task_job) => {
-                                let job = match self.nodes[job_num] {
-                                    Node::Job(ref mut job) => job,
-                                    _ => panic!("Expected job"),
-                                };
-                                job.deps.push(task_job);
-                                let dep_job = match self.nodes[task_job] {
-                                    Node::Job(ref mut job) => job,
-                                    _ => panic!("Expected job"),
-                                };
-                                dep_job.drives.push(job_num);
-                            }
-                            None => {
-                                let job = match self.nodes[job_num] {
-                                    Node::Job(ref mut job) => job,
-                                    _ => panic!("Expected job"),
-                                };
-                                job.state = JobState::Failed;
-                                return Err(TaskError::TaskNotFound(
-                                    dep[1..].to_string(),
-                                    name.to_string(),
-                                ));
-                            }
-                        };
-                    } else {
-                        match self.file_jobs.get(dep) {
-                            Some(&file_job) => {
-                                let job = match self.nodes[job_num] {
-                                    Node::Job(ref mut job) => job,
-                                    _ => panic!("Expected job"),
-                                };
-                                job.deps.push(file_job);
-                                let dep_job = match self.nodes[file_job] {
-                                    Node::Job(ref mut job) => job,
-                                    _ => panic!("Expected job"),
-                                };
-                                dep_job.drives.push(job_num);
-                            }
-                            None => {
-                                let job = FileJob
-                            }
-                        }
-                    }
-                }
-            }
-
-            let job = match self.nodes[job_num] {
-                Node::Job(ref mut job) => job,
-                _ => panic!("Expected job"),
-            };
-            job.start_time_deps = Some(Instant::now());
-            job.state = JobState::Pending;
+        if let Some(drives) = drives {
+            self.get_job_mut(drives).unwrap().deps.push(job_num);   
         }
 
+        match self.nodes[job_num] {
+            Node::Job(ref mut job) => {
+                if let Some(drives) = drives {
+                    job.drives.push(drives);
+                }
+                if let Some(deps) = &job.task.deps {
+                    let deps_cloned = deps.clone();
+                    for dep in deps_cloned {
+                        self.expand_target(&String::from(dep), Some(job_num)).await?;
+                    }
+                }
+
+                let job = self.get_job_mut(job_num).unwrap();
+
+                if let Some(target) = &job.task.target {
+                    job.target = Some(target);
+                    job.mtime = match fs::metadata(target).await {
+                        Ok(n) => Some(n.modified()?.duration_since(UNIX_EPOCH).unwrap()),
+                        Err(e) => match e.kind() {
+                            NotFound => None,
+                            _ => panic!("Unknown file error"),
+                        }
+                        _ => panic!("Unknown file error"),
+                    }
+                };
+
+                job.start_time_deps = Some(Instant::now());
+                job.state = JobState::Pending;
+            }
+            Node::File(ref mut file) => {
+                if let Some(drives) = drives {
+                    file.drives.push(drives);
+                }
+
+                file.state = FileState::Uninitialized;
+            }
+        }
         // // dbg!(&self.task_jobs);
 
         // for entry in glob("/media/**/(*).jpg").expect("Failed to read glob pattern") {
@@ -429,7 +455,7 @@ impl<'a> Runner<'a> {
         let mut jobs: Vec<usize> = Vec::new();
         let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
 
-        // dbg!(&self.task_jobs);
+        // dbg!(&self.nodes);
 
         // first try named target, then fall back to file name check
         for target in targets {
@@ -441,7 +467,7 @@ impl<'a> Runner<'a> {
 
             let job_num = match self.task_jobs.get(name) {
                 Some(&job_num) => job_num,
-                None => match self.file_jobs.get(name) {
+                None => match self.file_nodes.get(name) {
                     Some(&job_num) => job_num,
                     None => {
                         panic!("TODO: target not found error");
@@ -507,7 +533,9 @@ pub async fn run(opts: RunOptions) -> Result<(), TaskError> {
 
     runner.initialize_tasks();
 
-    runner.expand_targets(&opts.target).await?;
+    for target in &opts.target {
+        runner.expand_target(target, None).await?;
+    }
 
     runner.drive_targets(&opts.target).await?;
 
