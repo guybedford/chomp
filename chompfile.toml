@@ -1,6 +1,11 @@
 version = 0.1
 
 [[task]]
+  name = "chomp"
+  target = "target/Debug/cmp.exe"
+  deps = ["test/src/*.rs", "Cargo.toml", "Cargo.lock"]
+
+[[task]]
   name = "build"
   target = "test/lib/test.js"
   deps = ["node_modules/.bin/swc", "test/src/test.ts"]

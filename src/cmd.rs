@@ -14,6 +14,7 @@ pub struct CmdPool {
 #[cfg(target_os = "windows")]
 fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> Child {
     lazy_static! {
+        // Currently does not support spaces in quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
             ^(?P<cmd>[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
             (?P<args>(\\ (?:
@@ -48,7 +49,6 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
             }
         }
         if do_spawn {
-            let args = &capture["args"];
             let mut command = Command::new(&cmd);
             command.env("PATH", &path);
             if let Some(env) = env {
@@ -56,7 +56,9 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
                     command.env(name, value);
                 }
             }
-            command.arg(args);
+            for arg in capture["args"].split(" ") {
+                command.arg(arg);
+            }
             match command.spawn() {
                 Ok(child) => {
                     return child;
@@ -71,7 +73,9 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
                             command.env(name, value);
                         }
                     }
-                    command.arg(args);
+                    for arg in capture["args"].split(" ") {
+                        command.arg(arg);
+                    }
                     match command.spawn() {
                         Ok(child) => {
                             return child;

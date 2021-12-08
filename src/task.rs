@@ -100,6 +100,8 @@ enum Node<'a> {
 #[derive(Debug)]
 enum FileState {
     Uninitialized,
+    Fresh,
+    Changed,
     NotFound,
 }
 
@@ -278,10 +280,12 @@ impl<'a> Runner<'a> {
                         None => true,
                         _ => false,
                     },
-                    Node::File(dep) => match dep.mtime {
-                        Some(dep_mtime) if dep_mtime > mtime => true,
-                        None => true,
-                        _ => false,
+                    Node::File(dep) => {
+                        match dep.mtime {
+                            Some(dep_mtime) if dep_mtime > mtime => true,
+                            None => true,
+                            _ => false,
+                        }
                     }
                 };
                 if dep_change {
@@ -312,9 +316,9 @@ impl<'a> Runner<'a> {
         job_num: usize,
         jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
-    ) -> Result<JobState, TaskError> {
-        match &self.nodes[job_num] {
-            Node::Job(job) => match job.state {
+    ) -> Result<bool, TaskError> {
+        match self.nodes[job_num] {
+            Node::Job(ref job) => match job.state {
                 JobState::Uninitialized => {
                     panic!("Expected initialized job");
                 }
@@ -325,7 +329,7 @@ impl<'a> Runner<'a> {
                             jobs.push(job_num);
                             futures.push(future.clone());
                         }
-                        Ok(JobState::Running)
+                        Ok(false)
                     } else {
                         panic!("Unexpected internal state");
                     }
@@ -336,12 +340,9 @@ impl<'a> Runner<'a> {
                     job.live = true;
                     let deps = job.deps.clone();
                     for dep in deps {
-                        let dep_state = self.drive_all(dep, jobs, futures)?;
-                        match dep_state {
-                            JobState::Fresh => {}
-                            _ => {
-                                all_completed = false;
-                            }
+                        let completed = self.drive_all(dep, jobs, futures)?;
+                        if !completed {
+                            all_completed = false;
                         }
                     }
                     // deps all completed -> execute this job
@@ -350,7 +351,7 @@ impl<'a> Runner<'a> {
                             Some(future) => {
                                 futures.push(future);
                                 jobs.push(job_num);
-                                Ok(JobState::Running)
+                                Ok(false)
                             }
                             None => {
                                 // already complete -> skip straight to driving parents
@@ -360,17 +361,24 @@ impl<'a> Runner<'a> {
                                 //         self.drive_all(drive, jobs, futures)?;
                                 //     }
                                 // }
-                                Ok(JobState::Fresh)
+                                Ok(true)
                             }
                         };
                     }
-                    Ok(JobState::Pending)
+                    Ok(false)
                 }
-                JobState::Failed => Ok(JobState::Failed),
-                JobState::Fresh => Ok(JobState::Fresh),
+                JobState::Failed => Ok(false),
+                JobState::Fresh => Ok(true),
             },
-            Node::File(file) => {
-                panic!("FILE DRIVE");
+            Node::File(ref mut file) => {
+                if file.mtime.is_some() {
+                    file.state = FileState::Fresh;
+                    Ok(true)
+                }
+                else {
+                    dbg!(file);
+                    panic!("TODO: NON-EXISTING FILE WATCH");
+                }
             }
         }
     }
