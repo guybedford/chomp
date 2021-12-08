@@ -434,7 +434,14 @@ impl<'a> Runner<'a> {
                 if let Some(drives) = drives {
                     file.drives.push(drives);
                 }
-
+                file.mtime = match fs::metadata(target).await {
+                    Ok(n) => Some(n.modified()?.duration_since(UNIX_EPOCH).unwrap()),
+                    Err(e) => match e.kind() {
+                        NotFound => None,
+                        _ => panic!("Unknown file error"),
+                    }
+                    _ => panic!("Unknown file error"),
+                };
                 file.state = FileState::Uninitialized;
             }
         }

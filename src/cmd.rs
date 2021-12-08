@@ -1,12 +1,10 @@
-use std::collections::VecDeque;
-use async_std::io::WriteExt;
-use async_std::process::{Child, Command, ExitStatus, Stdio};
-use std::pin::Pin;
-use futures::future::{Future, FutureExt};
+use std::path::PathBuf;
+use async_std::process::{Child, Command, ExitStatus};
+use futures::future::{Future};
 use std::collections::BTreeMap;
 use std::env;
-use std::time::Duration;
-use async_std::task;
+use regex::Regex;
+use std::fs;
 
 pub struct CmdPool {
     cwd: String,
@@ -15,11 +13,16 @@ pub struct CmdPool {
 
 #[cfg(target_os = "windows")]
 fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> Child {
-    let shell = if env::var("PSModulePath").is_ok() { "powershell" } else {
-        panic!("Powershell is required on Windows");
-        // "cmd"
-    };
-    let mut cmd = Command::new(shell);
+    lazy_static! {
+        static ref CMD: Regex = Regex::new("(?x)
+            ^(?P<cmd>[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
+            (?P<args>(\\ (?:
+                [^`~!\\#$&*()\t\\{\\[|;'\"n<>?\\\\\\ ]+? |
+                (?:\"[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?\") |
+                (?:'[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?')
+            )*?)*?)$
+        ").unwrap();
+    }
     let mut path: String = env::var("PATH").unwrap_or_default();
     if path.len() > 0 {
         path += ";";
@@ -28,33 +31,90 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
     path += ".bin;";
     path.push_str(cwd);
     path += "/node_modules/.bin";
-    cmd.env("PATH", path);
-    if let Some(env) = env {
-        for (name, value) in env {
-            cmd.env(name, value);
+    // fast path for direct commands to skip the shell entirely
+    if let Some(capture) = CMD.captures(run) {
+        let mut cmd = String::from(&capture["cmd"]);
+        let mut do_spawn = true;
+        // Path-like must be exact
+        if cmd.contains("/") {
+            // canonicalize returns UNC...
+            let unc_path = fs::canonicalize(PathBuf::from(cmd.clone())).unwrap();
+            let unc_str = unc_path.to_str().unwrap();
+            if unc_str.starts_with(r"\\?\") {
+                cmd = String::from(&unc_path.to_str().unwrap()[4..]);
+            }
+            else {
+                do_spawn = false;
+            }
+        }
+        if do_spawn {
+            let args = &capture["args"];
+            let mut command = Command::new(&cmd);
+            command.env("PATH", &path);
+            if let Some(env) = env {
+                for (name, value) in env {
+                    command.env(name, value);
+                }
+            }
+            command.arg(args);
+            match command.spawn() {
+                Ok(child) => {
+                    return child;
+                },
+                // If first attempt fails, try ".cmd" extension too
+                Err(_) => {
+                    cmd.push_str(".cmd");
+                    let mut command = Command::new(&cmd);
+                    command.env("PATH", &path);
+                    if let Some(env) = env {
+                        for (name, value) in env {
+                            command.env(name, value);
+                        }
+                    }
+                    command.arg(args);
+                    match command.spawn() {
+                        Ok(child) => {
+                            return child;
+                        },
+                        Err(_) => {}
+                    }
+                }
+            };
         }
     }
+
+    let shell = if env::var("PSModulePath").is_ok() { "powershell" } else {
+        panic!("Powershell is required on Windows for arbitrary scripts");
+        // "cmd"
+    };
+    let mut command = Command::new(shell);
     if shell == "powershell" {
-        cmd.arg("-ExecutionPolicy");
-        cmd.arg("Unrestricted");
-        cmd.arg("-NonInteractive");
-        cmd.arg("-NoLogo");
+        command.arg("-ExecutionPolicy");
+        command.arg("Unrestricted");
+        command.arg("-NonInteractive");
+        command.arg("-NoLogo");
         let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';\n");
         run_str.push_str(&run);
-        cmd.arg(run_str);
+        command.arg(run_str);
     }
     else {
-        cmd.arg("/d");
-        // cmd.arg("/s");
-        cmd.arg("/c");
-        cmd.arg(run);
+        command.arg("/d");
+        // command.arg("/s");
+        command.arg("/c");
+        command.arg(run);
     }
-    cmd.spawn().unwrap()
+    command.env("PATH", path);
+    if let Some(env) = env {
+        for (name, value) in env {
+            command.env(name, value);
+        }
+    }
+    command.spawn().unwrap()
 }
 
 #[cfg(not(target_os = "windows"))]
 fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> Child {
-    let mut cmd = Command::new("sh");
+    let mut command = Command::new("sh");
     let mut path = env::var("PATH").unwrap_or_default();
     if path.len() > 0 {
         path += ":";
@@ -63,22 +123,25 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
     path += ".bin:";
     path.push_str(cwd);
     path += "/node_modules/.bin";
-    cmd.env("PATH", path);
+    command.env("PATH", path);
     if let Some(env) = env {
         for (name, value) in env {
-            cmd.env(name, value);
+            command.env(name, value);
         }
     }
-    cmd.arg("-c");
-    cmd.arg(run);
-    cmd.spawn().unwrap()
+    command.arg("-c");
+    command.arg(run);
+    command.spawn().unwrap()
 }
 
 // For Cmd + Unix shell we just run command directly
 // For powershell we immediately preinitialize the shell tasks in pools, as powershell can take a while to startup
 impl CmdPool {
     pub fn new(pool_size: usize, cwd: String) -> CmdPool {
-        CmdPool { pool_size, cwd }
+        CmdPool {
+            pool_size,
+            cwd,
+        }
     }
 
     fn get_next (&mut self, run: &str, env: &Option<BTreeMap<String, String>>) -> Child {
@@ -90,7 +153,7 @@ impl CmdPool {
         run: &str,
         env: &Option<BTreeMap<String, String>>
     ) -> impl Future<Output = ExitStatus> {
-        // TODO: compare env to default_env and apply dirr for powershell
+        // TODO: compare env to default_env and apply dir for powershell
         let mut child = self.get_next(run, env);
         async move {
             let status = child.status().await.expect("Something went wrong");
