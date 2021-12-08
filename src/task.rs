@@ -1,19 +1,19 @@
-use async_std::process::Child;
 use crate::cmd::CmdPool;
-use async_std::process::Command;
 use async_std::fs;
-use async_std::process::{ExitStatus};
-use futures::future::{select_all, Future, Shared, FutureExt};
+use async_std::process::Child;
+use async_std::process::Command;
+use async_std::process::ExitStatus;
+use futures::future::{select_all, Future, FutureExt, Shared};
 use std::collections::BTreeMap;
 extern crate num_cpus;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::time::{Instant};
+use std::time::Instant;
 
 use capturing_glob::glob;
 use serde::{Deserialize, Serialize};
 
-use derivative::{Derivative};
+use derivative::Derivative;
 
 use crate::cmd;
 
@@ -69,9 +69,9 @@ impl From<toml::de::Error> for TaskError {
 #[derive(Clone, Copy, Debug)]
 enum JobState {
     Uninitialized,
-    Initialized,
+    Pending,
     Running,
-    Completed,
+    Fresh,
     Failed,
 }
 
@@ -83,21 +83,38 @@ struct Job<'a> {
     drives: Vec<usize>,
     state: JobState,
     target_mtime: Option<Instant>,
+    start_time_deps: Option<Instant>,
     start_time: Option<Instant>,
     end_time: Option<Instant>,
-    #[derivative(Debug="ignore")]
+    #[derivative(Debug = "ignore")]
     future: Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
     live: bool,
+}
+
+enum Node<'a> {
+    Job(Job<'a>),
+    File(File),
+}
+
+enum FileState {
+    NotFound,
+}
+
+struct File {
+    idx: usize,
+    drives: Vec<usize>,
+    state: FileState,
 }
 
 struct Runner<'a> {
     cmd_pool: CmdPool,
     chompfile: &'a Chompfile,
 
-    jobs: Vec<Job<'a>>,
+    nodes: Vec<Node<'a>>,
 
     task_jobs: BTreeMap<String, usize>,
     file_jobs: BTreeMap<String, usize>,
+    files: BTreeMap<String, usize>,
 }
 
 impl<'a> Job<'a> {
@@ -109,6 +126,7 @@ impl<'a> Job<'a> {
             drives: Vec::new(),
             state: JobState::Uninitialized,
             target_mtime: None,
+            start_time_deps: None,
             start_time: None,
             end_time: None,
             future: None,
@@ -116,15 +134,13 @@ impl<'a> Job<'a> {
         }
     }
 
-    fn display_name (&self) -> String {
+    fn display_name(&self) -> String {
         match &self.task.name {
             Some(name) => String::from(format!(":{}", name)),
-            None => {
-                match &self.task.run {
-                    Some(run) => String::from(format!("{}", run)),
-                    None => String::from(format!("[task {}]", self.idx))
-                }
-            }
+            None => match &self.task.run {
+                Some(run) => String::from(format!("{}", run)),
+                None => String::from(format!("[task {}]", self.idx)),
+            },
         }
     }
 }
@@ -135,21 +151,22 @@ impl<'a> Runner<'a> {
         Runner {
             cmd_pool,
             chompfile,
-            jobs: Vec::new(),
+            nodes: Vec::new(),
             task_jobs: BTreeMap::new(),
             file_jobs: BTreeMap::new(),
+            files: BTreeMap::new(),
         }
     }
 
     fn add_job(&mut self, idx: usize, task: &'a ChompTask) -> usize {
-        let num = self.jobs.len();
-        self.jobs.push(Job::new(idx, task));
+        let num = self.nodes.len();
+        self.nodes.push(Node::Job(Job::new(idx, task)));
         return num;
     }
 
-    fn initialize_tasks(&mut self) -> Result<(), TaskError> {
+    fn initialize_tasks(&mut self) {
         // expand all tasks into all jobs
-        if let Some(tasks) = self.chompfile.task.as_ref() {
+        if let Some(tasks) = &self.chompfile.task {
             for (idx, task) in tasks.iter().enumerate() {
                 let job_num = self.add_job(idx, task);
 
@@ -162,7 +179,7 @@ impl<'a> Runner<'a> {
                 }
 
                 // if a file target, set to file job
-                if let Some(target) = task.target.as_ref() {
+                if let Some(target) = &task.target {
                     match self.file_jobs.get(target) {
                         Some(_) => {
                             panic!("Multiple targets pointing to same file");
@@ -174,87 +191,45 @@ impl<'a> Runner<'a> {
                 }
             }
         }
-
-        // loop through each job, and patch their deps and drives
-        let mut i = 0;
-        'outer: while i < self.jobs.len() {
-            if let Some(task_deps) = self.jobs[i].task.deps.as_ref() {
-                for dep in task_deps {
-                    if dep.as_bytes()[0] as char == ':' {
-                        match self.task_jobs.get(&dep[1..]) {
-                            Some(&task_job) => {
-                                self.jobs[i].deps.push(task_job);
-                                self.jobs[task_job].drives.push(i);
-                            }
-                            None => {
-                                self.jobs[i].state = JobState::Failed;
-                                i += 1;
-                                // (TaskError::TaskNotFound(
-                                //     dep[1..].to_string(),
-                                //     name.to_string(),
-                                // ));
-                                continue 'outer;
-                            }
-                        };
-                    } else {
-                        match self.file_jobs.get(dep) {
-                            Some(&file_job) => {
-                                self.jobs[i].deps.push(file_job);
-                                self.jobs[file_job].drives.push(i);
-                            }
-                            None => {
-                                eprintln!("Task Link Failure: No file job for \"{}\" in \"{}\", perhaps you meant to write \":{}\"?", dep, self.jobs[i].display_name(), dep);
-                                self.jobs[i].state = JobState::Failed;
-                                i += 1;
-                                // (TaskError::TaskNotFound(
-                                //     dep[1..].to_string(),
-                                //     name.to_string(),
-                                // ));
-                                continue 'outer;
-                            }
-                        }
-                    }
-                }
-            }
-
-            let job = &mut self.jobs[i];
-            job.start_time = Some(Instant::now());
-            job.state = JobState::Initialized;
-            i += 1;
-        }
-
-        Ok(())
     }
 
-    async fn expand_targets(&mut self, targets: &Vec<String>) -> Result<(), TaskError> {
-        // for entry in glob("/media/**/(*).jpg").expect("Failed to read glob pattern") {
-        //     match entry {
-        //         Ok(entry) => println!("Path {:?}, name {:?}",
-        //             entry.path().display(), entry.group(1).unwrap()),
-        //         Err(e) => println!("{:?}", e),
-        //     }
-        // }
-        Ok(())
-    }
+    fn mark_complete(&mut self, job_num: usize, failed: bool) {
+        let job = match self.nodes[job_num] {
+            Node::Job(ref mut job) => job,
+            _ => panic!("Expected job"),
+        };
 
-    fn mark_complete (&mut self, job_num: usize, failed: bool) {
-        let job = &mut self.jobs[job_num];
         job.end_time = Some(Instant::now());
-        job.state = if failed { JobState::Failed } else { JobState::Completed };
+        job.state = if failed {
+            JobState::Failed
+        } else {
+            JobState::Fresh
+        };
         job.future = None;
-        println!(
-            "√ {} [{:?}]",
-            job.display_name(),
-            job.end_time.unwrap() - job.start_time.unwrap()
-        );
+        if let Some(start_time) = job.start_time {
+            println!(
+                "√ {} [{:?}, {:?} with subtasks]",
+                job.display_name(),
+                job.end_time.unwrap() - start_time,
+                job.end_time.unwrap() - job.start_time_deps.unwrap()
+            );
+        } else {
+            println!(
+                "√ {} [{:?}]",
+                job.display_name(),
+                job.end_time.unwrap() - job.start_time_deps.unwrap()
+            );
+        }
     }
 
     fn run_job(
         &mut self,
         job_num: usize,
-    ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>, TaskError>
-    {
-        let job = &mut self.jobs[job_num];
+    ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>, TaskError> {
+        let job = match self.nodes[job_num] {
+            Node::Job(ref mut job) => job,
+            _ => panic!("Expected job"),
+        };
         // CMD Exec
         if job.task.run.is_none() {
             self.mark_complete(job_num, false);
@@ -265,6 +240,7 @@ impl<'a> Runner<'a> {
         let future = self.cmd_pool.run(run, &job.task.env);
         job.future = Some(future.boxed().shared());
         job.state = JobState::Running;
+        job.start_time = Some(Instant::now());
         Ok(Some(job.future.clone().unwrap()))
     }
 
@@ -274,12 +250,20 @@ impl<'a> Runner<'a> {
         jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
     ) -> Result<JobState, TaskError> {
-        return match self.jobs[job_num].state {
+        let state = match &self.nodes[job_num] {
+            Node::Job(job) => job.state,
+            _ => panic!("Expected job"),
+        };
+        return match state {
             JobState::Uninitialized => {
                 panic!("Expected initialized job");
             }
             JobState::Running => {
-                if let Some(future) = &mut self.jobs[job_num].future {
+                let job = match &self.nodes[job_num] {
+                    Node::Job(job) => job,
+                    _ => panic!("Expected job"),
+                };
+                if let Some(future) = &job.future {
                     if !jobs.contains(&job_num) {
                         jobs.push(job_num);
                         futures.push(future.clone());
@@ -289,15 +273,18 @@ impl<'a> Runner<'a> {
                     panic!("Unexpected internal state");
                 }
             }
-            JobState::Initialized => {
+            JobState::Pending => {
                 let mut all_completed = true;
-                let  job = &mut self.jobs[job_num];
+                let job = match self.nodes[job_num] {
+                    Node::Job(ref mut job) => job,
+                    _ => panic!("Expected job"),
+                };
                 job.live = true;
                 let deps = job.deps.clone();
                 for dep in deps {
                     let dep_state = self.drive_all(dep, jobs, futures)?;
                     match dep_state {
-                        JobState::Completed => {}
+                        JobState::Fresh => {}
                         _ => {
                             all_completed = false;
                         }
@@ -313,29 +300,134 @@ impl<'a> Runner<'a> {
                         }
                         None => {
                             // already complete -> skip straight to driving parents
-                            let drives = self.jobs[job_num].drives.clone();
+                            let job = match &self.nodes[job_num] {
+                                Node::Job(job) => job,
+                                _ => panic!("Expected job"),
+                            };
+                            let drives = job.drives.clone();
                             for drive in drives {
-                                let job = &self.jobs[drive];
+                                let job = match self.nodes[job_num] {
+                                    Node::Job(ref mut job) => job,
+                                    _ => panic!("Expected job"),
+                                };
                                 if job.live {
                                     self.drive_all(drive, jobs, futures)?;
                                 }
                             }
-                            Ok(JobState::Completed)
+                            Ok(JobState::Fresh)
                         }
                     };
                 }
-                Ok(JobState::Initialized)
+                Ok(JobState::Pending)
             }
             JobState::Failed => Ok(JobState::Failed),
-            JobState::Completed => Ok(JobState::Completed),
+            JobState::Fresh => Ok(JobState::Fresh),
         };
+    }
+
+    // expand out the full job graph for the given targets
+    async fn expand_targets(&mut self, targets: &Vec<String>) -> Result<(), TaskError> {
+        for target in targets {
+            let name = if target.as_bytes()[0] as char == ':' {
+                &target[1..]
+            } else {
+                &target
+            };
+
+            let job_num = match self.task_jobs.get(name) {
+                Some(&job_num) => job_num,
+                None => match self.file_jobs.get(name) {
+                    Some(&job_num) => job_num,
+                    // no target found -> create a new file job for it
+                    None => {
+                        println!("CREATING FILE JOB FOR {}", name);
+                        panic!("TODO");
+                    }
+                },
+            };
+
+            if let Node::Job(Job {
+                task:
+                    ChompTask {
+                        deps: Some(ref task_deps),
+                        ..
+                    },
+                ..
+            }) = self.nodes[job_num]
+            {
+                for dep in task_deps {
+                    if dep.as_bytes()[0] as char == ':' {
+                        match self.task_jobs.get(&dep[1..]) {
+                            Some(&task_job) => {
+                                let job = match self.nodes[job_num] {
+                                    Node::Job(ref mut job) => job,
+                                    _ => panic!("Expected job"),
+                                };
+                                job.deps.push(task_job);
+                                let dep_job = match self.nodes[task_job] {
+                                    Node::Job(ref mut job) => job,
+                                    _ => panic!("Expected job"),
+                                };
+                                dep_job.drives.push(job_num);
+                            }
+                            None => {
+                                let job = match self.nodes[job_num] {
+                                    Node::Job(ref mut job) => job,
+                                    _ => panic!("Expected job"),
+                                };
+                                job.state = JobState::Failed;
+                                return Err(TaskError::TaskNotFound(
+                                    dep[1..].to_string(),
+                                    name.to_string(),
+                                ));
+                            }
+                        };
+                    } else {
+                        match self.file_jobs.get(dep) {
+                            Some(&file_job) => {
+                                let job = match self.nodes[job_num] {
+                                    Node::Job(ref mut job) => job,
+                                    _ => panic!("Expected job"),
+                                };
+                                job.deps.push(file_job);
+                                let dep_job = match self.nodes[file_job] {
+                                    Node::Job(ref mut job) => job,
+                                    _ => panic!("Expected job"),
+                                };
+                                dep_job.drives.push(job_num);
+                            }
+                            None => {
+                                let job = FileJob
+                            }
+                        }
+                    }
+                }
+            }
+
+            let job = match self.nodes[job_num] {
+                Node::Job(ref mut job) => job,
+                _ => panic!("Expected job"),
+            };
+            job.start_time_deps = Some(Instant::now());
+            job.state = JobState::Pending;
+        }
+
+        // // dbg!(&self.task_jobs);
+
+        // for entry in glob("/media/**/(*).jpg").expect("Failed to read glob pattern") {
+        //     match entry {
+        //         Ok(entry) => println!("Path {:?}, name {:?}",
+        //             entry.path().display(), entry.group(1).unwrap()),
+        //         Err(e) => println!("{:?}", e),
+        //     }
+        // }
+        Ok(())
     }
 
     // find the job for the target, and drive its completion
     async fn drive_targets(&mut self, targets: &Vec<String>) -> Result<(), TaskError> {
         let mut jobs: Vec<usize> = Vec::new();
-        let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> =
-            Vec::new();
+        let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
 
         // dbg!(&self.task_jobs);
 
@@ -372,15 +464,21 @@ impl<'a> Runner<'a> {
                 Some(code) => {
                     if code == 0 {
                         self.mark_complete(completed_job_num, false);
-                        let drives = self.jobs[completed_job_num].drives.clone();
+                        let job = match &self.nodes[completed_job_num] {
+                            Node::Job(job) => job,
+                            _ => panic!("Expected job"),
+                        };
+                        let drives = job.drives.clone();
                         for drive in drives {
-                            let job = &self.jobs[drive];
+                            let job = match &self.nodes[drive] {
+                                Node::Job(job) => job,
+                                _ => panic!("Expected job"),
+                            };
                             if job.live {
                                 self.drive_all(drive, &mut jobs, &mut futures)?;
                             }
                         }
-                    }
-                    else {
+                    } else {
                         self.mark_complete(completed_job_num, true);
                     }
                 }
@@ -406,11 +504,12 @@ pub async fn run(opts: RunOptions) -> Result<(), TaskError> {
     }
 
     let mut runner = Runner::new(&chompfile, &opts.cwd);
-    runner.initialize_tasks()?;
+
+    runner.initialize_tasks();
 
     runner.expand_targets(&opts.target).await?;
 
-    runner.drive_targets(&opts.target).await?;  
+    runner.drive_targets(&opts.target).await?;
 
     Ok(())
 }

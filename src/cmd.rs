@@ -35,6 +35,8 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
         }
     }
     if shell == "powershell" {
+        cmd.arg("-ExecutionPolicy");
+        cmd.arg("Unrestricted");
         cmd.arg("-NonInteractive");
         cmd.arg("-NoLogo");
         let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';\n");
