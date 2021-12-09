@@ -76,8 +76,6 @@ enum JobState {
 
 #[derive(Debug, Derivative)]
 struct Job<'a> {
-    // task index
-    idx: usize,
     interpolate: Option<String>,
     task: &'a ChompTask,
     deps: Vec<usize>,
@@ -138,9 +136,8 @@ struct Runner<'a> {
 }
 
 impl<'a> Job<'a> {
-    fn new(idx: usize, task: &'a ChompTask, interpolate: Option<String>) -> Job<'a> {
+    fn new(task: &'a ChompTask, interpolate: Option<String>) -> Job<'a> {
         Job {
-            idx,
             interpolate,
             task,
             deps: Vec::new(),
@@ -156,7 +153,7 @@ impl<'a> Job<'a> {
         }
     }
 
-    fn display_name(&self) -> String {
+    fn display_name(&self, chompfile: &'a Chompfile) -> String {
         match &self.target {
             Some(target) => {
                 if target.contains("#") {
@@ -170,7 +167,7 @@ impl<'a> Job<'a> {
                 Some(name) => String::from(format!(":{}", name)),
                 None => match &self.task.run {
                     Some(run) => String::from(format!("{}", run)),
-                    None => String::from(format!("[task {}]", self.idx)),
+                    None => String::from(format!("[task {}]", chompfile.task.as_ref().unwrap().iter().position(|task| task == self.task).unwrap())),
                 },
             }
         }
@@ -190,9 +187,9 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn add_job(&mut self, idx: usize, task: &'a ChompTask, interpolate: Option<String>) -> usize {
+    fn add_job(&mut self, task: &'a ChompTask, interpolate: Option<String>) -> usize {
         let num = self.nodes.len();
-        self.nodes.push(Node::Job(Job::new(idx, task, interpolate)));
+        self.nodes.push(Node::Job(Job::new(task, interpolate)));
         return num;
     }
 
@@ -227,7 +224,7 @@ impl<'a> Runner<'a> {
         // expand all tasks into all jobs
         if let Some(tasks) = &self.chompfile.task {
             for (idx, task) in tasks.iter().enumerate() {
-                let job_num = self.add_job(idx, task, None);
+                let job_num = self.add_job(task, None);
 
                 // map task name to task job
                 if let Some(name) = &task.name {
@@ -259,6 +256,7 @@ impl<'a> Runner<'a> {
     }
 
     fn mark_complete(&mut self, job_num: usize, failed: bool) {
+        let chompfile = self.chompfile;
         let job = self.get_job_mut(job_num).unwrap();
         job.end_time = Some(Instant::now());
         job.state = if failed {
@@ -267,17 +265,20 @@ impl<'a> Runner<'a> {
             JobState::Fresh
         };
         job.future = None;
+        let end_time = job.end_time.unwrap();
+        let start_time_deps = job.start_time_deps.unwrap();
         if let Some(start_time) = job.start_time {
             println!(
-                "√ {} [{:?}, {:?} with subtasks]",
-                job.display_name(),
-                job.end_time.unwrap() - start_time,
-                job.end_time.unwrap() - job.start_time_deps.unwrap()
+                "√ {} [{:?}, {:?} TOTAL]",
+                job.display_name(chompfile),
+                end_time - start_time,
+                end_time - start_time_deps
             );
         } else {
             println!(
-                "● {} [cached]",
-                job.display_name(),
+                "● {} [cached, {:?} TOTAL]",
+                job.display_name(chompfile),
+                end_time - start_time_deps
             );
         }
     }
@@ -328,7 +329,7 @@ impl<'a> Runner<'a> {
                 return Ok(None);
             }
         }
-        println!("○ {}", job.display_name());
+        println!("○ {}", job.display_name(self.chompfile));
 
         let mut run: String = job.task.run.as_ref().unwrap().to_string();
         if let Some(interpolate) = &job.interpolate {
@@ -431,7 +432,6 @@ impl<'a> Runner<'a> {
                 Some(&job_num) => Ok(job_num),
                 // Then by interpolate
                 None => {
-                    println!("INTERPOLATE CHECK");
                     let mut interpolate_match = None;
                     let mut interpolate_lhs_match_len = 0;
                     let mut interpolate_rhs_match_len = 0;
@@ -449,8 +449,9 @@ impl<'a> Runner<'a> {
                     }
                     match interpolate_match {
                         Some(&job_num) => {
-                            panic!("INTERPOLATE MATCH {}", job_num);
-                            // job_num
+                            // TODO: populate the exact interpolation by the lookup itself
+                            panic!("Exact interpolation population");
+                            Ok(job_num)
                         },
                         // Otherwise add as a file dependency
                         None => Ok(self.add_file(String::from(name)))
@@ -482,11 +483,10 @@ impl<'a> Runner<'a> {
                     return Ok(());
                 }
 
-                let idx = job.idx;
-
                 let mut is_interpolate = false;
                 let mut is_wildcard = false;
 
+                let task = job.task;
                 job.start_time_deps = Some(Instant::now());
                 job.state = JobState::Pending;
                 if let Some(target) = &job.task.target {
@@ -522,7 +522,7 @@ impl<'a> Runner<'a> {
                             if !is_interpolate {
                                 panic!("Interpolate in deps can only be used when contained in target (and run)");
                             }
-                            self.expand_interpolate(String::from(dep), job_num, idx).await?;
+                            self.expand_interpolate(String::from(dep), job_num, task).await?;
                             expanded_interpolate = true;
                         }
                         else {
@@ -555,9 +555,8 @@ impl<'a> Runner<'a> {
         Ok(())
     }
 
-    async fn expand_interpolate(&mut self, dep: String, parent_job: usize, parent_task_idx: usize) -> Result<(), TaskError> {
-        let parent = &self.chompfile.task.as_ref().unwrap()[parent_task_idx];
-        let parent_target = parent.target.as_ref().unwrap();
+    async fn expand_interpolate(&mut self, dep: String, parent_job: usize, parent_task: &'a ChompTask) -> Result<(), TaskError> {
+        let parent_target = parent_task.target.as_ref().unwrap();
         let interpolate_idx = dep.find("#").unwrap();
         if dep[interpolate_idx + 1..].find("#").is_some() {
             panic!("multiple interpolates");
@@ -571,7 +570,7 @@ impl<'a> Runner<'a> {
                 Ok(entry) => {
                     let input_path = String::from(entry.path().to_str().unwrap()).replace("\\", "/");
                     let interpolate = &input_path[interpolate_idx..input_path.len() - dep.len() + interpolate_idx + 1];
-                    let job_num = self.add_job(parent_task_idx, parent, Some(String::from(interpolate)));
+                    let job_num = self.add_job(parent_task, Some(String::from(interpolate)));
                     let file_num = self.add_file(input_path.to_string());
                     {
                         let file = self.get_file_mut(file_num).unwrap();
