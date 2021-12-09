@@ -1,7 +1,7 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
-use clap::{App, Arg};
+use clap::{App, Arg, AppSettings};
 
 mod task;
 mod cmd;
@@ -77,16 +77,28 @@ async fn main() -> Result<(), ChompError> {
                 .default_value("install build")
                 .multiple(true)
         )
+        // .arg(
+        //     Arg::with_name("arg")
+        //         .last(true)
+        //         .value_name("ARGS")
+        //         .help("Custom task args")
+        //         .multiple(true)
+        // )
         .get_matches();
 
-    let mut target: Vec<String> = Vec::new();
+    let mut targets: Vec<String> = Vec::new();
     for item in matches.values_of("target").unwrap() {
-        target.push(String::from(item));
+        targets.push(String::from(item));
     }
+
+    // let mut args: Vec<String> = Vec::new();
+    // for item in matches.values_of("arg").unwrap() {
+    //     args.push(String::from(item));
+    // }
 
     task::run(task::RunOptions {
         cwd: env::current_dir()?,
-        target,
+        targets,
         cfg_file: PathBuf::from(matches.value_of("config").unwrap_or_default()),
     }).await?;
 

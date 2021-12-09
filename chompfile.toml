@@ -7,9 +7,9 @@ version = 0.1
 
 [[task]]
   name = "build"
-  target = "test/lib/test.js"
-  deps = ["node_modules/.bin/swc", "test/src/test.ts"]
-  run = "node_modules/.bin/swc test/src/test.ts -o test/lib/test.js"
+  target = "test/lib/#.js"
+  deps = ["node_modules/.bin/swc", "test/src/#.ts"]
+  run = "swc.cmd test/src/#.ts -o test/lib/#.js"
 
 [[task]]
   target = "node_modules/.bin/swc"

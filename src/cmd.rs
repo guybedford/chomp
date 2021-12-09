@@ -14,7 +14,7 @@ pub struct CmdPool {
 #[cfg(target_os = "windows")]
 fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> Child {
     lazy_static! {
-        // Currently does not support spaces in quotes, to make arg splitting simpler
+        // Currently does not support spaces in arg quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
             ^(?P<cmd>[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
             (?P<args>(\\ (?:
