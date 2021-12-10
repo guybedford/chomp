@@ -240,7 +240,7 @@ impl<'a> Runner<'a> {
         };
         // expand tasks into initial job list
         if let Some(tasks) = &runner.chompfile.task {
-            for i in 0..tasks.len() - 1 {
+            for i in 0..tasks.len() {
                 runner.add_job(i, None);
             }
         }
@@ -374,9 +374,11 @@ impl<'a> Runner<'a> {
             return Ok(None);
         }
         // the interpolation template itself is not run
-        if task.target.as_ref().unwrap().contains("#") && job.interpolate.is_none() {
-            self.mark_complete(job_num, false);
-            return Ok(None);
+        if let Some(target) = task.target.as_ref() {
+            if target.contains("#") && job.interpolate.is_none() {
+                self.mark_complete(job_num, false);
+                return Ok(None);
+            }
         }
         // If we have an mtime, check if we need to do work
         if let Some(mtime) = job.mtime {
@@ -612,7 +614,10 @@ impl<'a> Runner<'a> {
                 let mut expanded_interpolate = false;
                 if let Some(deps_cloned) = deps_cloned {
                     for dep in deps_cloned {
-                        if dep.contains("#") {
+                        if dep.contains('#') {
+                            if dep.contains('*') {
+                                panic!("Wildcard + interpolate not supported");
+                            }
                             if !is_interpolate {
                                 panic!("Interpolate in deps can only be used when contained in target (and run)");
                             }
@@ -622,6 +627,8 @@ impl<'a> Runner<'a> {
                             self.expand_interpolate(String::from(dep), job_num, task_num)
                                 .await?;
                             expanded_interpolate = true;
+                        } else if dep.contains('*') {
+                            panic!("TODO: Wilrdcard deps");
                         } else {
                             self.expand_target(&String::from(dep), Some(job_num))
                                 .await?;
@@ -635,10 +642,6 @@ impl<'a> Runner<'a> {
             Node::File(ref mut file) => {
                 if let Some(drives) = drives {
                     file.drives.push(drives);
-                }
-                if file.name.contains("*") {
-                    dbg!(&file.name);
-                    panic!("TODO: wildcard deps");
                 }
                 file.init(drives).await;
             }
