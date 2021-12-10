@@ -74,7 +74,7 @@ async fn main() -> Result<(), ChompError> {
             Arg::with_name("target")
                 .value_name("TARGET")
                 .help("Generate a target or list of targets")
-                .default_value("install build")
+                .default_value("build")
                 .multiple(true)
         )
         // .arg(

@@ -17,7 +17,7 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
         // Currently does not support spaces in arg quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
             ^(?P<cmd>[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
-            (?P<args>(\\ (?:
+            \\ (?P<args>(?:\\ (?:
                 [^`~!\\#$&*()\t\\{\\[|;'\"n<>?\\\\\\ ]+? |
                 (?:\"[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?\") |
                 (?:'[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?')
