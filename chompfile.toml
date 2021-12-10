@@ -11,6 +11,12 @@ version = 0.1
   deps = ["node_modules/.bin/swc", "test/src/#.ts"]
   run = "swc.cmd test/src/#.ts -o test/lib/#.js"
 
+# [[task]]
+#   name = "build-2"
+#   target = "test/lib/*"
+#   deps = ["node_modules/.bin/swc", "test/src/*.ts"]
+#   run = "swc.cmd ./test/src -d test/lib"
+
 [[task]]
   target = "node_modules/.bin/swc"
   run = "echo '{}' > package.json ; npm install @swc/cli @swc/core --save-dev"

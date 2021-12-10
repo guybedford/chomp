@@ -1,18 +1,18 @@
-use std::io::ErrorKind::NotFound;
-use std::time::Duration;
-use std::time::UNIX_EPOCH;
 use crate::cmd::CmdPool;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
 use std::collections::BTreeMap;
+use std::io::ErrorKind::NotFound;
+use std::time::Duration;
+use std::time::UNIX_EPOCH;
 extern crate num_cpus;
 use async_recursion::async_recursion;
+use async_std::fs;
 use capturing_glob::glob;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Instant;
-use async_std::fs;
 
 use derivative::Derivative;
 
@@ -21,6 +21,12 @@ struct Chompfile {
     version: f32,
     task: Option<Vec<ChompTask>>,
     group: Option<BTreeMap<String, BTreeMap<String, ChompTask>>>,
+}
+
+impl Chompfile {
+    fn get_task(&self, task: usize) -> &ChompTask {
+        &self.task.as_ref().unwrap()[task]
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize)]
@@ -68,6 +74,7 @@ impl From<toml::de::Error> for TaskError {
 #[derive(Clone, Copy, Debug)]
 enum JobState {
     Uninitialized,
+    Initializing,
     Pending,
     Running,
     Fresh,
@@ -75,9 +82,9 @@ enum JobState {
 }
 
 #[derive(Debug, Derivative)]
-struct Job<'a> {
+struct Job {
     interpolate: Option<String>,
-    task: &'a ChompTask,
+    task: usize,
     deps: Vec<usize>,
     drives: Vec<usize>,
     state: JobState,
@@ -92,14 +99,15 @@ struct Job<'a> {
 }
 
 #[derive(Debug)]
-enum Node<'a> {
-    Job(Job<'a>),
+enum Node {
+    Job(Job),
     File(File),
 }
 
 #[derive(Debug)]
 enum FileState {
     Uninitialized,
+    Initializing,
     Fresh,
     Changed,
     NotFound,
@@ -122,21 +130,41 @@ impl File {
             state: FileState::Uninitialized,
         }
     }
+
+    async fn init(&mut self, parent_job: Option<usize>) {
+        self.state = FileState::Initializing;
+        if let Some(parent_job) = parent_job {
+            self.drives.push(parent_job);
+        }
+        match fs::metadata(&self.name).await {
+            Ok(n) => {
+                let mtime = n.modified().expect("No modified implementation");
+                self.mtime = Some(mtime.duration_since(UNIX_EPOCH).unwrap());
+                self.state = FileState::Fresh;
+            }
+            Err(e) => match e.kind() {
+                NotFound => {
+                    self.state = FileState::NotFound;
+                }
+                _ => panic!("Unknown file error"),
+            },
+        };
+    }
 }
 
 struct Runner<'a> {
     cmd_pool: CmdPool,
     chompfile: &'a Chompfile,
 
-    nodes: Vec<Node<'a>>,
+    nodes: Vec<Node>,
 
     task_jobs: BTreeMap<String, usize>,
     file_nodes: BTreeMap<String, usize>,
     interpolate_nodes: Vec<(String, usize)>,
 }
 
-impl<'a> Job<'a> {
-    fn new(task: &'a ChompTask, interpolate: Option<String>) -> Job<'a> {
+impl Job {
+    fn new(task: usize, interpolate: Option<String>) -> Job {
         Job {
             interpolate,
             task,
@@ -153,49 +181,132 @@ impl<'a> Job<'a> {
         }
     }
 
-    fn display_name(&self, chompfile: &'a Chompfile) -> String {
+    fn display_name(&self, chompfile: &Chompfile) -> String {
         match &self.target {
             Some(target) => {
                 if target.contains("#") {
                     target.replace("#", &self.interpolate.as_ref().unwrap())
-                }
-                else {
+                } else {
                     String::from(target)
                 }
-            },
-            _ => match &self.task.name {
-                Some(name) => String::from(format!(":{}", name)),
-                None => match &self.task.run {
-                    Some(run) => String::from(format!("{}", run)),
-                    None => String::from(format!("[task {}]", chompfile.task.as_ref().unwrap().iter().position(|task| task == self.task).unwrap())),
-                },
+            }
+            _ => {
+                let task = chompfile.get_task(self.task);
+                match &task.name {
+                    Some(name) => String::from(format!(":{}", name)),
+                    None => match &task.run {
+                        Some(run) => String::from(format!("{}", run)),
+                        None => String::from(format!("[task {}]", self.task)),
+                    },
+                }
             }
         }
+    }
+
+    async fn init(&mut self, parent_job: Option<usize>) {
+        self.state = JobState::Initializing;
+        self.start_time_deps = Some(Instant::now());
+        if let Some(parent_job) = parent_job {
+            self.drives.push(parent_job);
+        }
+        if let Some(target) = &self.target {
+            self.mtime = match fs::metadata(target).await {
+                Ok(n) => Some(
+                    n.modified()
+                        .expect("No modified implementation")
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap(),
+                ),
+                Err(e) => match e.kind() {
+                    NotFound => None,
+                    _ => panic!("Unknown file error"),
+                },
+            };
+        }
+        self.state = JobState::Pending;
     }
 }
 
 impl<'a> Runner<'a> {
     fn new(chompfile: &'a Chompfile, cwd: &'a PathBuf) -> Runner<'a> {
         let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
-        Runner {
+        let mut runner = Runner {
             cmd_pool,
             chompfile,
             nodes: Vec::new(),
             task_jobs: BTreeMap::new(),
             file_nodes: BTreeMap::new(),
             interpolate_nodes: Vec::new(),
+        };
+        // expand tasks into initial job list
+        if let Some(tasks) = &runner.chompfile.task {
+            for i in 0..tasks.len() - 1 {
+                runner.add_job(i, None);
+            }
         }
+        runner
     }
 
-    fn add_job(&mut self, task: &'a ChompTask, interpolate: Option<String>) -> usize {
+    fn add_job(&mut self, task_num: usize, interpolate: Option<String>) -> usize {
         let num = self.nodes.len();
-        self.nodes.push(Node::Job(Job::new(task, interpolate)));
+        let task = &self.chompfile.get_task(task_num);
+
+        let is_interpolate_target = match task.target.as_ref() {
+            Some(target) if target.contains('#') => true,
+            _ => false,
+        };
+
+        // map target name
+        if let Some(ref name) = task.name {
+            if interpolate.is_none() {
+                if self.task_jobs.contains_key(name) {
+                    panic!("Already has job");
+                }
+                self.task_jobs.insert(name.to_string(), num);
+            }
+        }
+
+        // map interpolation for primary interpolation job
+        if is_interpolate_target && interpolate.is_none() {
+            self.interpolate_nodes
+                .push((task.target.as_ref().unwrap().to_string(), num));
+        }
+
+        // map target file as file node
+        if !is_interpolate_target || interpolate.is_some() {
+            if let Some(ref target) = task.target {
+                let file_target = match &interpolate {
+                    Some(interpolate) => {
+                        if !target.contains("#") {
+                            panic!("Not an interpolation target");
+                        }
+                        target.replace("#", interpolate)
+                    }
+                    None => target.to_string(),
+                };
+                match self.file_nodes.get(&file_target) {
+                    Some(_) => {
+                        panic!("Multiple targets pointing to same file");
+                    }
+                    None => {
+                        self.file_nodes.insert(file_target, num);
+                    }
+                }
+            }
+        }
+
+        self.nodes.push(Node::Job(Job::new(task_num, interpolate)));
         return num;
     }
 
     fn add_file(&mut self, file: String) -> usize {
         let num = self.nodes.len();
+        let file2 = file.to_string();
         self.nodes.push(Node::File(File::new(file)));
+        if self.file_nodes.contains_key(&file2) {
+            panic!("Already has file");
+        }
+        self.file_nodes.insert(file2, num);
         return num;
     }
 
@@ -206,7 +317,7 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn get_job_mut(&mut self, num: usize) -> Option<&mut Job<'a>> {
+    fn get_job_mut(&mut self, num: usize) -> Option<&mut Job> {
         match self.nodes[num] {
             Node::Job(ref mut job) => Some(job),
             _ => None,
@@ -217,41 +328,6 @@ impl<'a> Runner<'a> {
         match self.nodes[num] {
             Node::File(ref mut file) => Some(file),
             _ => None,
-        }
-    }
-
-    fn initialize_tasks(&mut self) {
-        // expand all tasks into all jobs
-        if let Some(tasks) = &self.chompfile.task {
-            for (idx, task) in tasks.iter().enumerate() {
-                let job_num = self.add_job(task, None);
-
-                // map task name to task job
-                if let Some(name) = &task.name {
-                    if self.task_jobs.contains_key(name) {
-                        panic!("Already has job");
-                    }
-                    self.task_jobs.insert(name.to_string(), job_num);
-                }
-
-                if task.target.is_none() {
-                    continue;
-                }
-                let target = task.target.as_ref().unwrap();
-                if target.contains("#") {
-                    self.interpolate_nodes.push((target.to_string(), job_num));
-                }
-                else {
-                    match self.file_nodes.get(target) {
-                        Some(_) => {
-                            panic!("Multiple targets pointing to same file");
-                        }
-                        None => {
-                            self.file_nodes.insert(target.to_string(), job_num);
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -289,15 +365,16 @@ impl<'a> Runner<'a> {
     ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>, TaskError> {
         let job = match &self.nodes[job_num] {
             Node::Job(job) => job,
-            Node::File(_) => panic!("Expected job")
+            Node::File(_) => panic!("Expected job"),
         };
+        let task = self.chompfile.get_task(job.task);
         // CMD Exec
-        if job.task.run.is_none() {
+        if task.run.is_none() {
             self.mark_complete(job_num, false);
             return Ok(None);
         }
         // the interpolation template itself is not run
-        if job.task.target.as_ref().unwrap().contains("#") && job.interpolate.is_none() {
+        if task.target.as_ref().unwrap().contains("#") && job.interpolate.is_none() {
             self.mark_complete(job_num, false);
             return Ok(None);
         }
@@ -311,13 +388,11 @@ impl<'a> Runner<'a> {
                         None => true,
                         _ => false,
                     },
-                    Node::File(dep) => {
-                        match dep.mtime {
-                            Some(dep_mtime) if dep_mtime > mtime => true,
-                            None => true,
-                            _ => false,
-                        }
-                    }
+                    Node::File(dep) => match dep.mtime {
+                        Some(dep_mtime) if dep_mtime > mtime => true,
+                        None => true,
+                        _ => false,
+                    },
                 };
                 if dep_change {
                     all_fresh = false;
@@ -331,11 +406,11 @@ impl<'a> Runner<'a> {
         }
         println!("○ {}", job.display_name(self.chompfile));
 
-        let mut run: String = job.task.run.as_ref().unwrap().to_string();
+        let mut run: String = task.run.as_ref().unwrap().to_string();
         if let Some(interpolate) = &job.interpolate {
             run = run.replace("#", interpolate);
         }
-        let future = self.cmd_pool.run(&run, &job.task.env);
+        let future = self.cmd_pool.run(&run, &task.env);
         {
             let job = self.get_job_mut(job_num).unwrap();
             job.future = Some(future.boxed().shared());
@@ -353,7 +428,7 @@ impl<'a> Runner<'a> {
     ) -> Result<bool, TaskError> {
         match self.nodes[job_num] {
             Node::Job(ref job) => match job.state {
-                JobState::Uninitialized => {
+                JobState::Uninitialized | JobState::Initializing => {
                     panic!("Expected initialized job");
                 }
                 JobState::Running => {
@@ -373,6 +448,7 @@ impl<'a> Runner<'a> {
                     let job = self.get_job_mut(job_num).unwrap();
                     job.live = true;
                     let deps = job.deps.clone();
+                    // TODO: Use a driver counter for deps
                     for dep in deps {
                         let completed = self.drive_all(dep, jobs, futures)?;
                         if !completed {
@@ -408,8 +484,7 @@ impl<'a> Runner<'a> {
                 if file.mtime.is_some() {
                     file.state = FileState::Fresh;
                     Ok(true)
-                }
-                else {
+                } else {
                     dbg!(file);
                     panic!("TODO: NON-EXISTING FILE WATCH");
                 }
@@ -417,7 +492,8 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn lookup_target(&mut self, target: &str) -> Result<usize, TaskError> {
+    #[async_recursion]
+    async fn lookup_target(&mut self, target: &str) -> Result<usize, TaskError> {
         let name = if target.as_bytes()[0] as char == ':' {
             &target[1..]
         } else {
@@ -439,46 +515,70 @@ impl<'a> Runner<'a> {
                         let interpolate_idx = interpolate.find("#").unwrap();
                         let lhs = &interpolate[0..interpolate_idx];
                         let rhs = &interpolate[interpolate_idx + 1..];
-                        if name.starts_with(lhs) && name.len() > lhs.len() + rhs.len() && name.ends_with(rhs) {
-                            interpolate_match = Some(job_num);
-                            if (lhs.len() >= interpolate_lhs_match_len && rhs.len() > interpolate_rhs_match_len) {
+                        if name.starts_with(lhs)
+                            && name.len() > lhs.len() + rhs.len()
+                            && name.ends_with(rhs)
+                        {
+                            interpolate_match =
+                                Some((*job_num, &name[interpolate_idx..name.len() - rhs.len()]));
+                            if lhs.len() >= interpolate_lhs_match_len
+                                && rhs.len() > interpolate_rhs_match_len
+                            {
                                 interpolate_lhs_match_len = lhs.len();
                                 interpolate_rhs_match_len = rhs.len();
                             }
                         }
                     }
                     match interpolate_match {
-                        Some(&job_num) => {
-                            // TODO: populate the exact interpolation by the lookup itself
-                            panic!("Exact interpolation population");
-                            Ok(job_num)
-                        },
+                        Some((job_num, interpolate)) => {
+                            let task_deps = &self
+                                .chompfile
+                                .get_task(self.get_job(job_num).unwrap().task)
+                                .deps
+                                .as_ref()
+                                .unwrap();
+                            let input = task_deps
+                                .iter()
+                                .find(|dep| dep.contains("#"))
+                                .unwrap()
+                                .replace("#", interpolate);
+                            let num = self
+                                .expand_interpolate_match(
+                                    &input,
+                                    interpolate,
+                                    job_num,
+                                    self.get_job(job_num).unwrap().task,
+                                )
+                                .await?;
+                            Ok(num)
+                        }
                         // Otherwise add as a file dependency
-                        None => Ok(self.add_file(String::from(name)))
+                        None => Ok(self.add_file(String::from(name))),
                     }
-                },
+                }
             },
         }
     }
 
-    // expand out the full job graph for the given targets
     #[async_recursion]
     async fn expand_target(
         &mut self,
         target: &str,
         drives: Option<usize>,
     ) -> Result<(), TaskError> {
-        let job_num = self.lookup_target(target)?;
+        let job_num = self.lookup_target(target).await?;
+        self.expand_job(job_num, drives).await
+    }
 
+    // expand out the full job graph for the given targets
+    #[async_recursion]
+    async fn expand_job(&mut self, job_num: usize, drives: Option<usize>) -> Result<(), TaskError> {
         if let Some(drives) = drives {
-            self.get_job_mut(drives).unwrap().deps.push(job_num);   
+            self.get_job_mut(drives).unwrap().deps.push(job_num);
         }
 
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
-                if let Some(drives) = drives {
-                    job.drives.push(drives);
-                }
                 if matches!(job.state, JobState::Pending) {
                     return Ok(());
                 }
@@ -486,10 +586,11 @@ impl<'a> Runner<'a> {
                 let mut is_interpolate = false;
                 let mut is_wildcard = false;
 
-                let task = job.task;
-                job.start_time_deps = Some(Instant::now());
-                job.state = JobState::Pending;
-                if let Some(target) = &job.task.target {
+                job.init(drives).await;
+
+                let task_num = job.task;
+                let task = self.chompfile.get_task(job.task);
+                if let Some(target) = &task.target {
                     is_interpolate = target.contains("#");
                     is_wildcard = target.contains("*");
                     if is_wildcard && is_interpolate {
@@ -498,20 +599,13 @@ impl<'a> Runner<'a> {
                     if !target.contains("#") {
                         job.target = Some(target.to_string());
                     }
-                    job.mtime = match fs::metadata(target).await {
-                        Ok(n) => Some(n.modified()?.duration_since(UNIX_EPOCH).unwrap()),
-                        Err(e) => match e.kind() {
-                            NotFound => None,
-                            _ => panic!("Unknown file error"),
-                        },
-                    };
                 };
 
                 if is_wildcard {
                     panic!("TODO: wildcard targets");
                 }
 
-                let deps_cloned = match &job.task.deps {
+                let deps_cloned = match &task.deps {
                     Some(deps) => Some(deps.clone()),
                     None => None,
                 };
@@ -522,11 +616,15 @@ impl<'a> Runner<'a> {
                             if !is_interpolate {
                                 panic!("Interpolate in deps can only be used when contained in target (and run)");
                             }
-                            self.expand_interpolate(String::from(dep), job_num, task).await?;
+                            if expanded_interpolate {
+                                panic!("Only one interpolated deps is allowed");
+                            }
+                            self.expand_interpolate(String::from(dep), job_num, task_num)
+                                .await?;
                             expanded_interpolate = true;
-                        }
-                        else {
-                            self.expand_target(&String::from(dep), Some(job_num)).await?;
+                        } else {
+                            self.expand_target(&String::from(dep), Some(job_num))
+                                .await?;
                         }
                     }
                 }
@@ -538,25 +636,22 @@ impl<'a> Runner<'a> {
                 if let Some(drives) = drives {
                     file.drives.push(drives);
                 }
-                if target.contains("*") {
-                    dbg!(target);
+                if file.name.contains("*") {
+                    dbg!(&file.name);
                     panic!("TODO: wildcard deps");
                 }
-                file.mtime = match fs::metadata(target).await {
-                    Ok(n) => Some(n.modified()?.duration_since(UNIX_EPOCH).unwrap()),
-                    Err(e) => match e.kind() {
-                        NotFound => None,
-                        _ => panic!("Unknown file error"),
-                    }
-                    _ => panic!("Unknown file error"),
-                };
+                file.init(drives).await;
             }
         }
         Ok(())
     }
 
-    async fn expand_interpolate(&mut self, dep: String, parent_job: usize, parent_task: &'a ChompTask) -> Result<(), TaskError> {
-        let parent_target = parent_task.target.as_ref().unwrap();
+    async fn expand_interpolate(
+        &mut self,
+        dep: String,
+        parent_job: usize,
+        parent_task: usize,
+    ) -> Result<(), TaskError> {
         let interpolate_idx = dep.find("#").unwrap();
         if dep[interpolate_idx + 1..].find("#").is_some() {
             panic!("multiple interpolates");
@@ -568,47 +663,18 @@ impl<'a> Runner<'a> {
         for entry in glob(&glob_target).expect("Failed to read glob pattern") {
             match entry {
                 Ok(entry) => {
-                    let input_path = String::from(entry.path().to_str().unwrap()).replace("\\", "/");
-                    let interpolate = &input_path[interpolate_idx..input_path.len() - dep.len() + interpolate_idx + 1];
-                    let job_num = self.add_job(parent_task, Some(String::from(interpolate)));
-                    let file_num = self.add_file(input_path.to_string());
-                    {
-                        let file = self.get_file_mut(file_num).unwrap();
-                        file.drives.push(job_num);
-                        file.mtime = match fs::metadata(&input_path).await {
-                            Ok(n) => Some(n.modified()?.duration_since(UNIX_EPOCH).unwrap()),
-                            Err(e) => match e.kind() {
-                                NotFound => None,
-                                _ => panic!("Unknown file error"),
-                            }
-                            _ => panic!("Unknown file error"),
-                        };
-                    }
-                    let job = self.get_job_mut(job_num).unwrap();
-                    job.deps.push(file_num);
-                    let output_path = parent_target.replace("#", interpolate);
-                    job.target = Some(output_path.to_string());
-                    job.state = JobState::Pending;
-                    job.start_time_deps = Some(Instant::now());
-                    job.drives.push(parent_job);
-                    job.mtime = match fs::metadata(output_path).await {
-                        Ok(n) => Some(n.modified()?.duration_since(UNIX_EPOCH).unwrap()),
-                        Err(e) => match e.kind() {
-                            NotFound => None,
-                            _ => panic!("Unknown file error"),
-                        },
-                    };
-
-                    let parent = self.get_job_mut(parent_job).unwrap();
-                    parent.deps.push(job_num);
-                    for dep in parent.task.deps.as_ref().unwrap() {
-                        if !dep.contains("#") {
-                            let parent_job = self.lookup_target(&dep)?;
-                            let job = self.get_job_mut(job_num).unwrap();
-                            job.deps.push(parent_job);
-                        }
-                    }
-                },
+                    let input_path =
+                        String::from(entry.path().to_str().unwrap()).replace("\\", "/");
+                    let interpolate = &input_path
+                        [interpolate_idx..input_path.len() - dep.len() + interpolate_idx + 1];
+                    self.expand_interpolate_match(
+                        &input_path,
+                        interpolate,
+                        parent_job,
+                        parent_task,
+                    )
+                    .await?;
+                }
                 Err(e) => {
                     eprintln!("{:?}", e);
                     panic!("GLOB ERROR");
@@ -618,10 +684,50 @@ impl<'a> Runner<'a> {
         Ok(())
     }
 
+    async fn expand_interpolate_match(
+        &mut self,
+        input: &str,
+        interpolate: &str,
+        parent_job: usize,
+        parent_task: usize,
+    ) -> Result<usize, TaskError> {
+        let job_num = self.add_job(parent_task, Some(String::from(interpolate)));
+        let file_num = self.add_file(input.to_string());
+        {
+            let file = self.get_file_mut(file_num).unwrap();
+            file.init(Some(job_num)).await;
+        }
+        let task = self.chompfile.get_task(parent_task);
+        let parent_target = task.target.as_ref().unwrap();
+        let output_path = parent_target.replace("#", interpolate);
+        let job = self.get_job_mut(job_num).unwrap();
+        job.deps.push(file_num);
+        job.target = Some(output_path.to_string());
+        job.init(Some(parent_job)).await;
+
+        let parent = self.get_job_mut(parent_job).unwrap();
+        parent.deps.push(job_num);
+        // non-interpolation parent interpolation template deps are child deps
+        let parent_task_deps = self.chompfile.get_task(parent_task).deps.as_ref().unwrap();
+        for dep in parent_task_deps {
+            if !dep.contains("#") {
+                let dep_job = self.lookup_target(&dep).await?;
+                let job = self.get_job_mut(job_num).unwrap();
+                job.deps.push(dep_job);
+                // important aspect of retaining depth-first semantics
+                self.expand_job(dep_job, Some(job_num)).await?;
+            }
+        }
+        Ok(job_num)
+    }
+
     // find the job for the target, and drive its completion
     async fn drive_targets(&mut self, targets: &Vec<String>) -> Result<(), TaskError> {
         let mut jobs: Vec<usize> = Vec::new();
         let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
+
+        // dbg!(&self.nodes);
+        // dbg!(&self.file_nodes);
 
         // first try named target, then fall back to file name check
         for target in targets {
@@ -636,6 +742,7 @@ impl<'a> Runner<'a> {
                 None => match self.file_nodes.get(name) {
                     Some(&job_num) => job_num,
                     None => {
+                        println!(":::{}", name);
                         panic!("TODO: target not found error");
                     }
                 },
@@ -696,8 +803,6 @@ pub async fn run(opts: RunOptions) -> Result<(), TaskError> {
     }
 
     let mut runner = Runner::new(&chompfile, &opts.cwd);
-
-    runner.initialize_tasks();
 
     for target in &opts.targets {
         runner.expand_target(target, None).await?;

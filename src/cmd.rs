@@ -160,8 +160,7 @@ impl CmdPool {
         // TODO: compare env to default_env and apply dir for powershell
         let mut child = self.get_next(run, env);
         async move {
-            let status = child.status().await.expect("Something went wrong");
-            status
+            child.status().await.expect("Child process error")
         }
     }
 }
