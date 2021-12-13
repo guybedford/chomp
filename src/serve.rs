@@ -1,57 +1,68 @@
-use http::uri::Scheme;
-use ipfs_api_backend_hyper::{IpfsApi, IpfsClient, KeyType, TryFromUri};
-use std::io::Cursor;
-
-const APPKEY: &str = "appname";
+use hyper::service::{make_service_fn, service_fn};
+use hyper::{header, Body, Method, Request, Response, Result, Server, StatusCode};
+use std::convert::Infallible;
+use std::net::SocketAddr;
+use tokio::fs::File;
+use tokio_util::codec::{BytesCodec, FramedRead};
 
 pub struct ServeOptions {
-    pub port: u32,
-    pub ipfs: bool,
+    pub port: u16,
 }
 
-pub async fn serve(opts: ServeOptions) -> Result<(), std::io::Error> {
-    if opts.ipfs {
-        println!("Publishing to IPFS...");
-    } else {
-        println!("Serving http://localhost:{}...", opts.port);
+static NOTFOUND: &[u8] = b"Not Found";
+static HELLOWORLD: &[u8] = b"Hello World";
+
+async fn handle(req: Request<Body>) -> Result<Response<Body>> {
+    match (req.method(), req.uri().path()) {
+        (&Method::GET, "/") => Ok(static_page(&HELLOWORLD)),
+        (&Method::GET, _) => {
+            let subpath = &req.uri().path()[1..];
+            file_serve(subpath).await
+        }
+        _ => Ok(not_found()),
     }
+}
 
-    let client = IpfsClient::from_ipfs_config().unwrap_or_else(|| {
-        IpfsClient::from_host_and_port(Scheme::HTTP, "localhost", 45005).unwrap()
-    });
-    let data = Cursor::new("Hello World!");
-    let hash = match client.add(data).await {
-        Ok(res) => res.hash,
-        Err(e) => {
-            eprintln!("Error adding file: {}", e);
-            std::process::exit(1);
+async fn file_serve(filename: &str) -> Result<Response<Body>> {
+    // Serve a file by asynchronously reading it by chunks using tokio-util crate.
+    if let Ok(file) = File::open(filename).await {
+        let stream = FramedRead::new(file, BytesCodec::new());
+        let body = Body::wrap_stream(stream);
+        let mut res = Response::new(body);
+        let guess = mime_guess::from_path(filename);
+        if let Some(mime) = guess.first() {
+            res.headers_mut()
+                .insert(header::CONTENT_TYPE, header::HeaderValue::from_str(mime.essence_str()).unwrap());
         }
-    };
+        return Ok(res);
+    }
+    Ok(not_found())
+}
 
-    let key = match client.key_gen(&APPKEY, KeyType::Ed25519, 0).await {
-        Ok(keypair) => {
-            println!("created key {} for {}", keypair.id, keypair.name);
-            keypair.id
-        }
-        Err(e) => {
-            eprintln!("error creating key for {}: {}", APPKEY, e);
-            return Ok(());
-        }
-    };
+fn static_page(static_body: &'static [u8]) -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(static_body.into())
+        .unwrap()
+}
 
-    let _publish = match client
-        .name_publish(&hash, true, None, None, Some(&key))
-        .await
-    {
-        Ok(publish) => {
-            println!("published {} to: /ipns/{}", hash, &publish.name);
-            publish
-        }
-        Err(e) => {
-            eprintln!("error publishing name: {}", e);
-            return Ok(());
-        }
-    };
+fn not_found() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(NOTFOUND.into())
+        .unwrap()
+}
+
+pub async fn serve(opts: ServeOptions) -> Result<()> {
+    println!("Serving http://localhost:{}...", opts.port);
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], opts.port));
+
+    let make_service = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle)) });
+
+    let server = Server::bind(&addr).serve(make_service);
+
+    server.await?;
 
     Ok(())
 }

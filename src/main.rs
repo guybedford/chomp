@@ -2,6 +2,7 @@ extern crate clap;
 #[macro_use]
 extern crate lazy_static;
 use clap::{App, Arg, AppSettings};
+use std::thread;
 use std::io::stdout;
 
 use crossterm::tty::IsTty;
@@ -9,6 +10,7 @@ use crossterm::tty::IsTty;
 mod task;
 mod cmd;
 mod ui;
+mod serve;
 
 use std::path::PathBuf;
 use std::env;
@@ -104,13 +106,26 @@ async fn main() -> Result<(), ChompError> {
         targets.push(String::from(item));
     }
 
+    let port = matches.value_of("port").unwrap_or("8080").parse().unwrap();
+
+    if matches.is_present("serve") {
+        tokio::spawn(async move {
+            if let Err(e) = serve::serve(serve::ServeOptions {
+                port,
+            }).await {
+                eprintln!("{:?}", e);
+                std::process::exit(1);
+            }
+        });
+    }
+
     // let mut args: Vec<String> = Vec::new();
     // for item in matches.values_of("arg").unwrap() {
     //     args.push(String::from(item));
     // }
 
     task::run(task::RunOptions {
-        watch: matches.is_present("watch"),
+        watch: matches.is_present("serve") || matches.is_present("watch"),
         ui: &ui,
         cwd: env::current_dir()?,
         targets,
@@ -119,23 +134,3 @@ async fn main() -> Result<(), ChompError> {
 
     Ok(())
 }
-
-// if let Some(ref s) = matches.subcommand {
-//     match s.name.as_str() {
-//         "serve" => {
-//             if let Err(e) = serve::serve(serve::ServeOptions {
-//                 port: matches.value_of("port").unwrap_or("8080").parse().unwrap(),
-//                 ipfs: true,
-//             })
-//             .await
-//             {
-//                 eprintln!("{:?}", e);
-//                 std::process::exit(1);
-//             }
-//         }
-//         "compile" => {
-//             i
-//         }
-//         _ => {}
-//     }
-// }
