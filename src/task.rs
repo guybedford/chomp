@@ -6,7 +6,7 @@ use notify::op::Op;
 use notify::{RawEvent, RecommendedWatcher};
 use std::collections::BTreeMap;
 use std::io::ErrorKind::NotFound;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{TryRecvError, Receiver};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 extern crate num_cpus;
 use async_recursion::async_recursion;
@@ -50,6 +50,7 @@ pub struct RunOptions<'a> {
     pub cwd: PathBuf,
     pub cfg_file: PathBuf,
     pub targets: Vec<String>,
+    pub watch: bool,
 }
 
 #[derive(Debug)]
@@ -116,8 +117,7 @@ enum Node {
 enum FileState {
     Uninitialized,
     Initializing,
-    Fresh,
-    Changed,
+    Found,
     NotFound,
 }
 
@@ -148,7 +148,7 @@ impl File {
             Ok(n) => {
                 let mtime = n.modified().expect("No modified implementation");
                 self.mtime = Some(mtime.duration_since(UNIX_EPOCH).unwrap());
-                self.state = FileState::Fresh;
+                self.state = FileState::Found;
             }
             Err(e) => match e.kind() {
                 NotFound => {
@@ -385,6 +385,36 @@ impl<'a> Runner<'a> {
         }
     }
 
+    fn invalidate(
+        &mut self,
+        path: PathBuf,
+        jobs: &mut Vec<usize>,
+        futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
+    ) -> Result<bool, TaskError> {
+        let cwd = std::env::current_dir()?;
+        let cwd_str = cwd.to_str().unwrap();
+        let path_str = path.to_str().unwrap();
+        if !path_str.starts_with(cwd_str) {
+            panic!("Expected path within cwd");
+        }
+        let rel_str = &path_str[cwd_str.len() + 1..];
+        let sanitized_path = rel_str.replace("\\", "/");
+        match self.file_nodes.get(&sanitized_path) {
+            Some(&job_num) => match self.nodes[job_num] {
+                Node::Job(_) => panic!("TODO: Job invalidator"),
+                Node::File(ref mut file) => {
+                    file.mtime = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
+                    let drives = file.drives.clone();
+                    for drive in drives {
+                        self.drive_all(drive, jobs, futures, true)?;
+                    }
+                    Ok(true)
+                },
+            },
+            None => Ok(false),
+        }
+    }
+
     fn run_job(
         &mut self,
         job_num: usize,
@@ -468,78 +498,83 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn revalidate(
-        &mut self,
-        path: PathBuf,
-        futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
-    ) -> Result<bool, TaskError> {
-        println!("REVALILDTING {:?}", path);
-        Ok(true)
-    }
-
     fn drive_all(
         &mut self,
         job_num: usize,
         jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
+        invalidation: bool
     ) -> Result<bool, TaskError> {
         match self.nodes[job_num] {
-            Node::Job(ref job) => match job.state {
-                JobState::Uninitialized | JobState::Initializing => {
-                    panic!("Expected initialized job");
+            Node::Job(ref mut job) => {
+                if invalidation {
+                    match job.state {
+                        JobState::Failed | JobState::Fresh => {
+                            job.state = JobState::Pending;
+                        }
+                        JobState::Running => {
+                            return Ok(false);
+                        }
+                        _ => {}
+                    }
                 }
-                JobState::Running => {
-                    let job = self.get_job(job_num).unwrap();
-                    if let Some(future) = &job.future {
-                        if !jobs.contains(&job_num) {
-                            jobs.push(job_num);
-                            futures.push(future.clone());
+                match job.state {
+                    JobState::Uninitialized | JobState::Initializing => {
+                        panic!("Expected initialized job");
+                    }
+                    JobState::Running => {
+                        let job = self.get_job(job_num).unwrap();
+                        if let Some(future) = &job.future {
+                            if !jobs.contains(&job_num) {
+                                jobs.push(job_num);
+                                futures.push(future.clone());
+                            }
+                            Ok(false)
+                        } else {
+                            panic!("Unexpected internal state");
+                        }
+                    }
+                    JobState::Pending => {
+                        let mut all_completed = true;
+                        let job = self.get_job_mut(job_num).unwrap();
+                        job.live = true;
+                        let deps = job.deps.clone();
+                        // TODO: Use a driver counter for deps
+                        for dep in deps {
+                            let completed = self.drive_all(dep, jobs, futures, invalidation)?;
+                            if !completed {
+                                all_completed = false;
+                            }
+                        }
+                        // deps all completed -> execute this job
+                        if all_completed {
+                            return match self.run_job(job_num)? {
+                                Some(future) => {
+                                    futures.push(future);
+                                    jobs.push(job_num);
+                                    Ok(false)
+                                }
+                                None => {
+                                    // already complete -> skip straight to driving parents
+                                    // let drives = self.get_job(job_num).unwrap().drives.clone();
+                                    // for drive in drives {
+                                    //     if self.get_job(job_num).unwrap().live {
+                                    //         self.drive_all(drive, jobs, futures)?;
+                                    //     }
+                                    // }
+                                    Ok(true)
+                                }
+                            };
                         }
                         Ok(false)
-                    } else {
-                        panic!("Unexpected internal state");
                     }
+                    JobState::Failed => Ok(false),
+                    JobState::Fresh => Ok(true),
                 }
-                JobState::Pending => {
-                    let mut all_completed = true;
-                    let job = self.get_job_mut(job_num).unwrap();
-                    job.live = true;
-                    let deps = job.deps.clone();
-                    // TODO: Use a driver counter for deps
-                    for dep in deps {
-                        let completed = self.drive_all(dep, jobs, futures)?;
-                        if !completed {
-                            all_completed = false;
-                        }
-                    }
-                    // deps all completed -> execute this job
-                    if all_completed {
-                        return match self.run_job(job_num)? {
-                            Some(future) => {
-                                futures.push(future);
-                                jobs.push(job_num);
-                                Ok(false)
-                            }
-                            None => {
-                                // already complete -> skip straight to driving parents
-                                // let drives = self.get_job(job_num).unwrap().drives.clone();
-                                // for drive in drives {
-                                //     if self.get_job(job_num).unwrap().live {
-                                //         self.drive_all(drive, jobs, futures)?;
-                                //     }
-                                // }
-                                Ok(true)
-                            }
-                        };
-                    }
-                    Ok(false)
-                }
-                JobState::Failed => Ok(false),
-                JobState::Fresh => Ok(true),
             },
             Node::File(ref mut file) => {
                 if file.mtime.is_some() {
-                    file.state = FileState::Fresh;
+                    file.state = FileState::Found;
                     Ok(true)
                 } else {
                     dbg!(file);
@@ -554,71 +589,79 @@ impl<'a> Runner<'a> {
         &mut self,
         watcher: &mut RecommendedWatcher,
         target: &str,
+        as_task: bool,
     ) -> Result<usize, TaskError> {
-        let name = if target.as_bytes()[0] as char == ':' {
-            &target[1..]
-        } else {
-            &target
-        };
-
         // First match task by name
-        match self.task_jobs.get(name) {
+        if as_task {
+            if target.as_bytes()[0] as char == ':' {
+                let name = &target[1..];
+                return match self.task_jobs.get(name) {
+                    Some(&job_num) => Ok(job_num),
+                    None => {
+                        panic!("TODO: TASK NOT FOUND");
+                    },
+                };
+            }
+            match self.task_jobs.get(target) {
+                Some(&job_num) => return Ok(job_num),
+                None => {}
+            };
+        }
+
+        // Match by exact file name
+        match self.file_nodes.get(target) {
             Some(&job_num) => Ok(job_num),
-            // Then by exact file name
-            None => match self.file_nodes.get(name) {
-                Some(&job_num) => Ok(job_num),
-                // Then by interpolate
-                None => {
-                    let mut interpolate_match = None;
-                    let mut interpolate_lhs_match_len = 0;
-                    let mut interpolate_rhs_match_len = 0;
-                    for (interpolate, job_num) in &self.interpolate_nodes {
-                        let interpolate_idx = interpolate.find("#").unwrap();
-                        let lhs = &interpolate[0..interpolate_idx];
-                        let rhs = &interpolate[interpolate_idx + 1..];
-                        if name.starts_with(lhs)
-                            && name.len() > lhs.len() + rhs.len()
-                            && name.ends_with(rhs)
+            // Then by interpolate
+            None => {
+                let mut interpolate_match = None;
+                let mut interpolate_lhs_match_len = 0;
+                let mut interpolate_rhs_match_len = 0;
+                for (interpolate, job_num) in &self.interpolate_nodes {
+                    let interpolate_idx = interpolate.find("#").unwrap();
+                    let lhs = &interpolate[0..interpolate_idx];
+                    let rhs = &interpolate[interpolate_idx + 1..];
+                    if target.starts_with(lhs)
+                        && target.len() > lhs.len() + rhs.len()
+                        && target.ends_with(rhs)
+                    {
+                        interpolate_match =
+                            Some((*job_num, &target[interpolate_idx..target.len() - rhs.len()]));
+                        if lhs.len() >= interpolate_lhs_match_len
+                            && rhs.len() > interpolate_rhs_match_len
                         {
-                            interpolate_match =
-                                Some((*job_num, &name[interpolate_idx..name.len() - rhs.len()]));
-                            if lhs.len() >= interpolate_lhs_match_len
-                                && rhs.len() > interpolate_rhs_match_len
-                            {
-                                interpolate_lhs_match_len = lhs.len();
-                                interpolate_rhs_match_len = rhs.len();
-                            }
+                            interpolate_lhs_match_len = lhs.len();
+                            interpolate_rhs_match_len = rhs.len();
                         }
-                    }
-                    match interpolate_match {
-                        Some((job_num, interpolate)) => {
-                            let task_deps = &self
-                                .chompfile
-                                .get_task(self.get_job(job_num).unwrap().task)
-                                .deps
-                                .as_ref()
-                                .unwrap();
-                            let input = task_deps
-                                .iter()
-                                .find(|dep| dep.contains("#"))
-                                .unwrap()
-                                .replace("#", interpolate);
-                            let num = self
-                                .expand_interpolate_match(
-                                    watcher,
-                                    &input,
-                                    interpolate,
-                                    job_num,
-                                    self.get_job(job_num).unwrap().task,
-                                )
-                                .await?;
-                            Ok(num)
-                        }
-                        // Otherwise add as a file dependency
-                        None => Ok(self.add_file(String::from(name))),
                     }
                 }
-            },
+                match interpolate_match {
+                    Some((job_num, interpolate)) => {
+                        let task_deps = &self
+                            .chompfile
+                            .get_task(self.get_job(job_num).unwrap().task)
+                            .deps
+                            .as_ref()
+                            .unwrap();
+                        let input = task_deps
+                            .iter()
+                            .find(|dep| dep.contains("#"))
+                            .unwrap()
+                            .replace("#", interpolate);
+                        let num = self
+                            .expand_interpolate_match(
+                                watcher,
+                                &input,
+                                interpolate,
+                                job_num,
+                                self.get_job(job_num).unwrap().task,
+                            )
+                            .await?;
+                        Ok(num)
+                    }
+                    // Otherwise add as a file dependency
+                    None => Ok(self.add_file(String::from(target))),
+                }
+            }
         }
     }
 
@@ -629,7 +672,7 @@ impl<'a> Runner<'a> {
         target: &str,
         drives: Option<usize>,
     ) -> Result<(), TaskError> {
-        let job_num = self.lookup_target(watcher, target).await?;
+        let job_num = self.lookup_target(watcher, target, true).await?;
         self.expand_job(watcher, job_num, drives).await
     }
 
@@ -784,7 +827,7 @@ impl<'a> Runner<'a> {
         let parent_task_deps = self.chompfile.get_task(parent_task).deps.as_ref().unwrap();
         for dep in parent_task_deps {
             if !dep.contains("#") {
-                let dep_job = self.lookup_target(watcher, &dep).await?;
+                let dep_job = self.lookup_target(watcher, &dep, true).await?;
                 let job = self.get_job_mut(job_num).unwrap();
                 job.deps.push(dep_job);
                 // important aspect of retaining depth-first semantics
@@ -815,13 +858,13 @@ impl<'a> Runner<'a> {
                 None => match self.file_nodes.get(name) {
                     Some(&job_num) => job_num,
                     None => {
-                        println!(":::{}", name);
+                        println!("{}", name);
                         panic!("TODO: target not found error");
                     }
                 },
             };
 
-            self.drive_all(job_num, &mut jobs, &mut futures)?;
+            self.drive_all(job_num, &mut jobs, &mut futures, false)?;
         }
 
         loop {
@@ -847,7 +890,7 @@ impl<'a> Runner<'a> {
                                 _ => panic!("Expected job"),
                             };
                             if job.live {
-                                self.drive_all(drive, &mut jobs, &mut futures)?;
+                                self.drive_all(drive, &mut jobs, &mut futures, false)?;
                             }
                         }
                     } else {
@@ -863,36 +906,31 @@ impl<'a> Runner<'a> {
         Ok(())
     }
 
-    fn check_watcher(
+    async fn check_watcher(
         &mut self,
         rx: &Receiver<RawEvent>,
-        watcher: &RecommendedWatcher,
+        jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
         blocking: bool,
     ) -> Result<bool, TaskError> {
         let evt = if blocking {
             match rx.recv() {
                 Ok(evt) => evt,
-                Err(e) => {
-                    eprintln!("Watch error: {:?}", e);
-                    panic!("oh no");
-                }
+                Err(e) => panic!("Watcher disconnected"),
             }
         } else {
             match rx.try_recv() {
                 Ok(evt) => evt,
-                Err(e) => {
-                    eprintln!("Watch error: {:?}", e);
-                    panic!("oh no");
-                }
+                Err(TryRecvError::Empty) => {
+                    return Ok(false);
+                },
+                Err(TryRecvError::Disconnected) => panic!("Watcher disconnected"),
             }
         };
         if let Some(path) = evt.path {
             match evt.op {
-                Ok(Op::REMOVE) | Ok(Op::WRITE) | Ok(Op::CREATE) | Ok(Op::CLOSE_WRITE) => {
-                    self.revalidate(path, futures)
-                }
-                Ok(Op::RENAME) => self.revalidate(path, futures),
+                Ok(Op::REMOVE) | Ok(Op::WRITE) | Ok(Op::CREATE) | Ok(Op::CLOSE_WRITE)
+                | Ok(Op::RENAME) => self.invalidate(path, jobs, futures),
                 Err(e) => {
                     eprintln!("Watch error: {:?}", e);
                     Ok(false)
@@ -903,7 +941,6 @@ impl<'a> Runner<'a> {
             match evt.op {
                 Ok(Op::RESCAN) => {
                     panic!("TODO: Watcher rescan");
-                    Ok(false)
                 }
                 Err(e) => {
                     eprintln!("Watch error: {:?}", e);
@@ -911,6 +948,56 @@ impl<'a> Runner<'a> {
                 }
                 _ => Ok(false),
             }
+        }
+    }
+}
+
+async fn drive_watcher<'a>(
+    runner: &mut Runner<'a>,
+    rx: &Receiver<RawEvent>,
+    watcher: &mut RecommendedWatcher,
+) -> Result<(), TaskError> {
+    let mut jobs: Vec<usize> = Vec::new();
+    let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
+    loop {
+        if runner.check_watcher(&rx, &mut jobs, &mut futures, true).await? {
+            loop {
+                while runner.check_watcher(&rx, &mut jobs, &mut futures, false).await? {};
+                if futures.len() == 0 {
+                    break;
+                }
+                let (completed, idx, new_futures) = select_all(futures).await;
+                futures = new_futures;
+                let completed_job_num = jobs[idx];
+                jobs.remove(idx);
+                match completed.code() {
+                    Some(code) => {
+                        if code == 0 {
+                            runner.mark_complete(completed_job_num, true, false);
+                            let job = match &runner.nodes[completed_job_num] {
+                                Node::Job(job) => job,
+                                _ => panic!("Expected job"),
+                            };
+                            let drives = job.drives.clone();
+                            for drive in drives {
+                                let job = match &runner.nodes[drive] {
+                                    Node::Job(job) => job,
+                                    _ => panic!("Expected job"),
+                                };
+                                if job.live {
+                                    runner.drive_all(drive, &mut jobs, &mut futures, true)?;
+                                }
+                            }
+                        } else {
+                            runner.mark_complete(completed_job_num, true, true);
+                        }
+                    }
+                    None => {
+                        panic!("Unexpected signal exit of subprocess")
+                    }
+                }
+            }
+            // println!("Watching...");
         }
     }
 }
@@ -937,20 +1024,9 @@ pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
     runner.drive_targets(&opts.targets).await?;
 
     // block on watcher if watching
-    let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
-    loop {
-        if runner.check_watcher(&rx, &watcher, &mut futures, true)? {
-            loop {
-                println!("Change detected, rebuilding...");
-                if futures.len() == 0 {
-                    break;
-                }
-                let (completed, idx, new_futures) = select_all(futures).await;
-                futures = new_futures;
-                runner.check_watcher(&rx, &watcher, &mut futures, false)?;
-            }
-            println!("Watching...");
-        }
+    if opts.watch {
+        println!("Watching for changes...");
+        drive_watcher(&mut runner, &rx, &mut watcher).await?;
     }
 
     Ok(())

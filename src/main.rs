@@ -110,6 +110,7 @@ async fn main() -> Result<(), ChompError> {
     // }
 
     task::run(task::RunOptions {
+        watch: matches.is_present("watch"),
         ui: &ui,
         cwd: env::current_dir()?,
         targets,
