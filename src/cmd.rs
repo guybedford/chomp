@@ -89,6 +89,7 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
                     return child;
                 },
                 // If first attempt fails, try ".cmd" extension too
+                // Note: this only works on latest nightly builds!
                 Err(_) => {
                     cmd.push_str(".cmd");
                     let mut command = Command::new(&cmd);

@@ -1,15 +1,13 @@
-use notify::DebouncedEvent;
-use std::sync::mpsc::Receiver;
-use notify::RecommendedWatcher;
-use std::time::SystemTime;
-use crate::ui::ChompUI;
 use crate::cmd::CmdPool;
+use crate::ui::ChompUI;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
+use notify::op::Op;
+use notify::{RawEvent, RecommendedWatcher};
 use std::collections::BTreeMap;
 use std::io::ErrorKind::NotFound;
-use std::time::Duration;
-use std::time::UNIX_EPOCH;
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 extern crate num_cpus;
 use async_recursion::async_recursion;
 use async_std::fs;
@@ -20,7 +18,7 @@ use std::pin::Pin;
 use std::time::Instant;
 extern crate notify;
 
-use notify::{Watcher, RecursiveMode, watcher};
+use notify::{raw_watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 
 use derivative::Derivative;
@@ -367,8 +365,7 @@ impl<'a> Runner<'a> {
                     end_time - start_time,
                     end_time - start_time_deps
                 );
-            }
-            else {
+            } else {
                 println!(
                     "√ {} [{:?}, {:?} TOTAL]",
                     job.display_name(chompfile),
@@ -421,10 +418,14 @@ impl<'a> Runner<'a> {
                             _ => false,
                         };
                         if invalidated {
-                            println!("  {} invalidated by {}.", job.display_name(self.chompfile), dep.display_name(self.chompfile));
+                            println!(
+                                "  {} invalidated by {}.",
+                                job.display_name(self.chompfile),
+                                dep.display_name(self.chompfile)
+                            );
                         }
                         invalidated
-                    },
+                    }
                     Node::File(dep) => {
                         let invalidated = match dep.mtime {
                             Some(dep_mtime) if dep_mtime > mtime => true,
@@ -432,10 +433,14 @@ impl<'a> Runner<'a> {
                             _ => false,
                         };
                         if invalidated {
-                            println!("  {} invalidated by {}", job.display_name(self.chompfile), dep.name);
+                            println!(
+                                "  {} invalidated by {}",
+                                job.display_name(self.chompfile),
+                                dep.name
+                            );
                         }
                         invalidated
-                    },
+                    }
                 };
                 if dep_change {
                     all_fresh = false;
@@ -461,6 +466,15 @@ impl<'a> Runner<'a> {
             job.start_time = Some(Instant::now());
             Ok(Some(job.future.clone().unwrap()))
         }
+    }
+
+    fn revalidate(
+        &mut self,
+        path: PathBuf,
+        futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
+    ) -> Result<bool, TaskError> {
+        println!("REVALILDTING {:?}", path);
+        Ok(true)
     }
 
     fn drive_all(
@@ -536,7 +550,11 @@ impl<'a> Runner<'a> {
     }
 
     #[async_recursion(?Send)]
-    async fn lookup_target(&mut self, watcher: &mut RecommendedWatcher, target: &str) -> Result<usize, TaskError> {
+    async fn lookup_target(
+        &mut self,
+        watcher: &mut RecommendedWatcher,
+        target: &str,
+    ) -> Result<usize, TaskError> {
         let name = if target.as_bytes()[0] as char == ':' {
             &target[1..]
         } else {
@@ -617,7 +635,12 @@ impl<'a> Runner<'a> {
 
     // expand out the full job graph for the given targets
     #[async_recursion(?Send)]
-    async fn expand_job(&mut self, watcher: &mut RecommendedWatcher, job_num: usize, drives: Option<usize>) -> Result<(), TaskError> {
+    async fn expand_job(
+        &mut self,
+        watcher: &mut RecommendedWatcher,
+        job_num: usize,
+        drives: Option<usize>,
+    ) -> Result<(), TaskError> {
         if let Some(drives) = drives {
             self.get_job_mut(drives).unwrap().deps.push(job_num);
         }
@@ -839,9 +862,60 @@ impl<'a> Runner<'a> {
 
         Ok(())
     }
+
+    fn check_watcher(
+        &mut self,
+        rx: &Receiver<RawEvent>,
+        watcher: &RecommendedWatcher,
+        futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
+        blocking: bool,
+    ) -> Result<bool, TaskError> {
+        let evt = if blocking {
+            match rx.recv() {
+                Ok(evt) => evt,
+                Err(e) => {
+                    eprintln!("Watch error: {:?}", e);
+                    panic!("oh no");
+                }
+            }
+        } else {
+            match rx.try_recv() {
+                Ok(evt) => evt,
+                Err(e) => {
+                    eprintln!("Watch error: {:?}", e);
+                    panic!("oh no");
+                }
+            }
+        };
+        if let Some(path) = evt.path {
+            match evt.op {
+                Ok(Op::REMOVE) | Ok(Op::WRITE) | Ok(Op::CREATE) | Ok(Op::CLOSE_WRITE) => {
+                    self.revalidate(path, futures)
+                }
+                Ok(Op::RENAME) => self.revalidate(path, futures),
+                Err(e) => {
+                    eprintln!("Watch error: {:?}", e);
+                    Ok(false)
+                }
+                _ => Ok(false),
+            }
+        } else {
+            match evt.op {
+                Ok(Op::RESCAN) => {
+                    panic!("TODO: Watcher rescan");
+                    Ok(false)
+                }
+                Err(e) => {
+                    eprintln!("Watch error: {:?}", e);
+                    Ok(false)
+                }
+                _ => Ok(false),
+            }
+        }
+    }
 }
 
-pub async fn run<'a> (opts: RunOptions<'a>) -> Result<(), TaskError> {
+pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
     let chompfile_source = fs::read_to_string(opts.cfg_file).await?;
     let chompfile: Chompfile = toml::from_str(&chompfile_source)?;
 
@@ -854,7 +928,7 @@ pub async fn run<'a> (opts: RunOptions<'a>) -> Result<(), TaskError> {
 
     let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd);
     let (tx, rx) = channel();
-    let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
+    let mut watcher = raw_watcher(tx).unwrap();
 
     for target in &opts.targets {
         runner.expand_target(&mut watcher, target, None).await?;
@@ -862,10 +936,20 @@ pub async fn run<'a> (opts: RunOptions<'a>) -> Result<(), TaskError> {
 
     runner.drive_targets(&opts.targets).await?;
 
+    // block on watcher if watching
+    let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
     loop {
-        match rx.recv() {
-           Ok(event) => println!("{:?}", event),
-           Err(e) => println!("watch error: {:?}", e),
+        if runner.check_watcher(&rx, &watcher, &mut futures, true)? {
+            loop {
+                println!("Change detected, rebuilding...");
+                if futures.len() == 0 {
+                    break;
+                }
+                let (completed, idx, new_futures) = select_all(futures).await;
+                futures = new_futures;
+                runner.check_watcher(&rx, &watcher, &mut futures, false)?;
+            }
+            println!("Watching...");
         }
     }
 

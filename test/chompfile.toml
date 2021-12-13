@@ -1,0 +1,193 @@
+version = 0.1
+
+[[task]]
+  name = "chomp"
+  target = "target/Debug/cmp.exe"
+  deps = ["test/src/*.rs", "Cargo.toml", "Cargo.lock"]
+
+[[task]]
+  name = "build"
+  target = "test/lib/#.js"
+  deps = ["node_modules/.bin/swc", "test/src/#.ts"]
+  run = "swc.cmd test/src/#.ts -o test/lib/#.js"
+
+# [[task]]
+#   name = "build-2"
+#   target = "test/lib/test.js"
+#   deps = ["node_modules/.bin/swc", "test/src/*.ts"]
+#   run = "swc.cmd ./test/src -d test/lib"
+
+[[task]]
+  target = "node_modules/.bin/swc"
+  run = "echo '{}' > package.json ; npm install @swc/cli @swc/core --save-dev"
+
+# include = [
+#   "typescript"
+# ]
+
+# [task.a]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.b]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.c]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.d]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.e]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.f]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.g]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.h]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.i]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.j]
+#   deps = ["test.js"]
+#   run = "node test.js"
+
+# [task.ts]
+#   template = "typescript"
+#   args = { in = "src", out = "lib"}
+
+# [task.generate]
+#   run = """
+#     echo "console.log('Start'); let start = performance.now(); var s = ''; for (let i = 0; i < 10000000; i++) s += i; console.log('Done in ' + (performance.now() - start));" > test.js
+#   """
+
+# [task.ccc]
+#   target = "test.js"
+#   run = """
+#     echo hi
+#     echo ho
+#   """
+
+# [template.typescript]
+#   args = ["outDir", "inDir"]
+#   target = "${outDir}/#"
+#   deps = "${inDir}/**/*.ts"
+#   run = "npx tsc ..."
+
+# [task.dep1]
+#   run = "echo \"Dep 1 Start\" ; Start-Sleep -s 4 ; echo \"Dep 1 End\""
+#   deps = [":deep-dep"]
+
+# [task.dep2]
+#   run = "echo \"Dep 2 Start\" ; Start-Sleep -s 5 ; echo \"Dep 2 End\""
+#   deps = [":deep-dep"]
+
+# [task.deep-dep]
+#   run = "echo \"Deep Dep Start\" ; Start-Sleep -s 1 ; echo \"Dep Dep End\""
+
+# [task.build]
+#   deps = [":build:wasm", ":build:asm", ":build:cjs"]
+
+# [group.build]
+#   [group.build.typescript]
+#     target = "lib/#.js"
+#     deps = ["src/(**/*.ts)", ":build", "tsconfig.json"]
+#     run = "tsc #.ts --target esnext --outfile lib/#.js"
+
+#   [group.build.typescript-dir]
+#     target = "lib/*.js"
+#     deps = ["src/*.ts", "another/*.ts", "some/file.ts"]
+#     run = "tsc src/**/*.ts --target esnext --outdir lib"
+
+#   # Build Wasm #
+#   [group.build.wat]
+#     target = "lib/lexer.wat"
+#     deps = ["lib/lexer.wasm"]
+#     run = "../wabt/bin/wasm2wat lib/lexer.wasm -o lib/lexer.wat"
+
+#   [group.build.wasm]
+#     target = "lib/lexer.wasm"
+#     deps = ["src/lexer.h", "src/lexer.c"]
+#     run = """
+#       ../wasi-sdk-12.0/bin/clang src/lexer.c --sysroot=../wasi-sdk-12.0/share/wasi-sysroot -o lib/lexer.wasm -nostartfiles \
+#         -Wl,-z,stack-size=13312,--no-entry,--compress-relocations,--strip-all,\
+#         --export=parse,--export=sa,--export=e,--export=ri,--export=re,--export=is,--export=ie,--export=ss,--export=ip,--export=se,--export=ai,--export=id,--export=es,--export=ee,--export=f,--export=__heap_base \
+#         -Wno-logical-op-parentheses -Wno-parentheses \
+#         -Oz
+#     """
+#   [group.build.asmlib]
+#     target = "lib/lexer.asm.js"
+#     deps = ["src/lexer.h", "src/lexer.c"]
+#     run = """
+#       emcc ./src/lexer.c -o lib/lexer.js -s WASM=0 -Oz --closure 1 \
+#         -s EXPORTED_FUNCTIONS=["_parse","_sa","_e","_ri","_re","_is","_ie","_ss","_ip","_se","_ai","_id","_es","_ee","_f","_setSource"] \
+#         -s ERROR_ON_UNDEFINED_SYMBOLS=0 -s SINGLE_FILE=1 -s TOTAL_STACK=15312 -s --separate-asm
+#       git checkout lib/lexer.js
+#       echo Manual changes to lib/lexer.asm.js are needed for building:
+#       echo - Module[asm] -> function asmInit (global, env, buffer) { ... }
+#       echo - In EMSCRIPTEN_END_FUNCS, underscores (_) are removed from all exported function names
+#       echo - In EMSCRIPTEN_END_FUNCS, rename stackAllocate to sta, setSource to ses and parse to p
+#       echo - Manual tree shaking is applied to remove the malloc implementation to reduce the footprint (optional)
+#       echo Finally run "npm run build:asm"
+#     """
+#   [group.build.clean]
+#     run = "rm lib/*"
+
+#   # Build JS #
+#   [group.build.lexer]
+#     target = "dist/lexer.js"
+#     deps = ["lib/lexer.wasm", "lib/lexer.js", "package.json"]
+#     run = "node build.js"
+
+#   [group.build.lexer-cjs]
+#     target = "dist/lexer.cjs"
+#     deps = ["dist/lexer.js"]
+#     run = "babel dist/lexer.js | terser -c -m -o dist/lexer.cjs"
+
+#   [group.build.asmdist]
+#     target = "dist/lexer.asm.js"
+#     deps = ["src/lexer.asm.js", "lib/lexer.asm.js"]
+#     run = "cat src/lexer.asm.js lib/lexer.asm.js | terser --module -c -m -o dist/lexer.asm.js"
+
+# [task.test]
+#   deps = [":test:js", ":test:wasm"]
+
+# [group.test]
+#   [group.test.js]
+#     run = "mocha -b -u tdd test/*.cjs"
+
+#   [group.test.wasm]
+#     env = { WASM = "1" }
+#     run = "mocha -b -u tdd test/*.cjs"
+
+# [group.bench]
+#   [task.bench]
+#     deps = [":build"]
+#     run = "node --expose-gc bench/index.js"
+
+# # Footprint #
+# [task.footprint]
+#   deps = [":build"]
+#   run = """
+#     echo Wasm:
+#     cat dist/lexer.js | brotli | wc -c
+#     echo Asm.js:
+#     cat dist/lexer.asm.js | brotli | wc -c
+#   """
+
+# # Publish #
+# [task.prepublish]
+#   run = "npm run build"
