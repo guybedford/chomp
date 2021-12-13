@@ -2,6 +2,7 @@ use notify::DebouncedEvent;
 use std::sync::mpsc::Receiver;
 use notify::RecommendedWatcher;
 use std::time::SystemTime;
+use crate::ui::ChompUI;
 use crate::cmd::CmdPool;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
@@ -46,7 +47,8 @@ struct ChompTask {
     run: Option<String>,
 }
 
-pub struct RunOptions {
+pub struct RunOptions<'a> {
+    pub ui: &'a ChompUI,
     pub cwd: PathBuf,
     pub cfg_file: PathBuf,
     pub targets: Vec<String>,
@@ -162,7 +164,8 @@ impl File {
 }
 
 struct Runner<'a> {
-    cmd_pool: CmdPool,
+    ui: &'a ChompUI,
+    cmd_pool: CmdPool<'a>,
     chompfile: &'a Chompfile,
 
     nodes: Vec<Node>,
@@ -237,9 +240,10 @@ impl<'a> Job {
 }
 
 impl<'a> Runner<'a> {
-    fn new(chompfile: &'a Chompfile, cwd: &'a PathBuf) -> Runner<'a> {
-        let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
+    fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf) -> Runner<'a> {
+        let cmd_pool = CmdPool::new(ui, 8, cwd.to_str().unwrap().to_string());
         let mut runner = Runner {
+            ui,
             cmd_pool,
             chompfile,
             nodes: Vec::new(),
@@ -356,13 +360,26 @@ impl<'a> Runner<'a> {
         let end_time = job.end_time.unwrap();
         let start_time_deps = job.start_time_deps.unwrap();
         if let Some(start_time) = job.start_time {
-            println!(
-                "√ {} [{:?}, {:?} TOTAL]",
-                job.display_name(chompfile),
-                end_time - start_time,
-                end_time - start_time_deps
-            );
+            if failed {
+                println!(
+                    "x {} [{:?}, {:?} TOTAL]",
+                    job.display_name(chompfile),
+                    end_time - start_time,
+                    end_time - start_time_deps
+                );
+            }
+            else {
+                println!(
+                    "√ {} [{:?}, {:?} TOTAL]",
+                    job.display_name(chompfile),
+                    end_time - start_time,
+                    end_time - start_time_deps
+                );
+            }
         } else {
+            if failed {
+                panic!("Did not expect failed for cached");
+            }
             println!(
                 "● {} [cached, {:?} TOTAL]",
                 job.display_name(chompfile),
@@ -824,7 +841,7 @@ impl<'a> Runner<'a> {
     }
 }
 
-pub async fn run(opts: RunOptions) -> Result<(), TaskError> {
+pub async fn run<'a> (opts: RunOptions<'a>) -> Result<(), TaskError> {
     let chompfile_source = fs::read_to_string(opts.cfg_file).await?;
     let chompfile: Chompfile = toml::from_str(&chompfile_source)?;
 
@@ -835,7 +852,7 @@ pub async fn run(opts: RunOptions) -> Result<(), TaskError> {
         )));
     }
 
-    let mut runner = Runner::new(&chompfile, &opts.cwd);
+    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd);
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
 

@@ -2,9 +2,13 @@ extern crate clap;
 #[macro_use]
 extern crate lazy_static;
 use clap::{App, Arg, AppSettings};
+use std::io::stdout;
+
+use crossterm::tty::IsTty;
 
 mod task;
 mod cmd;
+mod ui;
 
 use std::path::PathBuf;
 use std::env;
@@ -12,7 +16,8 @@ use std::env;
 #[derive(Debug)]
 enum ChompError {
     IoError(std::io::Error),
-    TaskError(task::TaskError)
+    TaskError(task::TaskError),
+    CrossTermError(crossterm::ErrorKind),
 }
 
 impl From<std::io::Error> for ChompError {
@@ -54,6 +59,11 @@ async fn main() -> Result<(), ChompError> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("i")
+                .short("i")
+                .help("Initialize template via stdin")
+        )
+        .arg(
             Arg::with_name("j")
                 .short("j")
                 .long("jobs")
@@ -86,6 +96,9 @@ async fn main() -> Result<(), ChompError> {
         // )
         .get_matches();
 
+    let ui = ui::ChompUI::new(stdout().is_tty());
+    ui.create_box()?;
+
     let mut targets: Vec<String> = Vec::new();
     for item in matches.values_of("target").unwrap() {
         targets.push(String::from(item));
@@ -97,6 +110,7 @@ async fn main() -> Result<(), ChompError> {
     // }
 
     task::run(task::RunOptions {
+        ui: &ui,
         cwd: env::current_dir()?,
         targets,
         cfg_file: PathBuf::from(matches.value_of("config").unwrap_or_default()),

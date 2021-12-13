@@ -1,3 +1,5 @@
+use crate::ui::ChompUI;
+use async_std::process::Stdio;
 use std::path::PathBuf;
 use async_std::process::{Child, Command, ExitStatus};
 use futures::future::{Future};
@@ -6,9 +8,23 @@ use std::env;
 use regex::Regex;
 use std::fs;
 
-pub struct CmdPool {
+pub struct CmdPool<'a> {
     cwd: String,
     pool_size: usize,
+    ui: &'a ChompUI,
+}
+
+fn replace_env_vars (arg: &str, env: &BTreeMap<String, String>) -> String {
+    let mut out_arg = arg.to_string();
+    for (name, value) in env {
+        println!("::{}", name);
+        let mut env_str = String::from("$");
+        env_str.push_str(name);
+        if out_arg.contains(&env_str) {
+            out_arg = out_arg.replace(&env_str, value);
+        }
+    }
+    out_arg
 }
 
 #[cfg(target_os = "windows")]
@@ -57,8 +73,17 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
                 }
             }
             for arg in capture["args"].split(" ") {
-                command.arg(arg);
+                if let Some(env) = env.as_ref() {
+                    command.arg(replace_env_vars(arg, env));
+                }
+                else {
+                    command.arg(arg);
+                }
             }
+            command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
             match command.spawn() {
                 Ok(child) => {
                     return child;
@@ -74,8 +99,17 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
                         }
                     }
                     for arg in capture["args"].split(" ") {
-                        command.arg(arg);
+                        if let Some(env) = env.as_ref() {
+                            command.arg(replace_env_vars(arg, env));
+                        }
+                        else {
+                            command.arg(arg);
+                        }
                     }
+                    command
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
                     match command.spawn() {
                         Ok(child) => {
                             return child;
@@ -97,7 +131,15 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
         command.arg("Unrestricted");
         command.arg("-NonInteractive");
         command.arg("-NoLogo");
-        let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';\n");
+        // ensure file operations use UTF8
+        let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';");
+        // we also set _custom_ variables as local variables for easy substitution
+        if let Some(env) = env {
+            for (name, value) in env {
+                run_str.push_str(&format!("${}=\"{}\";", name, value));
+            }
+        }
+        run_str.push('\n');
         run_str.push_str(&run);
         command.arg(run_str);
     }
@@ -113,6 +155,10 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
             command.env(name, value);
         }
     }
+    command
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
     command.spawn().unwrap()
 }
 
@@ -135,14 +181,19 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
     }
     command.arg("-c");
     command.arg(run);
+    command
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
     command.spawn().unwrap()
 }
 
 // For Cmd + Unix shell we just run command directly
 // For powershell we immediately preinitialize the shell tasks in pools, as powershell can take a while to startup
-impl CmdPool {
-    pub fn new(pool_size: usize, cwd: String) -> CmdPool {
+impl<'a> CmdPool<'a> {
+    pub fn new(ui: &'a ChompUI, pool_size: usize, cwd: String) -> CmdPool<'a> {
         CmdPool {
+            ui,
             pool_size,
             cwd,
         }
@@ -152,7 +203,7 @@ impl CmdPool {
         create_cmd(&self.cwd, run, env)
     }
 
-    pub fn run<'a>(
+    pub fn run(
         &mut self,
         run: &str,
         env: &Option<BTreeMap<String, String>>
