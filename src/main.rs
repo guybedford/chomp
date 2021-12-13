@@ -97,7 +97,7 @@ async fn main() -> Result<(), ChompError> {
         .get_matches();
 
     let ui = ui::ChompUI::new(stdout().is_tty());
-    ui.create_box()?;
+    // ui.create_box()?;
 
     let mut targets: Vec<String> = Vec::new();
     for item in matches.values_of("target").unwrap() {

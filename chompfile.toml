@@ -1,9 +1,14 @@
 version = 0.1
 
 [[task]]
-  name = "build"
   target = "target/Debug/cmp.exe"
   run = "cargo build"
+
+[[task]]
+  name = "build"
+  target = "test/lib/#.js"
+  deps = ["node_modules/.bin/swc", "test/src/#.ts"]
+  run = "swc.cmd test/src/#.ts -o test/lib/#.js"
 
 [[task]]
   name = "test"
