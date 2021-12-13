@@ -6,7 +6,7 @@ use notify::op::Op;
 use notify::{RawEvent, RecommendedWatcher};
 use std::collections::BTreeMap;
 use std::io::ErrorKind::NotFound;
-use std::sync::mpsc::{TryRecvError, Receiver};
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 extern crate num_cpus;
 use async_recursion::async_recursion;
@@ -163,7 +163,7 @@ impl File {
 
 struct Runner<'a> {
     ui: &'a ChompUI,
-    cmd_pool: CmdPool<'a>,
+    cmd_pool: CmdPool,
     chompfile: &'a Chompfile,
 
     nodes: Vec<Node>,
@@ -239,7 +239,7 @@ impl<'a> Job {
 
 impl<'a> Runner<'a> {
     fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf) -> Runner<'a> {
-        let cmd_pool = CmdPool::new(ui, 8, cwd.to_str().unwrap().to_string());
+        let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
         let mut runner = Runner {
             ui,
             cmd_pool,
@@ -356,33 +356,56 @@ impl<'a> Runner<'a> {
         };
         job.future = None;
         let end_time = job.end_time.unwrap();
-        let start_time_deps = job.start_time_deps.unwrap();
-        if let Some(start_time) = job.start_time {
-            if failed {
-                println!(
-                    "x {} [{:?}, {:?} TOTAL]",
-                    job.display_name(chompfile),
-                    end_time - start_time,
-                    end_time - start_time_deps
-                );
+        if let Some(start_time_deps) = job.start_time_deps {
+            if let Some(start_time) = job.start_time {
+                if failed {
+                    println!(
+                        "x {} [{:?}, {:?} TOTAL]",
+                        job.display_name(chompfile),
+                        end_time - start_time,
+                        end_time - start_time_deps
+                    );
+                } else {
+                    println!(
+                        "√ {} [{:?}, {:?} TOTAL]",
+                        job.display_name(chompfile),
+                        end_time - start_time,
+                        end_time - start_time_deps
+                    );
+                }
             } else {
+                if failed {
+                    panic!("Did not expect failed for cached");
+                }
                 println!(
-                    "√ {} [{:?}, {:?} TOTAL]",
+                    "● {} [cached, {:?} TOTAL]",
                     job.display_name(chompfile),
-                    end_time - start_time,
                     end_time - start_time_deps
                 );
             }
         } else {
-            if failed {
-                panic!("Did not expect failed for cached");
+            if let Some(start_time) = job.start_time {
+                if failed {
+                    println!(
+                        "x {} [{:?}]",
+                        job.display_name(chompfile),
+                        end_time - start_time
+                    );
+                } else {
+                    println!(
+                        "√ {} [{:?}]",
+                        job.display_name(chompfile),
+                        end_time - start_time
+                    );
+                }
+            } else {
+                if failed {
+                    panic!("Did not expect failed for cached");
+                }
+                println!("● {} [cached]", job.display_name(chompfile),);
             }
-            println!(
-                "● {} [cached, {:?} TOTAL]",
-                job.display_name(chompfile),
-                end_time - start_time_deps
-            );
         }
+        job.start_time_deps = None;
     }
 
     fn invalidate(
@@ -409,7 +432,7 @@ impl<'a> Runner<'a> {
                         self.drive_all(drive, jobs, futures, true)?;
                     }
                     Ok(true)
-                },
+                }
             },
             None => Ok(false),
         }
@@ -484,11 +507,37 @@ impl<'a> Runner<'a> {
         }
         println!("○ {}", job.display_name(self.chompfile));
 
-        let mut run: String = task.run.as_ref().unwrap().to_string();
-        if let Some(interpolate) = &job.interpolate {
-            run = run.replace("#", interpolate);
+        let run: String = task.run.as_ref().unwrap().to_string();
+        let mut env = if let Some(env) = &task.env {
+            env.clone()
         }
-        let future = self.cmd_pool.run(&run, &task.env);
+        else {
+            BTreeMap::new()
+        };
+        if let Some(interpolate) = &job.interpolate {
+            env.insert(
+                "in".to_string(),
+                task.deps
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .find(|&d| d.contains('#'))
+                    .unwrap()
+                    .replace("#", interpolate),
+            );
+            env.insert(
+                "out".to_string(),
+                task.target.as_ref().unwrap().replace("#", interpolate),
+            );
+            env.insert(
+                "match".to_string(),
+                interpolate.to_string()
+            );
+        }
+        else if let Some(target) = task.target.as_ref() {
+            env.insert("out".to_string(), target.to_string());
+        }
+        let future = self.cmd_pool.run(&run, Some(&env));
         {
             let job = self.get_job_mut(job_num).unwrap();
             job.future = Some(future.boxed().shared());
@@ -503,7 +552,7 @@ impl<'a> Runner<'a> {
         job_num: usize,
         jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
-        invalidation: bool
+        invalidation: bool,
     ) -> Result<bool, TaskError> {
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
@@ -571,7 +620,7 @@ impl<'a> Runner<'a> {
                     JobState::Failed => Ok(false),
                     JobState::Fresh => Ok(true),
                 }
-            },
+            }
             Node::File(ref mut file) => {
                 if file.mtime.is_some() {
                     file.state = FileState::Found;
@@ -599,7 +648,7 @@ impl<'a> Runner<'a> {
                     Some(&job_num) => Ok(job_num),
                     None => {
                         panic!("TODO: TASK NOT FOUND");
-                    },
+                    }
                 };
             }
             match self.task_jobs.get(target) {
@@ -923,7 +972,7 @@ impl<'a> Runner<'a> {
                 Ok(evt) => evt,
                 Err(TryRecvError::Empty) => {
                     return Ok(false);
-                },
+                }
                 Err(TryRecvError::Disconnected) => panic!("Watcher disconnected"),
             }
         };
@@ -955,14 +1004,19 @@ impl<'a> Runner<'a> {
 async fn drive_watcher<'a>(
     runner: &mut Runner<'a>,
     rx: &Receiver<RawEvent>,
-    watcher: &mut RecommendedWatcher,
 ) -> Result<(), TaskError> {
     let mut jobs: Vec<usize> = Vec::new();
     let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
     loop {
-        if runner.check_watcher(&rx, &mut jobs, &mut futures, true).await? {
+        if runner
+            .check_watcher(&rx, &mut jobs, &mut futures, true)
+            .await?
+        {
             loop {
-                while runner.check_watcher(&rx, &mut jobs, &mut futures, false).await? {};
+                while runner
+                    .check_watcher(&rx, &mut jobs, &mut futures, false)
+                    .await?
+                {}
                 if futures.len() == 0 {
                     break;
                 }
@@ -1026,7 +1080,7 @@ pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
     // block on watcher if watching
     if opts.watch {
         println!("Watching for changes...");
-        drive_watcher(&mut runner, &rx, &mut watcher).await?;
+        drive_watcher(&mut runner, &rx).await?;
     }
 
     Ok(())

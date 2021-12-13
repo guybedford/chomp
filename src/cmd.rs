@@ -8,10 +8,9 @@ use std::env;
 use regex::Regex;
 use std::fs;
 
-pub struct CmdPool<'a> {
+pub struct CmdPool {
     cwd: String,
     pool_size: usize,
-    ui: &'a ChompUI,
 }
 
 fn replace_env_vars (arg: &str, env: &BTreeMap<String, String>) -> String {
@@ -28,7 +27,7 @@ fn replace_env_vars (arg: &str, env: &BTreeMap<String, String>) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> Child {
+fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> Child {
     lazy_static! {
         // Currently does not support spaces in arg quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
@@ -80,10 +79,7 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
                     command.arg(arg);
                 }
             }
-            command
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            command.stdin(Stdio::null());
             match command.spawn() {
                 Ok(child) => {
                     return child;
@@ -107,10 +103,7 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
                             command.arg(arg);
                         }
                     }
-                    command
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
+                    command.stdin(Stdio::null());
                     match command.spawn() {
                         Ok(child) => {
                             return child;
@@ -156,15 +149,12 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
             command.env(name, value);
         }
     }
-    command
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped());
+    command.stdin(Stdio::null());
     command.spawn().unwrap()
 }
 
 #[cfg(not(target_os = "windows"))]
-fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> Child {
+fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> Child {
     let mut command = Command::new("sh");
     let mut path = env::var("PATH").unwrap_or_default();
     if path.len() > 0 {
@@ -182,32 +172,28 @@ fn create_cmd(cwd: &str, run: &str, env: &Option<BTreeMap<String, String>>) -> C
     }
     command.arg("-c");
     command.arg(run);
-    command
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped());
+    command.stdin(Stdio::null());
     command.spawn().unwrap()
 }
 
 // For Cmd + Unix shell we just run command directly
 // For powershell we immediately preinitialize the shell tasks in pools, as powershell can take a while to startup
-impl<'a> CmdPool<'a> {
-    pub fn new(ui: &'a ChompUI, pool_size: usize, cwd: String) -> CmdPool<'a> {
+impl CmdPool {
+    pub fn new(pool_size: usize, cwd: String) -> CmdPool {
         CmdPool {
-            ui,
             pool_size,
             cwd,
         }
     }
 
-    fn get_next (&mut self, run: &str, env: &Option<BTreeMap<String, String>>) -> Child {
+    fn get_next (&mut self, run: &str, env: Option<&BTreeMap<String, String>>) -> Child {
         create_cmd(&self.cwd, run, env)
     }
 
     pub fn run(
         &mut self,
         run: &str,
-        env: &Option<BTreeMap<String, String>>
+        env: Option<&BTreeMap<String, String>>
     ) -> impl Future<Output = ExitStatus> {
         // TODO: compare env to default_env and apply dir for powershell
         let mut child = self.get_next(run, env);
