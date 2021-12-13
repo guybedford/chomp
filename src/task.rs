@@ -1,3 +1,7 @@
+use notify::DebouncedEvent;
+use std::sync::mpsc::Receiver;
+use notify::RecommendedWatcher;
+use std::time::SystemTime;
 use crate::cmd::CmdPool;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
@@ -13,6 +17,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Instant;
+extern crate notify;
+
+use notify::{Watcher, RecursiveMode, watcher};
+use std::sync::mpsc::channel;
 
 use derivative::Derivative;
 
@@ -131,7 +139,7 @@ impl File {
         }
     }
 
-    async fn init(&mut self, parent_job: Option<usize>) {
+    async fn init(&mut self, watcher: &mut RecommendedWatcher, parent_job: Option<usize>) {
         self.state = FileState::Initializing;
         if let Some(parent_job) = parent_job {
             self.drives.push(parent_job);
@@ -149,6 +157,7 @@ impl File {
                 _ => panic!("Unknown file error"),
             },
         };
+        watcher.watch(&self.name, RecursiveMode::Recursive).unwrap();
     }
 }
 
@@ -163,7 +172,7 @@ struct Runner<'a> {
     interpolate_nodes: Vec<(String, usize)>,
 }
 
-impl Job {
+impl<'a> Job {
     fn new(task: usize, interpolate: Option<String>) -> Job {
         Job {
             interpolate,
@@ -331,9 +340,12 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn mark_complete(&mut self, job_num: usize, failed: bool) {
+    fn mark_complete(&mut self, job_num: usize, updated: bool, failed: bool) {
         let chompfile = self.chompfile;
         let job = self.get_job_mut(job_num).unwrap();
+        if updated {
+            job.mtime = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
+        }
         job.end_time = Some(Instant::now());
         job.state = if failed {
             JobState::Failed
@@ -370,30 +382,42 @@ impl<'a> Runner<'a> {
         let task = self.chompfile.get_task(job.task);
         // CMD Exec
         if task.run.is_none() {
-            self.mark_complete(job_num, false);
+            self.mark_complete(job_num, false, false);
             return Ok(None);
         }
         // the interpolation template itself is not run
         if let Some(target) = task.target.as_ref() {
             if target.contains("#") && job.interpolate.is_none() {
-                self.mark_complete(job_num, false);
+                self.mark_complete(job_num, false, false);
                 return Ok(None);
             }
         }
         // If we have an mtime, check if we need to do work
         if let Some(mtime) = job.mtime {
             let mut all_fresh = true;
-            for dep in job.deps.iter() {
-                let dep_change = match &self.nodes[*dep] {
-                    Node::Job(dep) => match dep.mtime {
-                        Some(dep_mtime) if dep_mtime > mtime => true,
-                        None => true,
-                        _ => false,
+            for &dep in job.deps.iter() {
+                let dep_change = match &self.nodes[dep] {
+                    Node::Job(dep) => {
+                        let invalidated = match dep.mtime {
+                            Some(dep_mtime) if dep_mtime > mtime => true,
+                            None => true,
+                            _ => false,
+                        };
+                        if invalidated {
+                            println!("  {} invalidated by {}.", job.display_name(self.chompfile), dep.display_name(self.chompfile));
+                        }
+                        invalidated
                     },
-                    Node::File(dep) => match dep.mtime {
-                        Some(dep_mtime) if dep_mtime > mtime => true,
-                        None => true,
-                        _ => false,
+                    Node::File(dep) => {
+                        let invalidated = match dep.mtime {
+                            Some(dep_mtime) if dep_mtime > mtime => true,
+                            None => true,
+                            _ => false,
+                        };
+                        if invalidated {
+                            println!("  {} invalidated by {}", job.display_name(self.chompfile), dep.name);
+                        }
+                        invalidated
                     },
                 };
                 if dep_change {
@@ -402,7 +426,7 @@ impl<'a> Runner<'a> {
                 }
             }
             if all_fresh {
-                self.mark_complete(job_num, false);
+                self.mark_complete(job_num, false, false);
                 return Ok(None);
             }
         }
@@ -494,8 +518,8 @@ impl<'a> Runner<'a> {
         }
     }
 
-    #[async_recursion]
-    async fn lookup_target(&mut self, target: &str) -> Result<usize, TaskError> {
+    #[async_recursion(?Send)]
+    async fn lookup_target(&mut self, watcher: &mut RecommendedWatcher, target: &str) -> Result<usize, TaskError> {
         let name = if target.as_bytes()[0] as char == ':' {
             &target[1..]
         } else {
@@ -546,6 +570,7 @@ impl<'a> Runner<'a> {
                                 .replace("#", interpolate);
                             let num = self
                                 .expand_interpolate_match(
+                                    watcher,
                                     &input,
                                     interpolate,
                                     job_num,
@@ -562,19 +587,20 @@ impl<'a> Runner<'a> {
         }
     }
 
-    #[async_recursion]
+    #[async_recursion(?Send)]
     async fn expand_target(
         &mut self,
+        watcher: &mut RecommendedWatcher,
         target: &str,
         drives: Option<usize>,
     ) -> Result<(), TaskError> {
-        let job_num = self.lookup_target(target).await?;
-        self.expand_job(job_num, drives).await
+        let job_num = self.lookup_target(watcher, target).await?;
+        self.expand_job(watcher, job_num, drives).await
     }
 
     // expand out the full job graph for the given targets
-    #[async_recursion]
-    async fn expand_job(&mut self, job_num: usize, drives: Option<usize>) -> Result<(), TaskError> {
+    #[async_recursion(?Send)]
+    async fn expand_job(&mut self, watcher: &mut RecommendedWatcher, job_num: usize, drives: Option<usize>) -> Result<(), TaskError> {
         if let Some(drives) = drives {
             self.get_job_mut(drives).unwrap().deps.push(job_num);
         }
@@ -588,8 +614,6 @@ impl<'a> Runner<'a> {
                 let mut is_interpolate = false;
                 let mut is_wildcard = false;
 
-                job.init(drives).await;
-
                 let task_num = job.task;
                 let task = self.chompfile.get_task(job.task);
                 if let Some(target) = &task.target {
@@ -602,6 +626,9 @@ impl<'a> Runner<'a> {
                         job.target = Some(target.to_string());
                     }
                 };
+
+                // this must come after setting target above
+                job.init(drives).await;
 
                 if is_wildcard {
                     panic!("TODO: wildcard targets");
@@ -624,13 +651,13 @@ impl<'a> Runner<'a> {
                             if expanded_interpolate {
                                 panic!("Only one interpolated deps is allowed");
                             }
-                            self.expand_interpolate(String::from(dep), job_num, task_num)
+                            self.expand_interpolate(watcher, String::from(dep), job_num, task_num)
                                 .await?;
                             expanded_interpolate = true;
                         } else if dep.contains('*') {
                             panic!("TODO: Wilrdcard deps");
                         } else {
-                            self.expand_target(&String::from(dep), Some(job_num))
+                            self.expand_target(watcher, &String::from(dep), Some(job_num))
                                 .await?;
                         }
                     }
@@ -643,7 +670,7 @@ impl<'a> Runner<'a> {
                 if let Some(drives) = drives {
                     file.drives.push(drives);
                 }
-                file.init(drives).await;
+                file.init(watcher, drives).await;
             }
         }
         Ok(())
@@ -651,6 +678,7 @@ impl<'a> Runner<'a> {
 
     async fn expand_interpolate(
         &mut self,
+        watcher: &mut RecommendedWatcher,
         dep: String,
         parent_job: usize,
         parent_task: usize,
@@ -671,6 +699,7 @@ impl<'a> Runner<'a> {
                     let interpolate = &input_path
                         [interpolate_idx..input_path.len() - dep.len() + interpolate_idx + 1];
                     self.expand_interpolate_match(
+                        watcher,
                         &input_path,
                         interpolate,
                         parent_job,
@@ -689,6 +718,7 @@ impl<'a> Runner<'a> {
 
     async fn expand_interpolate_match(
         &mut self,
+        watcher: &mut RecommendedWatcher,
         input: &str,
         interpolate: &str,
         parent_job: usize,
@@ -698,7 +728,7 @@ impl<'a> Runner<'a> {
         let file_num = self.add_file(input.to_string());
         {
             let file = self.get_file_mut(file_num).unwrap();
-            file.init(Some(job_num)).await;
+            file.init(watcher, Some(job_num)).await;
         }
         let task = self.chompfile.get_task(parent_task);
         let parent_target = task.target.as_ref().unwrap();
@@ -714,11 +744,11 @@ impl<'a> Runner<'a> {
         let parent_task_deps = self.chompfile.get_task(parent_task).deps.as_ref().unwrap();
         for dep in parent_task_deps {
             if !dep.contains("#") {
-                let dep_job = self.lookup_target(&dep).await?;
+                let dep_job = self.lookup_target(watcher, &dep).await?;
                 let job = self.get_job_mut(job_num).unwrap();
                 job.deps.push(dep_job);
                 // important aspect of retaining depth-first semantics
-                self.expand_job(dep_job, Some(job_num)).await?;
+                self.expand_job(watcher, dep_job, Some(job_num)).await?;
             }
         }
         Ok(job_num)
@@ -765,7 +795,7 @@ impl<'a> Runner<'a> {
             match completed.code() {
                 Some(code) => {
                     if code == 0 {
-                        self.mark_complete(completed_job_num, false);
+                        self.mark_complete(completed_job_num, true, false);
                         let job = match &self.nodes[completed_job_num] {
                             Node::Job(job) => job,
                             _ => panic!("Expected job"),
@@ -781,7 +811,7 @@ impl<'a> Runner<'a> {
                             }
                         }
                     } else {
-                        self.mark_complete(completed_job_num, true);
+                        self.mark_complete(completed_job_num, true, true);
                     }
                 }
                 None => {
@@ -806,12 +836,21 @@ pub async fn run(opts: RunOptions) -> Result<(), TaskError> {
     }
 
     let mut runner = Runner::new(&chompfile, &opts.cwd);
+    let (tx, rx) = channel();
+    let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
 
     for target in &opts.targets {
-        runner.expand_target(target, None).await?;
+        runner.expand_target(&mut watcher, target, None).await?;
     }
 
     runner.drive_targets(&opts.targets).await?;
+
+    loop {
+        match rx.recv() {
+           Ok(event) => println!("{:?}", event),
+           Err(e) => println!("watch error: {:?}", e),
+        }
+    }
 
     Ok(())
 }
