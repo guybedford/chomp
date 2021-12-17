@@ -104,7 +104,6 @@ struct Job {
     end_time: Option<Instant>,
     #[derivative(Debug = "ignore")]
     future: Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
-    live: bool,
 }
 
 #[derive(Debug)]
@@ -157,7 +156,12 @@ impl File {
                 _ => panic!("Unknown file error"),
             },
         };
-        watcher.watch(&self.name, RecursiveMode::Recursive).unwrap();
+        match watcher.watch(&self.name, RecursiveMode::Recursive) {
+            Ok(_) => {},
+            Err(_) => {
+                eprintln!("Unable to watch {}", self.name);
+            }
+        };
     }
 }
 
@@ -187,7 +191,6 @@ impl<'a> Job {
             start_time: None,
             end_time: None,
             future: None,
-            live: false,
         }
     }
 
@@ -537,6 +540,13 @@ impl<'a> Runner<'a> {
         else if let Some(target) = task.target.as_ref() {
             env.insert("out".to_string(), target.to_string());
         }
+        if job.interpolate.is_none() {
+            if let Some(deps) = &task.deps {
+                if deps.len() > 0 {
+                    env.insert("in".to_string(), deps.first().unwrap().into());
+                }
+            }
+        }
         let future = self.cmd_pool.run(&run, Some(&env));
         {
             let job = self.get_job_mut(job_num).unwrap();
@@ -586,7 +596,6 @@ impl<'a> Runner<'a> {
                     JobState::Pending => {
                         let mut all_completed = true;
                         let job = self.get_job_mut(job_num).unwrap();
-                        job.live = true;
                         let deps = job.deps.clone();
                         // TODO: Use a driver counter for deps
                         for dep in deps {
@@ -740,6 +749,9 @@ impl<'a> Runner<'a> {
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
                 if matches!(job.state, JobState::Pending) {
+                    if let Some(drives) = drives {
+                        job.drives.push(drives);
+                    }
                     return Ok(());
                 }
 
@@ -938,7 +950,7 @@ impl<'a> Runner<'a> {
                                 Node::Job(job) => job,
                                 _ => panic!("Expected job"),
                             };
-                            if job.live {
+                            if !matches!(job.state, JobState::Uninitialized) {
                                 self.drive_all(drive, &mut jobs, &mut futures, false)?;
                             }
                         }
@@ -1038,7 +1050,7 @@ async fn drive_watcher<'a>(
                                     Node::Job(job) => job,
                                     _ => panic!("Expected job"),
                                 };
-                                if job.live {
+                                if !matches!(job.state, JobState::Uninitialized) {
                                     runner.drive_all(drive, &mut jobs, &mut futures, true)?;
                                 }
                             }

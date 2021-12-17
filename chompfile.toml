@@ -1,7 +1,7 @@
 version = 0.1
 
 [[task]]
-  target = "target/Debug/cmp.exe"
+  target = "target/Debug/chp.exe"
   run = "cargo build"
 
 [[task]]
@@ -11,17 +11,18 @@ version = 0.1
   run = "swc $in -o $out"
 
 [[task]]
-  name = "test"
-  deps = ["dep"]
-
-[[task]]
-  name = "dep"
+  target = "test/lib/all.js"
+  deps = ["test/lib/test.js", "test/lib/dep.js"]
+  run = """
+    cat test/lib/test.js > test/lib/all.js
+    cat test/lib/dep.js >> test/lib/all.js
+  """
 
 [[task]]
   name = "install"
-  deps = ["target/Debug/cmp.exe"]
+  deps = ["target/Debug/chp.exe"]
   run = """
-    cp target/Debug/cmp.exe ~/bin/
+    cp target/Debug/chp.exe ~/bin/
     # two copies since one is in use
-    cp target/Debug/cmp.exe ~/bin/cmp2.exe
+    cp target/Debug/chp.exe ~/bin/chp2.exe
   """
