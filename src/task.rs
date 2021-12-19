@@ -28,6 +28,7 @@ struct Chompfile {
     version: f32,
     task: Option<Vec<ChompTask>>,
     group: Option<BTreeMap<String, BTreeMap<String, ChompTask>>>,
+    env: Option<BTreeMap<String, String>>,
 }
 
 impl Chompfile {
@@ -43,6 +44,7 @@ struct ChompTask {
     deps: Option<Vec<String>>,
     env: Option<BTreeMap<String, String>>,
     run: Option<String>,
+    
 }
 
 pub struct RunOptions<'a> {
@@ -363,14 +365,14 @@ impl<'a> Runner<'a> {
             if let Some(start_time) = job.start_time {
                 if failed {
                     println!(
-                        "x {} [{:?}, {:?} TOTAL]",
+                        "x {} [{:?} {:?}]",
                         job.display_name(chompfile),
                         end_time - start_time,
                         end_time - start_time_deps
                     );
                 } else {
                     println!(
-                        "√ {} [{:?}, {:?} TOTAL]",
+                        "√ {} [{:?} {:?}]",
                         job.display_name(chompfile),
                         end_time - start_time,
                         end_time - start_time_deps
@@ -381,7 +383,7 @@ impl<'a> Runner<'a> {
                     panic!("Did not expect failed for cached");
                 }
                 println!(
-                    "● {} [cached, {:?} TOTAL]",
+                    "- {} [- {:?}]",
                     job.display_name(chompfile),
                     end_time - start_time_deps
                 );
@@ -511,40 +513,36 @@ impl<'a> Runner<'a> {
         println!("○ {}", job.display_name(self.chompfile));
 
         let run: String = task.run.as_ref().unwrap().to_string();
-        let mut env = if let Some(env) = &task.env {
+        let mut env = if let Some(global_env) = &self.chompfile.env {
+            let mut env = global_env.clone();
+            if let Some(local_env) = &task.env {
+                for (item, value) in local_env {
+                    env.insert(item.to_string(), value.to_string());
+                }
+            }
+            env
+        }
+        else if let Some(env) = &task.env {
             env.clone()
         }
         else {
             BTreeMap::new()
         };
         if let Some(interpolate) = &job.interpolate {
-            env.insert(
-                "in".to_string(),
-                task.deps
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .find(|&d| d.contains('#'))
-                    .unwrap()
-                    .replace("#", interpolate),
-            );
-            env.insert(
-                "out".to_string(),
-                task.target.as_ref().unwrap().replace("#", interpolate),
-            );
-            env.insert(
-                "match".to_string(),
-                interpolate.to_string()
-            );
+            env.insert("match".to_string(), interpolate.to_string());
         }
-        else if let Some(target) = task.target.as_ref() {
-            env.insert("out".to_string(), target.to_string());
+        if let Some(target) = task.target.as_ref() {
+            let target_str = if let Some(interpolate) = &job.interpolate { target.replace("#", &interpolate) } else { target.to_string() };
+            env.insert("target".to_string(), target_str);
         }
-        if job.interpolate.is_none() {
-            if let Some(deps) = &task.deps {
-                if deps.len() > 0 {
-                    env.insert("in".to_string(), deps.first().unwrap().into());
+        if let Some(deps) = &task.deps {
+            let dep_index = if job.interpolate.is_some() { deps.iter().enumerate().find(|(_, d)| { d.contains('#') }).unwrap().0 } else { 0 };
+            for (num, dep) in deps.iter().enumerate() {
+                if num == dep_index {
+                    let dep_str = if let Some(interpolate) = &job.interpolate { dep.replace("#", &interpolate) } else { dep.to_string() };
+                    env.insert("dep".to_string(), dep_str);
                 }
+                env.insert(format!("dep{}", num), dep.to_string());
             }
         }
         let future = self.cmd_pool.run(&run, Some(&env));

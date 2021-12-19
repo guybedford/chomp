@@ -16,7 +16,6 @@ pub struct CmdPool {
 fn replace_env_vars (arg: &str, env: &BTreeMap<String, String>) -> String {
     let mut out_arg = arg.to_string();
     for (name, value) in env {
-        println!("::{}", name);
         let mut env_str = String::from("$");
         env_str.push_str(name);
         if out_arg.contains(&env_str) {
@@ -31,11 +30,11 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
     lazy_static! {
         // Currently does not support spaces in arg quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
-            ^(?P<cmd>[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
-            \\ (?P<args>(?:\\ (?:
-                [^`~!\\#$&*()\t\\{\\[|;'\"n<>?\\\\\\ ]+? |
-                (?:\"[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?\") |
-                (?:'[^`~!\\#$&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?')
+            ^(?P<cmd>[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
+             (?P<args>(?:\\ (?:
+                [^`~!\\#&*()\t\\{\\[|;'\"n<>?\\\\\\ ]+? |
+                (?:\"[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?\") |
+                (?:'[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?') |
             )*?)*?)$
         ").unwrap();
     }
@@ -71,7 +70,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
                     command.env(name, value);
                 }
             }
-            for arg in capture["args"].split(" ") {
+            for arg in capture["args"][1..].split(" ") {
                 if let Some(env) = env.as_ref() {
                     command.arg(replace_env_vars(arg, env));
                 }
