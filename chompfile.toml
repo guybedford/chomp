@@ -1,28 +1,15 @@
 version = 0.1
 
-[[task]]
-  target = "target/Debug/chp.exe"
-  run = "cargo build"
+[env]
+  build_type = "Debug"
 
 [[task]]
   name = "build"
   target = "test/lib/#.js"
   deps = ["node_modules/.bin/swc", "test/src/#.ts"]
-  run = "swc $in -o $out"
-
-[[task]]
-  target = "test/lib/all.js"
-  deps = ["test/lib/test.js", "test/lib/dep.js"]
-  run = """
-    cat test/lib/test.js > test/lib/all.js
-    cat test/lib/dep.js >> test/lib/all.js
-  """
+  run = "swc $DEP -o $TARGET"
 
 [[task]]
   name = "install"
-  deps = ["target/Debug/chp.exe"]
-  run = """
-    cp target/Debug/chp.exe ~/bin/
-    # two copies since one is in use
-    cp target/Debug/chp.exe ~/bin/chp2.exe
-  """
+  target = "node_modules/.bin/swc"
+  run = "npm install @swc/core @swc/cli --save-dev"

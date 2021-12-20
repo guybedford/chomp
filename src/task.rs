@@ -44,7 +44,7 @@ struct ChompTask {
     deps: Option<Vec<String>>,
     env: Option<BTreeMap<String, String>>,
     run: Option<String>,
-    
+
 }
 
 pub struct RunOptions<'a> {
@@ -514,35 +514,42 @@ impl<'a> Runner<'a> {
 
         let run: String = task.run.as_ref().unwrap().to_string();
         let mut env = if let Some(global_env) = &self.chompfile.env {
-            let mut env = global_env.clone();
+            let mut env = BTreeMap::new();
+            for (item, value) in global_env {
+                env.insert(item.to_uppercase(), value.to_string());
+            }
             if let Some(local_env) = &task.env {
                 for (item, value) in local_env {
-                    env.insert(item.to_string(), value.to_string());
+                    env.insert(item.to_uppercase(), value.to_string());
                 }
             }
             env
         }
-        else if let Some(env) = &task.env {
-            env.clone()
+        else if let Some(local_env) = &task.env {
+            let mut env = BTreeMap::new();
+            for (item, value) in local_env {
+                env.insert(item.to_uppercase(), value.to_string());
+            }
+            env
         }
         else {
             BTreeMap::new()
         };
         if let Some(interpolate) = &job.interpolate {
-            env.insert("match".to_string(), interpolate.to_string());
+            env.insert("MATCH".to_string(), interpolate.to_string());
         }
         if let Some(target) = task.target.as_ref() {
             let target_str = if let Some(interpolate) = &job.interpolate { target.replace("#", &interpolate) } else { target.to_string() };
-            env.insert("target".to_string(), target_str);
+            env.insert("TARGET".to_string(), target_str);
         }
         if let Some(deps) = &task.deps {
             let dep_index = if job.interpolate.is_some() { deps.iter().enumerate().find(|(_, d)| { d.contains('#') }).unwrap().0 } else { 0 };
             for (num, dep) in deps.iter().enumerate() {
                 if num == dep_index {
                     let dep_str = if let Some(interpolate) = &job.interpolate { dep.replace("#", &interpolate) } else { dep.to_string() };
-                    env.insert("dep".to_string(), dep_str);
+                    env.insert("DEP".to_string(), dep_str);
                 }
-                env.insert(format!("dep{}", num), dep.to_string());
+                env.insert(format!("DEP{}", num), dep.to_string());
             }
         }
         let future = self.cmd_pool.run(&run, Some(&env));
