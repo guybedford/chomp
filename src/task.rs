@@ -41,10 +41,48 @@ impl Chompfile {
 struct ChompTask {
     name: Option<String>,
     target: Option<String>,
+    targets: Option<Vec<String>>,
     deps: Option<Vec<String>>,
     env: Option<BTreeMap<String, String>>,
     run: Option<String>,
+}
 
+struct TargetIter<'a> {
+    task: &'a ChompTask,
+    idx: usize,
+}
+
+impl<'a> Iterator for TargetIter<'a> {
+    type Item = &'a str;
+    fn next(&mut self) -> Option<&'a str> {
+        let result: Option<&'a str> = if let Some(target) = &self.task.target {
+            if self.idx == 0 {
+                Some(target)
+            }
+            else {
+                None
+            }
+        }
+        else if let Some(ref targets) = &self.task.targets {
+            if self.idx < targets.len() {
+                Some(&targets[self.idx])
+            }
+            else {
+                None
+            }
+        }
+        else {
+            None
+        };
+        self.idx += 1;
+        result
+    }
+}
+
+impl<'a> ChompTask {
+    fn target_iter(&'a self) -> TargetIter<'a> {
+        TargetIter { task: &self, idx: 0 }
+    }
 }
 
 pub struct RunOptions<'a> {
@@ -100,7 +138,7 @@ struct Job {
     drives: Vec<usize>,
     state: JobState,
     mtime: Option<Duration>,
-    target: Option<String>,
+    targets: Vec<String>,
     start_time_deps: Option<Instant>,
     start_time: Option<Instant>,
     end_time: Option<Instant>,
@@ -187,7 +225,7 @@ impl<'a> Job {
             deps: Vec::new(),
             drives: Vec::new(),
             state: JobState::Uninitialized,
-            target: None,
+            targets: Vec::new(),
             mtime: None,
             start_time_deps: None,
             start_time: None,
@@ -197,15 +235,15 @@ impl<'a> Job {
     }
 
     fn display_name(&self, chompfile: &Chompfile) -> String {
-        match &self.target {
+        match self.targets.first() {
             Some(target) => {
-                if target.contains("#") {
+                if target.contains('#') {
                     target.replace("#", &self.interpolate.as_ref().unwrap())
                 } else {
                     String::from(target)
                 }
             }
-            _ => {
+            None => {
                 let task = chompfile.get_task(self.task);
                 match &task.name {
                     Some(name) => String::from(format!(":{}", name)),
@@ -224,19 +262,29 @@ impl<'a> Job {
         if let Some(parent_job) = parent_job {
             self.drives.push(parent_job);
         }
-        if let Some(target) = &self.target {
-            self.mtime = match fs::metadata(target).await {
-                Ok(n) => Some(
-                    n.modified()
-                        .expect("No modified implementation")
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap(),
-                ),
-                Err(e) => match e.kind() {
-                    NotFound => None,
-                    _ => panic!("Unknown file error"),
-                },
-            };
+        let mut futures = Vec::new();
+        for target in &self.targets {
+            futures.push(async move {
+                match fs::metadata(target).await {
+                    Ok(n) => Some(
+                        n.modified()
+                            .expect("No modified implementation")
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap(),
+                    ),
+                    Err(e) => match e.kind() {
+                        NotFound => None,
+                        _ => panic!("Unknown file error"),
+                    },
+                }
+            }.boxed());
+        }
+        while futures.len() > 0 {
+            let (completed, _, new_futures) = select_all(futures).await;
+            futures = new_futures;
+            if completed > self.mtime {
+                self.mtime = completed;
+            }
         }
         self.state = JobState::Pending;
     }
@@ -267,10 +315,12 @@ impl<'a> Runner<'a> {
         let num = self.nodes.len();
         let task = &self.chompfile.get_task(task_num);
 
-        let is_interpolate_target = match task.target.as_ref() {
-            Some(target) if target.contains('#') => true,
-            _ => false,
-        };
+        let mut is_interpolate_target = false;
+        for t in task.target_iter() {
+            if !is_interpolate_target && t.contains('#') {
+                is_interpolate_target = true;
+            }
+        }
 
         // map target name
         if let Some(ref name) = task.name {
@@ -284,17 +334,20 @@ impl<'a> Runner<'a> {
 
         // map interpolation for primary interpolation job
         if is_interpolate_target && interpolate.is_none() {
-            self.interpolate_nodes
-                .push((task.target.as_ref().unwrap().to_string(), num));
+            for t in task.target_iter() {
+                if t.contains('#') {
+                    self.interpolate_nodes.push((t.to_string(), num));
+                }
+            }
         }
 
         // map target file as file node
         if !is_interpolate_target || interpolate.is_some() {
-            if let Some(ref target) = task.target {
+            for target in task.target_iter() {
                 let file_target = match &interpolate {
                     Some(interpolate) => {
                         if !target.contains("#") {
-                            panic!("Not an interpolation target");
+                            continue;
                         }
                         target.replace("#", interpolate)
                     }
@@ -458,8 +511,14 @@ impl<'a> Runner<'a> {
             return Ok(None);
         }
         // the interpolation template itself is not run
-        if let Some(target) = task.target.as_ref() {
-            if target.contains("#") && job.interpolate.is_none() {
+        if job.interpolate.is_none() {
+            let mut has_interpolation = false;
+            for target in task.target_iter() {
+                if !has_interpolation && target.contains('#') {
+                    has_interpolation = true;
+                }
+            }
+            if has_interpolation {
                 self.mark_complete(job_num, false, false);
                 return Ok(None);
             }
@@ -538,9 +597,16 @@ impl<'a> Runner<'a> {
         if let Some(interpolate) = &job.interpolate {
             env.insert("MATCH".to_string(), interpolate.to_string());
         }
-        if let Some(target) = task.target.as_ref() {
+        let mut target_index = 0;
+        for target in task.target_iter() {
             let target_str = if let Some(interpolate) = &job.interpolate { target.replace("#", &interpolate) } else { target.to_string() };
-            env.insert("TARGET".to_string(), target_str);
+            if target_index == 0 {
+                env.insert("TARGET".to_string(), target_str);
+            }
+            else {
+                env.insert(format!("TARGET{}", target_index), target_str);
+            }
+            target_index += 1;
         }
         if let Some(deps) = &task.deps {
             let dep_index = if job.interpolate.is_some() { deps.iter().enumerate().find(|(_, d)| { d.contains('#') }).unwrap().0 } else { 0 };
@@ -765,16 +831,22 @@ impl<'a> Runner<'a> {
 
                 let task_num = job.task;
                 let task = self.chompfile.get_task(job.task);
-                if let Some(target) = &task.target {
-                    is_interpolate = target.contains("#");
-                    is_wildcard = target.contains("*");
+                let mut job_targets = Vec::new();
+                for target in task.target_iter() {
+                    if !is_interpolate && target.contains("#") {
+                        is_interpolate = true;
+                    }
+                    if !is_wildcard && target.contains("*") {
+                        is_wildcard = true;
+                    }
                     if is_wildcard && is_interpolate {
                         panic!("Cannot have wildcard + interpolate");
                     }
-                    if !target.contains("#") {
-                        job.target = Some(target.to_string());
-                    }
-                };
+                    job_targets.push(target.to_string());
+                }
+                if !is_interpolate {
+                    job.targets = job_targets;
+                }
 
                 // this must come after setting target above
                 job.init(drives).await;
@@ -880,25 +952,30 @@ impl<'a> Runner<'a> {
             file.init(watcher, Some(job_num)).await;
         }
         let task = self.chompfile.get_task(parent_task);
-        let parent_target = task.target.as_ref().unwrap();
-        let output_path = parent_target.replace("#", interpolate);
-        let job = self.get_job_mut(job_num).unwrap();
-        job.deps.push(file_num);
-        job.target = Some(output_path.to_string());
-        job.init(Some(parent_job)).await;
-
-        let parent = self.get_job_mut(parent_job).unwrap();
-        parent.deps.push(job_num);
-        // non-interpolation parent interpolation template deps are child deps
-        let parent_task_deps = self.chompfile.get_task(parent_task).deps.as_ref().unwrap();
-        for dep in parent_task_deps {
-            if !dep.contains("#") {
-                let dep_job = self.lookup_target(watcher, &dep, true).await?;
-                let job = self.get_job_mut(job_num).unwrap();
-                job.deps.push(dep_job);
-                // important aspect of retaining depth-first semantics
-                self.expand_job(watcher, dep_job, Some(job_num)).await?;
-            }
+        let mut parent_targets = Vec::new();
+        for parent_target in task.target_iter() {
+            parent_targets.push(parent_target.to_string());
+        }
+        for parent_target in parent_targets {
+            let output_path = parent_target.replace("#", interpolate);
+            let job = self.get_job_mut(job_num).unwrap();
+            job.deps.push(file_num);
+            job.targets = vec![output_path.to_string()];
+            job.init(Some(parent_job)).await;
+    
+            let parent = self.get_job_mut(parent_job).unwrap();
+            parent.deps.push(job_num);
+            // non-interpolation parent interpolation template deps are child deps
+            let parent_task_deps = self.chompfile.get_task(parent_task).deps.as_ref().unwrap();
+            for dep in parent_task_deps {
+                if !dep.contains("#") {
+                    let dep_job = self.lookup_target(watcher, &dep, true).await?;
+                    let job = self.get_job_mut(job_num).unwrap();
+                    job.deps.push(dep_job);
+                    // important aspect of retaining depth-first semantics
+                    self.expand_job(watcher, dep_job, Some(job_num)).await?;
+                }
+            }    
         }
         Ok(job_num)
     }
