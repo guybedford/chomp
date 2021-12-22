@@ -29,7 +29,7 @@ struct Chompfile {
     version: f32,
     task: Option<Vec<ChompTask>>,
     group: Option<BTreeMap<String, BTreeMap<String, ChompTask>>>,
-    env: Option<BTreeMap<String, BTreeMap<String, String>>>,
+    env: Option<BTreeMap<String, String>>,
 }
 
 impl Chompfile {
@@ -92,7 +92,6 @@ pub struct RunOptions<'a> {
     pub cfg_file: PathBuf,
     pub targets: Vec<String>,
     pub watch: bool,
-    pub env: &'a str,
 }
 
 #[derive(Debug)]
@@ -208,7 +207,6 @@ impl File {
 }
 
 struct Runner<'a> {
-    env: &'a str,
     ui: &'a ChompUI,
     cmd_pool: CmdPool,
     chompfile: &'a Chompfile,
@@ -297,12 +295,7 @@ impl<'a> Job {
 }
 
 impl<'a> Runner<'a> {
-    fn new(
-        ui: &'a ChompUI,
-        chompfile: &'a Chompfile,
-        cwd: &'a PathBuf,
-        env: &'a str,
-    ) -> Runner<'a> {
+    fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf) -> Runner<'a> {
         let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
         let mut runner = Runner {
             ui,
@@ -312,7 +305,6 @@ impl<'a> Runner<'a> {
             task_jobs: BTreeMap::new(),
             file_nodes: BTreeMap::new(),
             interpolate_nodes: Vec::new(),
-            env,
         };
         // expand tasks into initial job list
         if let Some(tasks) = &runner.chompfile.task {
@@ -583,20 +575,11 @@ impl<'a> Runner<'a> {
         }
         println!("○ {}", job.display_name(self.chompfile));
 
-        let run = task.run.as_ref().unwrap().to_string();
-        let mut env = if let Some(envs) = &self.chompfile.env {
+        let run: String = task.run.as_ref().unwrap().to_string();
+        let mut env = if let Some(global_env) = &self.chompfile.env {
             let mut env = BTreeMap::new();
-            if let Some(default_env) = envs.get("default") {
-                for (item, value) in default_env {
-                    env.insert(item.to_uppercase(), value.to_string());
-                }
-            }
-            if self.env != "default" {
-                if let Some(named_env) = envs.get(self.env) {
-                    for (item, value) in named_env {
-                        env.insert(item.to_uppercase(), value.to_string());
-                    }
-                }
+            for (item, value) in global_env {
+                env.insert(item.to_uppercase(), value.to_string());
             }
             if let Some(local_env) = &task.env {
                 for (item, value) in local_env {
@@ -1202,7 +1185,7 @@ pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
         )));
     }
 
-    let mut runner: Runner = Runner::new(opts.ui, &chompfile, &opts.cwd, &opts.env);
+    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd);
     let (tx, rx) = channel();
     let mut watcher = raw_watcher(tx).unwrap();
 

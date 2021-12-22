@@ -81,15 +81,6 @@ async fn main() -> Result<(), ChompError> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("env")
-                .short("e")
-                .long("env")
-                .value_name("ENV")
-                .help("Environment variable mode")
-                .default_value("default")
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name("target")
                 .value_name("TARGET")
                 .help("Generate a target or list of targets")
@@ -113,8 +104,7 @@ async fn main() -> Result<(), ChompError> {
         targets.push(String::from(item));
     }
 
-    let port = matches.value_of("port").unwrap_or_default().parse().unwrap();
-    let env = matches.value_of("env").unwrap_or_default();
+    let port = matches.value_of("port").unwrap_or("8080").parse().unwrap();
 
     if matches.is_present("serve") {
         tokio::spawn(async move {
@@ -136,7 +126,6 @@ async fn main() -> Result<(), ChompError> {
         watch: matches.is_present("serve") || matches.is_present("watch"),
         ui: &ui,
         cwd: env::current_dir()?,
-        env,
         targets,
         cfg_file: PathBuf::from(matches.value_of("config").unwrap_or_default()),
     }).await?;
