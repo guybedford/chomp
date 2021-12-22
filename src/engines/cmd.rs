@@ -19,7 +19,7 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_cmd(cwd: &str, run: String, env: Option<&BTreeMap<String, String>>) -> Child {
+pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>) -> Child {
     lazy_static! {
         // Currently does not support spaces in arg quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
@@ -57,13 +57,11 @@ pub fn create_cmd(cwd: &str, run: String, env: Option<&BTreeMap<String, String>>
         if do_spawn {
             let mut command = Command::new(&cmd);
             command.env("PATH", &path);
-            if let Some(env) = env {
-                for (name, value) in env {
-                    command.env(name, value);
-                }
+            for (name, value) in env {
+                command.env(name, value);
             }
             for arg in capture["args"][1..].split(" ") {
-                if let Some(env) = env.as_ref() {
+                if env.len() > 0 {
                     command.arg(replace_env_vars(arg, env));
                 } else {
                     command.arg(arg);
@@ -80,13 +78,11 @@ pub fn create_cmd(cwd: &str, run: String, env: Option<&BTreeMap<String, String>>
                     cmd.push_str(".cmd");
                     let mut command = Command::new(&cmd);
                     command.env("PATH", &path);
-                    if let Some(env) = env {
-                        for (name, value) in env {
-                            command.env(name, value);
-                        }
+                    for (name, value) in env {
+                        command.env(name, value);
                     }
                     for arg in capture["args"].split(" ") {
-                        if let Some(env) = env.as_ref() {
+                        if env.len() > 0 {
                             command.arg(replace_env_vars(arg, env));
                         } else {
                             command.arg(arg);
@@ -119,10 +115,8 @@ pub fn create_cmd(cwd: &str, run: String, env: Option<&BTreeMap<String, String>>
         // ensure file operations use UTF8
         let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';");
         // we also set _custom_ variables as local variables for easy substitution
-        if let Some(env) = env {
-            for (name, value) in env {
-                run_str.push_str(&format!("${}=\"{}\";", name, value));
-            }
+        for (name, value) in env {
+            run_str.push_str(&format!("${}=\"{}\";", name, value));
         }
         run_str.push('\n');
         run_str.push_str(&run);
@@ -134,17 +128,15 @@ pub fn create_cmd(cwd: &str, run: String, env: Option<&BTreeMap<String, String>>
         command.arg(run);
     }
     command.env("PATH", path);
-    if let Some(env) = env {
-        for (name, value) in env {
-            command.env(name, value);
-        }
+    for (name, value) in env {
+        command.env(name, value);
     }
     command.stdin(Stdio::null());
     command.spawn().unwrap()
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &str, run: String, env: Option<&BTreeMap<String, String>>) -> Child {
+pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>) -> Child {
     let mut command = Command::new("sh");
     let mut path = env::var("PATH").unwrap_or_default();
     if path.len() > 0 {

@@ -1,8 +1,7 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
-use clap::{App, Arg, AppSettings};
-use std::thread;
+use clap::{App, Arg};
 use std::io::stdout;
 
 use crossterm::tty::IsTty;
@@ -19,7 +18,6 @@ use std::env;
 enum ChompError {
     IoError(std::io::Error),
     TaskError(task::TaskError),
-    CrossTermError(crossterm::ErrorKind),
 }
 
 impl From<std::io::Error> for ChompError {

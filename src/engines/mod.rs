@@ -1,16 +1,12 @@
 mod cmd;
 mod node;
 
-use std::path::PathBuf;
-use std::collections::VecDeque;
 use futures::future::BoxFuture;
 use crate::engines::node::node_runner;
 use cmd::create_cmd;
 use async_std::process::Child;
 use async_std::process::ExitStatus;
-use futures::future::Future;
 use std::collections::BTreeMap;
-use std::fs;
 
 pub enum ChompEngine {
     Cmd,
@@ -31,7 +27,7 @@ impl<'a> CmdPool {
     fn get_next(
         &mut self,
         run: String,
-        env: Option<&BTreeMap<String, String>>,
+        env: &BTreeMap<String, String>,
     ) -> BoxFuture<'static, Child> {
         let child = create_cmd(&self.cwd, run, env);
         Box::pin(async { child })
@@ -40,7 +36,7 @@ impl<'a> CmdPool {
     pub fn run(
         &mut self,
         run: String,
-        env: Option<&BTreeMap<String, String>>,
+        env: &mut BTreeMap<String, String>,
         engine: ChompEngine,
     ) -> BoxFuture<'a, ExitStatus> {
         match engine {

@@ -660,7 +660,7 @@ impl<'a> Runner<'a> {
             None => ChompEngine::Cmd,
         };
 
-        let future = self.cmd_pool.run(run, Some(&env), engine);
+        let future = self.cmd_pool.run(run, &mut env, engine);
         {
             let job = self.get_job_mut(job_num).unwrap();
             job.future = Some(future.boxed().shared());
@@ -1100,7 +1100,7 @@ impl<'a> Runner<'a> {
         let evt = if blocking {
             match rx.recv() {
                 Ok(evt) => evt,
-                Err(e) => panic!("Watcher disconnected"),
+                Err(_) => panic!("Watcher disconnected"),
             }
         } else {
             match rx.try_recv() {

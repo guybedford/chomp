@@ -1,22 +1,33 @@
+use crate::engines::CmdPool;
+use async_std::fs;
 use async_std::process::ExitStatus;
 use futures::future::BoxFuture;
-use crate::engines::CmdPool;
 use std::collections::BTreeMap;
-use async_std::process::{Child};
-use async_std::fs;
 use std::env;
 use uuid::Uuid;
 
-pub fn node_runner (cmd_pool: &mut CmdPool, run: String, env: Option<&BTreeMap<String, String>>) -> BoxFuture<'static, ExitStatus> {
+// Custom node loader to mimic current working directory despite loading from a tmp file
+const NODE_CMD: &str = "node --no-warnings --loader \"data:text/javascript,import{readFileSync}from'fs';export function resolve(u,c,d){if(u.endsWith('[cm]'))return{url:u,format:'module'};return d(u,c);}export function load(u,c,d){if(u.endsWith('[cm]'))return{source:readFileSync(process.env.CHOMP_MAIN),format:'module'};return d(u,c)}\" [cm]";
+
+pub fn node_runner(
+  cmd_pool: &mut CmdPool,
+  run: String,
+  env: &mut BTreeMap<String, String>,
+) -> BoxFuture<'static, ExitStatus> {
   let uuid = Uuid::new_v4();
   let mut tmp_file = env::temp_dir();
   tmp_file.push(&format!("{}.mjs", uuid.to_simple().to_string()));
-  let child_future = cmd_pool.get_next(format!("node {}", tmp_file.to_str().unwrap()), env);
+  env.insert("".to_string(), tmp_file.to_str().unwrap().to_string());
+  let child_future = cmd_pool.get_next(NODE_CMD.to_string(), env);
   Box::pin(async move {
-    fs::write(&tmp_file, run).await.expect("unable to write temporary file");
+    fs::write(&tmp_file, run)
+      .await
+      .expect("unable to write temporary file");
     let mut child = child_future.await;
     let result = child.status().await.expect("Child process error");
-    fs::remove_file(&tmp_file).await.expect("unable to cleanup tmp file");
+    fs::remove_file(&tmp_file)
+      .await
+      .expect("unable to cleanup tmp file");
     result
   })
 }
