@@ -8,6 +8,7 @@ use async_std::process::Child;
 use async_std::process::ExitStatus;
 use std::collections::BTreeMap;
 
+#[derive(Copy, Clone, Debug)]
 pub enum ChompEngine {
     Cmd,
     Node,

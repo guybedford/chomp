@@ -7,9 +7,11 @@ use std::io::stdout;
 use crossterm::tty::IsTty;
 
 mod task;
+mod chompfile;
 mod engines;
 mod ui;
 mod serve;
+mod js;
 
 use std::path::PathBuf;
 use std::env;
