@@ -1,4 +1,5 @@
-use crate::cmd::CmdPool;
+use crate::engines::CmdPool;
+use crate::engines::ChompEngine;
 use crate::ui::ChompUI;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
@@ -45,6 +46,7 @@ struct ChompTask {
     deps: Option<Vec<String>>,
     env: Option<BTreeMap<String, String>>,
     run: Option<String>,
+    engine: Option<String>,
 }
 
 struct TargetIter<'a> {
@@ -58,20 +60,16 @@ impl<'a> Iterator for TargetIter<'a> {
         let result: Option<&'a str> = if let Some(target) = &self.task.target {
             if self.idx == 0 {
                 Some(target)
-            }
-            else {
+            } else {
                 None
             }
-        }
-        else if let Some(ref targets) = &self.task.targets {
+        } else if let Some(ref targets) = &self.task.targets {
             if self.idx < targets.len() {
                 Some(&targets[self.idx])
-            }
-            else {
+            } else {
                 None
             }
-        }
-        else {
+        } else {
             None
         };
         self.idx += 1;
@@ -81,7 +79,10 @@ impl<'a> Iterator for TargetIter<'a> {
 
 impl<'a> ChompTask {
     fn target_iter(&'a self) -> TargetIter<'a> {
-        TargetIter { task: &self, idx: 0 }
+        TargetIter {
+            task: &self,
+            idx: 0,
+        }
     }
 }
 
@@ -198,7 +199,7 @@ impl File {
             },
         };
         match watcher.watch(&self.name, RecursiveMode::Recursive) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(_) => {
                 eprintln!("Unable to watch {}", self.name);
             }
@@ -266,20 +267,23 @@ impl<'a> Job {
         }
         let mut futures = Vec::new();
         for target in &self.targets {
-            futures.push(async move {
-                match fs::metadata(target).await {
-                    Ok(n) => Some(
-                        n.modified()
-                            .expect("No modified implementation")
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap(),
-                    ),
-                    Err(e) => match e.kind() {
-                        NotFound => None,
-                        _ => panic!("Unknown file error"),
-                    },
+            futures.push(
+                async move {
+                    match fs::metadata(target).await {
+                        Ok(n) => Some(
+                            n.modified()
+                                .expect("No modified implementation")
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap(),
+                        ),
+                        Err(e) => match e.kind() {
+                            NotFound => None,
+                            _ => panic!("Unknown file error"),
+                        },
+                    }
                 }
-            }.boxed());
+                .boxed(),
+            );
         }
         while futures.len() > 0 {
             let (completed, _, new_futures) = select_all(futures).await;
@@ -293,7 +297,12 @@ impl<'a> Job {
 }
 
 impl<'a> Runner<'a> {
-    fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf, env: &'a str) -> Runner<'a> {
+    fn new(
+        ui: &'a ChompUI,
+        chompfile: &'a Chompfile,
+        cwd: &'a PathBuf,
+        env: &'a str,
+    ) -> Runner<'a> {
         let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
         let mut runner = Runner {
             ui,
@@ -574,7 +583,7 @@ impl<'a> Runner<'a> {
         }
         println!("○ {}", job.display_name(self.chompfile));
 
-        let run: String = task.run.as_ref().unwrap().to_string();
+        let run = task.run.as_ref().unwrap().to_string();
         let mut env = if let Some(envs) = &self.chompfile.env {
             let mut env = BTreeMap::new();
             if let Some(default_env) = envs.get("default") {
@@ -582,11 +591,11 @@ impl<'a> Runner<'a> {
                     env.insert(item.to_uppercase(), value.to_string());
                 }
             }
-            if (self.env != "default") {
+            if self.env != "default" {
                 if let Some(named_env) = envs.get(self.env) {
                     for (item, value) in named_env {
                         env.insert(item.to_uppercase(), value.to_string());
-                    }   
+                    }
                 }
             }
             if let Some(local_env) = &task.env {
@@ -595,15 +604,13 @@ impl<'a> Runner<'a> {
                 }
             }
             env
-        }
-        else if let Some(local_env) = &task.env {
+        } else if let Some(local_env) = &task.env {
             let mut env = BTreeMap::new();
             for (item, value) in local_env {
                 env.insert(item.to_uppercase(), value.to_string());
             }
             env
-        }
-        else {
+        } else {
             BTreeMap::new()
         };
         if let Some(interpolate) = &job.interpolate {
@@ -611,26 +618,49 @@ impl<'a> Runner<'a> {
         }
         let mut target_index = 0;
         for target in task.target_iter() {
-            let target_str = if let Some(interpolate) = &job.interpolate { target.replace("#", &interpolate) } else { target.to_string() };
+            let target_str = if let Some(interpolate) = &job.interpolate {
+                target.replace("#", &interpolate)
+            } else {
+                target.to_string()
+            };
             if target_index == 0 {
                 env.insert("TARGET".to_string(), target_str);
-            }
-            else {
+            } else {
                 env.insert(format!("TARGET{}", target_index), target_str);
             }
             target_index += 1;
         }
         if let Some(deps) = &task.deps {
-            let dep_index = if job.interpolate.is_some() { deps.iter().enumerate().find(|(_, d)| { d.contains('#') }).unwrap().0 } else { 0 };
+            let dep_index = if job.interpolate.is_some() {
+                deps.iter()
+                    .enumerate()
+                    .find(|(_, d)| d.contains('#'))
+                    .unwrap()
+                    .0
+            } else {
+                0
+            };
             for (num, dep) in deps.iter().enumerate() {
                 if num == dep_index {
-                    let dep_str = if let Some(interpolate) = &job.interpolate { dep.replace("#", &interpolate) } else { dep.to_string() };
+                    let dep_str = if let Some(interpolate) = &job.interpolate {
+                        dep.replace("#", &interpolate)
+                    } else {
+                        dep.to_string()
+                    };
                     env.insert("DEP".to_string(), dep_str);
                 }
                 env.insert(format!("DEP{}", num), dep.to_string());
             }
         }
-        let future = self.cmd_pool.run(&run, Some(&env));
+
+        let engine = match &task.engine {
+            Some(engine) if engine == "node" => ChompEngine::Node,
+            Some(engine) if engine == "cmd" => ChompEngine::Cmd,
+            Some(engine) => panic!("Unknown engine {}", engine),
+            None => ChompEngine::Cmd,
+        };
+
+        let future = self.cmd_pool.run(run, Some(&env), engine);
         {
             let job = self.get_job_mut(job_num).unwrap();
             job.future = Some(future.boxed().shared());
@@ -974,7 +1004,6 @@ impl<'a> Runner<'a> {
             job.deps.push(file_num);
             job.targets = vec![output_path.to_string()];
             job.init(Some(parent_job)).await;
-    
             let parent = self.get_job_mut(parent_job).unwrap();
             parent.deps.push(job_num);
             // non-interpolation parent interpolation template deps are child deps
@@ -987,7 +1016,7 @@ impl<'a> Runner<'a> {
                     // important aspect of retaining depth-first semantics
                     self.expand_job(watcher, dep_job, Some(job_num)).await?;
                 }
-            }    
+            }
         }
         Ok(job_num)
     }
@@ -1173,9 +1202,7 @@ pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
         )));
     }
 
-    dbg!(opts.env);
-
-    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd, &opts.env);
+    let mut runner: Runner = Runner::new(opts.ui, &chompfile, &opts.cwd, &opts.env);
     let (tx, rx) = channel();
     let mut watcher = raw_watcher(tx).unwrap();
 

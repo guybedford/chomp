@@ -8,7 +8,7 @@ use std::io::stdout;
 use crossterm::tty::IsTty;
 
 mod task;
-mod cmd;
+mod engines;
 mod ui;
 mod serve;
 

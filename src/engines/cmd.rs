@@ -1,19 +1,12 @@
-use crate::ui::ChompUI;
 use async_std::process::Stdio;
-use std::path::PathBuf;
-use async_std::process::{Child, Command, ExitStatus};
-use futures::future::{Future};
+use async_std::process::{Child, Command};
+use regex::Regex;
 use std::collections::BTreeMap;
 use std::env;
-use regex::Regex;
 use std::fs;
+use std::path::PathBuf;
 
-pub struct CmdPool {
-    cwd: String,
-    pool_size: usize,
-}
-
-fn replace_env_vars (arg: &str, env: &BTreeMap<String, String>) -> String {
+fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
     let mut out_arg = arg.to_string();
     for (name, value) in env {
         let mut env_str = String::from("$");
@@ -26,7 +19,7 @@ fn replace_env_vars (arg: &str, env: &BTreeMap<String, String>) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> Child {
+pub fn create_cmd(cwd: &str, run: String, env: Option<&BTreeMap<String, String>>) -> Child {
     lazy_static! {
         // Currently does not support spaces in arg quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
@@ -47,7 +40,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
     path.push_str(cwd);
     path += "/node_modules/.bin";
     // fast path for direct commands to skip the shell entirely
-    if let Some(capture) = CMD.captures(run) {
+    if let Some(capture) = CMD.captures(&run) {
         let mut cmd = String::from(&capture["cmd"]);
         let mut do_spawn = true;
         // Path-like must be exact
@@ -57,8 +50,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
             let unc_str = unc_path.to_str().unwrap();
             if unc_str.starts_with(r"\\?\") {
                 cmd = String::from(&unc_path.to_str().unwrap()[4..]);
-            }
-            else {
+            } else {
                 do_spawn = false;
             }
         }
@@ -73,8 +65,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
             for arg in capture["args"][1..].split(" ") {
                 if let Some(env) = env.as_ref() {
                     command.arg(replace_env_vars(arg, env));
-                }
-                else {
+                } else {
                     command.arg(arg);
                 }
             }
@@ -82,7 +73,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
             match command.spawn() {
                 Ok(child) => {
                     return child;
-                },
+                }
                 // If first attempt fails, try ".cmd" extension too
                 // Note: this only works on latest nightly builds!
                 Err(_) => {
@@ -97,8 +88,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
                     for arg in capture["args"].split(" ") {
                         if let Some(env) = env.as_ref() {
                             command.arg(replace_env_vars(arg, env));
-                        }
-                        else {
+                        } else {
                             command.arg(arg);
                         }
                     }
@@ -106,7 +96,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
                     match command.spawn() {
                         Ok(child) => {
                             return child;
-                        },
+                        }
                         Err(_) => {}
                     }
                 }
@@ -114,7 +104,9 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
         }
     }
 
-    let shell = if env::var("PSModulePath").is_ok() { "powershell" } else {
+    let shell = if env::var("PSModulePath").is_ok() {
+        "powershell"
+    } else {
         panic!("Powershell is required on Windows for arbitrary scripts");
         // "cmd"
     };
@@ -135,8 +127,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
         run_str.push('\n');
         run_str.push_str(&run);
         command.arg(run_str);
-    }
-    else {
+    } else {
         command.arg("/d");
         // command.arg("/s");
         command.arg("/c");
@@ -153,7 +144,7 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
 }
 
 #[cfg(not(target_os = "windows"))]
-fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> Child {
+pub fn create_cmd(cwd: &str, run: String, env: Option<&BTreeMap<String, String>>) -> Child {
     let mut command = Command::new("sh");
     let mut path = env::var("PATH").unwrap_or_default();
     if path.len() > 0 {
@@ -173,33 +164,6 @@ fn create_cmd(cwd: &str, run: &str, env: Option<&BTreeMap<String, String>>) -> C
     command.arg(run);
     command.stdin(Stdio::null());
     command.spawn().unwrap()
-}
-
-// For Cmd + Unix shell we just run command directly
-// For powershell we immediately preinitialize the shell tasks in pools, as powershell can take a while to startup
-impl CmdPool {
-    pub fn new(pool_size: usize, cwd: String) -> CmdPool {
-        CmdPool {
-            pool_size,
-            cwd,
-        }
-    }
-
-    fn get_next (&mut self, run: &str, env: Option<&BTreeMap<String, String>>) -> Child {
-        create_cmd(&self.cwd, run, env)
-    }
-
-    pub fn run(
-        &mut self,
-        run: &str,
-        env: Option<&BTreeMap<String, String>>
-    ) -> impl Future<Output = ExitStatus> {
-        // TODO: compare env to default_env and apply dir for powershell
-        let mut child = self.get_next(run, env);
-        async move {
-            child.status().await.expect("Child process error")
-        }
-    }
 }
 
 // #[cfg(unix)]
