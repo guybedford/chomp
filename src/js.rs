@@ -1,9 +1,9 @@
 use v8;
-use serde_json::Value;
 use serde_v8::from_v8;
-use serde::Deserialize;
+use serde_v8::to_v8;
+use serde::{Serialize, Deserialize};
 
-pub fn run_js_fn<'a, T: Deserialize<'a>> (js_fn: &str, opts: Value) -> T {
+pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize> (js_fn: &str, opts: &U) -> T {
   let platform = v8::new_default_platform(0, false).make_shared();
   v8::V8::initialize_platform(platform);
   v8::V8::initialize();
@@ -19,7 +19,7 @@ pub fn run_js_fn<'a, T: Deserialize<'a>> (js_fn: &str, opts: Value) -> T {
   }
   let cb = v8::Local::<v8::Function>::try_from(function).unwrap();
   let this = v8::undefined(scope).into();
-  let args: Vec<v8::Local<v8::Value>> = vec![];
+  let args: Vec<v8::Local<v8::Value>> = vec![to_v8(scope, opts).expect("Unable to serialize")];
   let result = cb.call(scope, this, args.as_slice()).unwrap();
   let task: T = from_v8(scope, result).expect("Unable to deserialize");
   task

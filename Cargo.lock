@@ -294,7 +294,6 @@ dependencies = [
  "num_cpus",
  "regex",
  "serde",
- "serde_json",
  "serde_v8",
  "tokio",
  "tokio-util",
