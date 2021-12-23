@@ -1,12 +1,30 @@
+# npm packages template
+# - takes an array of packages, and ensures they are installed in node_modules
+# - depends on the npm install task, which ensures package.json + lock
+# - only if the initial install doesn't locate the packages do we add new installs
+# - installs packages one by one to not reinstall any specific existing package
 [[template]]
   name = "chomp:npm:packages"
-  definition = """({ packages }) => [{
-    targets: packages.map(pkg => `node_modules/${pkg}`),
-    deps: ['chomp:npm:init'],
-    run: `npm install ${packages.join(' ')} --save-dev`
-  }]
+  definition = """({ packages }) => packages.map(pkg => ({
+    target: `node_modules/${pkg}`,
+    deps: ['chomp:npm:install'],
+    run: `npm install ${pkg} --save-dev`
+  }))
   """
 
+# npm install task
+# - depends on npm init (package.json existing)
+# - checks if package-lock.json | yarn.lock | pnpm-lock.yaml exists
+# - if not, runs npm install
+[[task]]
+  name = "chomp:npm:install"
+  targets = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
+  deps = ["chomp:npm:init"]
+  run = "npm install"
+
+# npm init task
+# - checks if the package.json exists, if it does its done
+# - if the package.json does not exist, runs npm init with default prompts
 [[task]]
   name = "chomp:npm:init"
   target = "package.json"

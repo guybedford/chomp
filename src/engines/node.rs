@@ -18,6 +18,7 @@ pub fn node_runner(
   let mut tmp_file = env::temp_dir();
   tmp_file.push(&format!("{}.mjs", uuid.to_simple().to_string()));
   env.insert("CHOMP_MAIN".to_string(), tmp_file.to_str().unwrap().to_string());
+  env.insert("CHOMP_PATH".to_string(), std::env::args().next().unwrap().to_string());
   let child_future = cmd_pool.get_next(NODE_CMD.to_string(), env);
   Box::pin(async move {
     fs::write(&tmp_file, run)

@@ -1,13 +1,16 @@
+use crate::chompfile::{
+    ChompTaskMaybeTemplated, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile,
+};
+use crate::engines::{ChompEngine, CmdPool};
 use crate::js::init_js_platform;
-use std::collections::VecDeque;
-use crate::chompfile::{ChompTemplate, Chompfile, ChompTaskMaybeTemplated, ChompTaskMaybeTemplatedNoDefault};
-use crate::engines::{CmdPool, ChompEngine};
 use crate::ui::ChompUI;
+use async_std::path::Path;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
 use notify::op::Op;
 use notify::{RawEvent, RecommendedWatcher};
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::io::ErrorKind::NotFound;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -19,8 +22,8 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Instant;
 extern crate notify;
-use derivative::Derivative;
 use crate::js::run_js_fn;
+use derivative::Derivative;
 
 use notify::{raw_watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
@@ -128,7 +131,7 @@ impl File {
         }
     }
 
-    async fn init(&mut self, watcher: &mut RecommendedWatcher, parent_job: Option<usize>) {
+    async fn init(&mut self, watcher: Option<&mut RecommendedWatcher>, parent_job: Option<usize>) {
         self.state = FileState::Initializing;
         if let Some(parent_job) = parent_job {
             self.drives.push(parent_job);
@@ -146,12 +149,14 @@ impl File {
                 _ => panic!("Unknown file error"),
             },
         };
-        match watcher.watch(&self.name, RecursiveMode::Recursive) {
-            Ok(_) => {}
-            Err(_) => {
-                eprintln!("Unable to watch {}", self.name);
-            }
-        };
+        if let Some(watcher) = watcher {
+            match watcher.watch(&self.name, RecursiveMode::Recursive) {
+                Ok(_) => {}
+                Err(_) => {
+                    eprintln!("Unable to watch {}", self.name);
+                }
+            };
+        }
     }
 }
 
@@ -159,6 +164,7 @@ struct Runner<'a> {
     ui: &'a ChompUI,
     cmd_pool: CmdPool,
     chompfile: &'a Chompfile,
+    watch: bool,
     tasks: Vec<Task>,
 
     nodes: Vec<Node>,
@@ -215,9 +221,10 @@ impl<'a> Job {
         }
         let mut futures = Vec::new();
         for target in &self.targets {
+            let target_path = Path::new(target);
             futures.push(
                 async move {
-                    match fs::metadata(target).await {
+                    match fs::metadata(target_path).await {
                         Ok(n) => Some(
                             n.modified()
                                 .expect("No modified implementation")
@@ -225,7 +232,12 @@ impl<'a> Job {
                                 .unwrap(),
                         ),
                         Err(e) => match e.kind() {
-                            NotFound => None,
+                            NotFound => {
+                                if let Some(parent) = target_path.parent() {
+                                    fs::create_dir_all(parent).await.unwrap();
+                                }
+                                None
+                            }
                             _ => panic!("Unknown file error"),
                         },
                     }
@@ -240,8 +252,7 @@ impl<'a> Job {
             if completed.is_none() {
                 has_missing = true;
                 self.mtime = None;
-            }
-            else if !has_missing && completed > self.mtime {
+            } else if !has_missing && completed > self.mtime {
                 self.mtime = completed;
             }
         }
@@ -250,10 +261,11 @@ impl<'a> Job {
 }
 
 impl<'a> Runner<'a> {
-    fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf) -> Runner<'a> {
+    fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf, watch: bool) -> Runner<'a> {
         let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
         init_js_platform();
         let mut runner = Runner {
+            watch,
             ui,
             cmd_pool,
             chompfile,
@@ -270,7 +282,8 @@ impl<'a> Runner<'a> {
         }
 
         // expand tasks into initial job list
-        let mut task_queue: VecDeque<ChompTaskMaybeTemplated> = VecDeque::from(runner.chompfile.task.clone());
+        let mut task_queue: VecDeque<ChompTaskMaybeTemplated> =
+            VecDeque::from(runner.chompfile.task.clone());
         let mut cur_name: Option<String> = None;
         let mut i = 0;
         while task_queue.len() > 0 {
@@ -285,13 +298,19 @@ impl<'a> Runner<'a> {
             }
             let template = task.template.as_ref().unwrap();
             // evaluate templates into tasks
-            if task.deps.is_some() || task.engine.is_some() || task.env.is_some() ||
-                task.targets.is_some() || task.target.is_some() || task.run.is_some() {
+            if task.deps.is_some()
+                || task.engine.is_some()
+                || task.env.is_some()
+                || task.targets.is_some()
+                || task.target.is_some()
+                || task.run.is_some()
+            {
                 panic!("Template does not support normal task fields");
             }
 
             let template = templates.get(template).expect("Unable to find template");
-            let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> = run_js_fn(&template.definition, &task.args);
+            let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
+                run_js_fn(&template.definition, &task.args);
             if template_tasks.len() == 0 {
                 continue;
             }
@@ -318,7 +337,7 @@ impl<'a> Runner<'a> {
     fn add_task(&mut self, task: &ChompTaskMaybeTemplated) {
         let deps = match &task.deps {
             Some(deps) => deps.clone(),
-            None => Vec::new()
+            None => Vec::new(),
         };
         let engine = match &task.engine {
             Some(engine) if engine == "node" => ChompEngine::Node,
@@ -350,8 +369,7 @@ impl<'a> Runner<'a> {
         let mut targets: Vec<String> = Vec::new();
         if let Some(target) = &task.target {
             targets.push(target.to_string());
-        }
-        else if let Some(task_targets) = &task.targets {
+        } else if let Some(task_targets) = &task.targets {
             for target in task_targets {
                 targets.push(target.to_string());
             }
@@ -503,17 +521,9 @@ impl<'a> Runner<'a> {
         } else {
             if let Some(start_time) = job.start_time {
                 if failed {
-                    println!(
-                        "x {} [{:?}]",
-                        job.display_name(self),
-                        end_time - start_time
-                    );
+                    println!("x {} [{:?}]", job.display_name(self), end_time - start_time);
                 } else {
-                    println!(
-                        "√ {} [{:?}]",
-                        job.display_name(self),
-                        end_time - start_time
-                    );
+                    println!("√ {} [{:?}]", job.display_name(self), end_time - start_time);
                 }
             } else {
                 if failed {
@@ -612,11 +622,7 @@ impl<'a> Runner<'a> {
                             _ => false,
                         };
                         if invalidated {
-                            println!(
-                                "  {} invalidated by {}",
-                                job.display_name(self),
-                                dep.name
-                            );
+                            println!("  {} invalidated by {}", job.display_name(self), dep.name);
                         }
                         invalidated
                     }
@@ -653,7 +659,8 @@ impl<'a> Runner<'a> {
             target_index += 1;
         }
         let dep_index = if job.interpolate.is_some() {
-            task.deps.iter()
+            task.deps
+                .iter()
                 .enumerate()
                 .find(|(_, d)| d.contains('#'))
                 .unwrap()
@@ -761,8 +768,12 @@ impl<'a> Runner<'a> {
                     file.state = FileState::Found;
                     Ok(true)
                 } else {
-                    dbg!(file);
-                    panic!("TODO: NON-EXISTING FILE WATCH");
+                    if !self.watch {
+                        panic!("Task {} not found", file.name);
+                    } else {
+                        dbg!(file);
+                        panic!("TODO: NON-EXISTING FILE WATCH");
+                    }
                 }
             }
         }
@@ -820,9 +831,7 @@ impl<'a> Runner<'a> {
                 }
                 match interpolate_match {
                     Some((job_num, interpolate)) => {
-                        let task_deps = &self
-                            .tasks[self.get_job(job_num).unwrap().task]
-                            .deps;
+                        let task_deps = &self.tasks[self.get_job(job_num).unwrap().task].deps;
                         let input = task_deps
                             .iter()
                             .find(|dep| dep.contains("#"))
@@ -938,7 +947,8 @@ impl<'a> Runner<'a> {
                 if let Some(drives) = drives {
                     file.drives.push(drives);
                 }
-                file.init(watcher, drives).await;
+                file.init(if self.watch { Some(watcher) } else { None }, drives)
+                    .await;
             }
         }
         Ok(())
@@ -992,11 +1002,13 @@ impl<'a> Runner<'a> {
         parent_job: usize,
         parent_task: usize,
     ) -> Result<usize, TaskError> {
+        let watch = self.watch;
         let job_num = self.add_job(parent_task, Some(String::from(interpolate)));
         let file_num = self.add_file(input.to_string());
         {
             let file = self.get_file_mut(file_num).unwrap();
-            file.init(watcher, Some(job_num)).await;
+            file.init(if watch { Some(watcher) } else { None }, Some(job_num))
+                .await;
         }
         let task = &self.tasks[parent_task];
         let mut parent_targets = Vec::new();
@@ -1216,7 +1228,7 @@ pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
         )));
     }
 
-    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd);
+    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd, opts.watch);
     let (tx, rx) = channel();
     let mut watcher = raw_watcher(tx).unwrap();
 
