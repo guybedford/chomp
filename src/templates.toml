@@ -1,4 +1,4 @@
-version = 0.1
+﻿version = 0.1
 [[template]]
   name = "chomp:svelte"
   definition = """({ outdir = 'lib', indir = 'src' }) => [{
@@ -30,4 +30,3 @@ version = 0.1
     run: 'npm install svelte mkdirp --save-dev'
   }]
   """
-

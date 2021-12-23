@@ -15,13 +15,7 @@ version = 0.1
 
 [[task]]
   name = "build:templates"
-  engine = "node"
   run = """
-    import { readdirSync, readFileSync, writeFileSync } from 'fs';
-
-    let combinedTemplates = 'version = 0.1\\n';
-    for (const tpl of readdirSync('templates'))
-      combinedTemplates += readFileSync(`templates/${tpl}`).toString() + '\\n';
-    
-    writeFileSync('src/templates.toml', combinedTemplates);
+    echo 'version = 0.1' > src/templates.toml
+    cat templates/*.toml >> src/templates.toml
   """
