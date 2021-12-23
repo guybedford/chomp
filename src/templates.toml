@@ -1,32 +1,82 @@
 ﻿version = 0.1
 [[template]]
+  name = "chomp:jspm-generator"
+  definition = """({ inHtmlFile, outHtmlFile, generatorEnv = ['browser', 'production', 'module'] }) => [{
+    target: outHtmlFile,
+    deps: [inHtmlFile],
+    engine: 'node',
+    run: `
+      import { Generator } from '@jspm/generator';
+      import { readFile, writeFile } from 'fs/promises';
+      import { pathToFileURL } from 'url';
+      import mkdirp from 'mkdirp';
+      import { dirname } from 'path';
+
+      const generator = new Generator({
+        mapUrl: pathToFileURL(outHtmlFile),
+        env: generatorEnv
+      });
+
+      let htmlSource = await readFile(process.env.DEP, 'utf-8');
+
+      await generator.traceInstall('./main.js');
+
+      const map = generator.getMap();
+
+      htmlSource = htmlSource.replace('<script type="importmap"></script>', `<script type="importmap">${JSON.stringify(map, null, 2)}</script>`);
+
+      mkdirp.sync(dirname(process.env.TARGET));
+      await writeFile(process.env.TARGET, htmlSource);
+    `
+  }, {
+    targets: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
+    run: 'npm install @jspm/generator mkdirp --save-dev'
+  }]
+  """
+[[template]]
+  name = "chomp:npm:packages"
+  definition = """({ packages }) => [{
+    targets: packages.map(pkg => `node_modules/${pkg}`),
+    deps: ['chomp:npm:init'],
+    run: `npm install ${packages.join(' ')} --save-dev`
+  }]
+  """
+
+[[task]]
+  name = "chomp:npm:init"
+  target = "package.json"
+  run = "npm init -y"
+[[template]]
   name = "chomp:svelte"
   definition = """({ outdir = 'lib', indir = 'src' }) => [{
     target: `${outdir}/#.svelte.js`,
     deps: [`${indir}/#.svelte`, 'node_modules/svelte', 'node_modules/mkdirp'],
     engine: 'node',
     run: `
-      import { readFileSync, writeFileSync } from 'fs';
+      import { readFile, writeFile } from 'fs/promises';
       import { compile } from 'svelte/compiler';
       import mkdirp from 'mkdirp';
       import { dirname } from 'path';
 
-      const source = readFileSync(process.env.dep, "utf-8");
+      const source = await readFile(process.env.DEP, 'utf-8');
       const result = compile(source, {
         filename: process.env.DEP,
         css: false,
       });
 
       mkdirp.sync(dirname(process.env.TARGET));
-      writeFileSync(process.env.TARGET, result.js.code);
-      writeFileSync(process.env.TARGET + ".map", JSON.stringify(result.js.map));
-
       const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
-      writeFileSync(cssFile, result.css.code);
-      writeFileSync(cssFile + ".map", JSON.stringify(result.css.map));
+      await Promise.all[
+        writeFile(process.env.TARGET, result.js.code),
+        writeFile(process.env.TARGET + ".map", JSON.stringify(result.js.map)),
+        writeFile(cssFile, result.css.code),
+        writeFile(cssFile + ".map", JSON.stringify(result.css.map))
+      ];
     `
   }, {
-    targets: ['node_modules/svelte', 'node_modules/mkdirp'],
-    run: 'npm install svelte mkdirp --save-dev'
+    template: 'chomp:npm:packages',
+    args: {
+      packages: ['svelte', 'mkdirp']
+    }
   }]
   """

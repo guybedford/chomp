@@ -3,10 +3,13 @@ use serde_v8::from_v8;
 use serde_v8::to_v8;
 use serde::{Serialize, Deserialize};
 
-pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize> (js_fn: &str, opts: &U) -> T {
+pub fn init_js_platform() {
   let platform = v8::new_default_platform(0, false).make_shared();
   v8::V8::initialize_platform(platform);
   v8::V8::initialize();
+}
+
+pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize> (js_fn: &str, opts: &U) -> T {
   let isolate = &mut v8::Isolate::new(Default::default());
   let handle_scope = &mut v8::HandleScope::new(isolate);
   let context = v8::Context::new(handle_scope);

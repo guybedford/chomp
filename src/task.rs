@@ -1,3 +1,5 @@
+use crate::js::init_js_platform;
+use std::collections::VecDeque;
 use crate::chompfile::{ChompTemplate, Chompfile, ChompTaskMaybeTemplated, ChompTaskMaybeTemplatedNoDefault};
 use crate::engines::{CmdPool, ChompEngine};
 use crate::ui::ChompUI;
@@ -250,6 +252,7 @@ impl<'a> Job {
 impl<'a> Runner<'a> {
     fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf) -> Runner<'a> {
         let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
+        init_js_platform();
         let mut runner = Runner {
             ui,
             cmd_pool,
@@ -267,9 +270,17 @@ impl<'a> Runner<'a> {
         }
 
         // expand tasks into initial job list
-        for (i, task) in runner.chompfile.task.iter().enumerate() {
+        let mut task_queue: VecDeque<ChompTaskMaybeTemplated> = VecDeque::from(runner.chompfile.task.clone());
+        let mut cur_name: Option<String> = None;
+        let mut i = 0;
+        while task_queue.len() > 0 {
+            i += 1;
+            let mut task = task_queue.pop_front().unwrap();
             if task.template.is_none() {
-                runner.add_task(task);
+                if cur_name.is_some() {
+                    task.name = cur_name.take();
+                }
+                runner.add_task(&task);
                 continue;
             }
             let template = task.template.as_ref().unwrap();
@@ -284,11 +295,11 @@ impl<'a> Runner<'a> {
             if template_tasks.len() == 0 {
                 continue;
             }
-            if let Some(name) = &task.name {
-                template_tasks[0].name = Some(name.to_string());
+            if let Some(name) = task.name {
+                cur_name = Some(name);
             }
-            for task in template_tasks.drain(..) {
-                runner.add_task(&ChompTaskMaybeTemplated {
+            for task in template_tasks.drain(..).rev() {
+                task_queue.push_front(ChompTaskMaybeTemplated {
                     name: task.name,
                     target: task.target,
                     targets: task.targets,
@@ -1193,6 +1204,9 @@ pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
 
     for template in default_chompfile.template.drain(..) {
         chompfile.template.push(template);
+    }
+    for task in default_chompfile.task.drain(..) {
+        chompfile.task.push(task);
     }
 
     if chompfile.version != 0.1 {

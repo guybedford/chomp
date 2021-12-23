@@ -1,6 +1,13 @@
 version = 0.1
 
 [[task]]
+  name = "svelte"
+  template = "chomp:svelte"
+  [task.args]
+    indir = "test/src"
+    outdir = "test/lib"
+
+[[task]]
   name = "install"
   deps = ["build"]
   run = """
@@ -9,9 +16,22 @@ version = 0.1
   """
 
 [[task]]
+  name = "install:release"
+  deps = ["build:release"]
+  run = """
+    cp target/Release/chp.exe ~/bin/chp2.exe
+    cp target/Release/chp.exe ~/bin/chp.exe
+  """
+
+[[task]]
   name = "build"
   deps = ["build:templates"]
   run = "cargo build"
+
+[[task]]
+  name = "build:release"
+  deps = ["build:templates"]
+  run = "cargo build --release"
 
 [[task]]
   name = "build:templates"

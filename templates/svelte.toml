@@ -5,27 +5,30 @@
     deps: [`${indir}/#.svelte`, 'node_modules/svelte', 'node_modules/mkdirp'],
     engine: 'node',
     run: `
-      import { readFileSync, writeFileSync } from 'fs';
+      import { readFile, writeFile } from 'fs/promises';
       import { compile } from 'svelte/compiler';
       import mkdirp from 'mkdirp';
       import { dirname } from 'path';
 
-      const source = readFileSync(process.env.dep, "utf-8");
+      const source = await readFile(process.env.DEP, 'utf-8');
       const result = compile(source, {
         filename: process.env.DEP,
         css: false,
       });
 
       mkdirp.sync(dirname(process.env.TARGET));
-      writeFileSync(process.env.TARGET, result.js.code);
-      writeFileSync(process.env.TARGET + ".map", JSON.stringify(result.js.map));
-
       const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
-      writeFileSync(cssFile, result.css.code);
-      writeFileSync(cssFile + ".map", JSON.stringify(result.css.map));
+      await Promise.all[
+        writeFile(process.env.TARGET, result.js.code),
+        writeFile(process.env.TARGET + ".map", JSON.stringify(result.js.map)),
+        writeFile(cssFile, result.css.code),
+        writeFile(cssFile + ".map", JSON.stringify(result.css.map))
+      ];
     `
   }, {
-    targets: ['node_modules/svelte', 'node_modules/mkdirp'],
-    run: 'npm install svelte mkdirp --save-dev'
+    template: 'chomp:npm:packages',
+    args: {
+      packages: ['svelte', 'mkdirp']
+    }
   }]
   """

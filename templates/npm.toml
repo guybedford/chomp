@@ -1,0 +1,13 @@
+[[template]]
+  name = "chomp:npm:packages"
+  definition = """({ packages }) => [{
+    targets: packages.map(pkg => `node_modules/${pkg}`),
+    deps: ['chomp:npm:init'],
+    run: `npm install ${packages.join(' ')} --save-dev`
+  }]
+  """
+
+[[task]]
+  name = "chomp:npm:init"
+  target = "package.json"
+  run = "npm init -y"

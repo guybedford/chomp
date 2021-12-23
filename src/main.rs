@@ -61,11 +61,6 @@ async fn main() -> Result<(), ChompError> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("i")
-                .short("i")
-                .help("Initialize template via stdin")
-        )
-        .arg(
             Arg::with_name("j")
                 .short("j")
                 .long("jobs")
