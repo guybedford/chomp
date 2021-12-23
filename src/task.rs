@@ -262,47 +262,43 @@ impl<'a> Runner<'a> {
         };
 
         let mut templates: BTreeMap<&String, &ChompTemplate> = BTreeMap::new();
-        if let Some(ref chompfile_templates) = chompfile.template {
-            for template in chompfile_templates {
-                templates.insert(&template.name, &template);
-            }
+        for template in &chompfile.template {
+            templates.insert(&template.name, &template);
         }
 
         // expand tasks into initial job list
-        if let Some(tasks) = &runner.chompfile.task {
-            for (i, task) in tasks.iter().enumerate() {
-                if task.template.is_none() {
-                    runner.add_task(task);
-                    continue;
-                }
-                let template = task.template.as_ref().unwrap();
-                // evaluate templates into tasks
-                if task.deps.is_some() || task.engine.is_some() || task.env.is_some() ||
-                    task.targets.is_some() || task.target.is_some() || task.run.is_some() {
-                    panic!("Template does not support normal task fields");
-                }
+        for (i, task) in runner.chompfile.task.iter().enumerate() {
+            if task.template.is_none() {
+                runner.add_task(task);
+                continue;
+            }
+            let template = task.template.as_ref().unwrap();
+            // evaluate templates into tasks
+            if task.deps.is_some() || task.engine.is_some() || task.env.is_some() ||
+                task.targets.is_some() || task.target.is_some() || task.run.is_some() {
+                panic!("Template does not support normal task fields");
+            }
 
-                let template = templates.get(template).expect("Unable to find template");
-                let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> = run_js_fn(&template.definition, &task.args);
-                if template_tasks.len() == 0 {
-                    continue;
-                }
-                if let Some(name) = &task.name {
-                    template_tasks[0].name = Some(name.to_string());
-                }
-                for task in template_tasks.drain(..) {
-                    runner.add_task(&ChompTaskMaybeTemplated {
-                        name: task.name,
-                        target: task.target,
-                        targets: task.targets,
-                        deps: task.deps,
-                        env: task.env,
-                        run: task.run,
-                        engine: task.engine,
-                        template: task.template,
-                        args: task.args.unwrap_or_default(),
-                    });
-                }
+            let template = templates.get(template).expect("Unable to find template");
+            let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> = run_js_fn(&template.definition, &task.args);
+            if template_tasks.len() == 0 {
+                continue;
+            }
+            if let Some(name) = &task.name {
+                template_tasks[0].name = Some(name.to_string());
+            }
+            for task in template_tasks.drain(..) {
+                runner.add_task(&ChompTaskMaybeTemplated {
+                    name: task.name,
+                    target: task.target,
+                    targets: task.targets,
+                    deps: task.deps,
+                    env: task.env,
+                    run: task.run,
+                    engine: task.engine,
+                    template: task.template,
+                    args: task.args.unwrap_or_default(),
+                });
             }
         }
         runner
@@ -1190,8 +1186,14 @@ async fn drive_watcher<'a>(
 }
 
 pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
+    let mut default_chompfile: Chompfile = toml::from_str(include_str!("templates.toml")).unwrap();
+
     let chompfile_source = fs::read_to_string(opts.cfg_file).await?;
-    let chompfile: Chompfile = toml::from_str(&chompfile_source)?;
+    let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
+
+    for template in default_chompfile.template.drain(..) {
+        chompfile.template.push(template);
+    }
 
     if chompfile.version != 0.1 {
         return Err(TaskError::InvalidVersionError(format!(

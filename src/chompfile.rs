@@ -5,8 +5,10 @@ use std::collections::BTreeMap;
 pub struct Chompfile {
     pub version: f32,
     pub env: Option<BTreeMap<String, String>>,
-    pub task: Option<Vec<ChompTaskMaybeTemplated>>,
-    pub template: Option<Vec<ChompTemplate>>,
+    #[serde(default)]
+    pub task: Vec<ChompTaskMaybeTemplated>,
+    #[serde(default)]
+    pub template: Vec<ChompTemplate>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]

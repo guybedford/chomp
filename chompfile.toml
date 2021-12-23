@@ -1,57 +1,27 @@
 version = 0.1
 
-[env]
-  BUILD_TYPE = "Debug"
-
-# [[task]]
-#   name = "build"
-#   target = "test/lib/#.js"
-#   deps = ["node_modules/.bin/swc", "test/src/#.ts"]
-#   run = "npx @chomp/svelte"
-
-# [[task]]
-#   name = "install"
-#   target = "node_modules/.bin/swc"
-#   run = "npm install @swc/core @swc/cli --save-dev"
-
-# [[task]]
-#   run = "@chomp/svelte"
+[[task]]
+  name = "install"
+  deps = ["build"]
+  run = """
+    cp target/Debug/chp.exe ~/bin/chp2.exe
+    cp target/Debug/chp.exe ~/bin/chp.exe
+  """
 
 [[task]]
-  name = "tpl"
-  template = "chomp:svelte"
-  [task.args]
-    indir = "src"
-    outdir = "lib"
+  name = "build"
+  deps = ["build:templates"]
+  run = "cargo build"
 
-[[template]]
-  name = "chomp:svelte"
-  definition = """({ outdir = 'lib', indir = 'src' }) => [{
-    target: `${outdir}/#.svelte.js`,
-    deps: [`${indir}/#.svelte`, 'node_modules/svelte', 'node_modules/mkdirp'],
-    engine: 'node',
-    run: `
-      import { readFileSync, writeFileSync } from 'fs';
-      import { compile } from 'svelte/compiler';
-      import mkdirp from 'mkdirp';
-      import { dirname } from 'path';
+[[task]]
+  name = "build:templates"
+  engine = "node"
+  run = """
+    import { readdirSync, readFileSync, writeFileSync } from 'fs';
 
-      const source = readFileSync(process.env.dep, "utf-8");
-      const result = compile(source, {
-        filename: process.env.DEP,
-        css: false,
-      });
-
-      mkdirp.sync(dirname(process.env.TARGET));
-      writeFileSync(process.env.TARGET, result.js.code);
-      writeFileSync(process.env.TARGET + ".map", JSON.stringify(result.js.map));
-
-      const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
-      writeFileSync(cssFile, result.css.code);
-      writeFileSync(cssFile + ".map", JSON.stringify(result.css.map));
-    `
-  }, {
-    targets: ['node_modules/svelte', 'node_modules/mkdirp'],
-    run: 'npm install svelte mkdirp --save-dev'
-  }]
+    let combinedTemplates = 'version = 0.1\\n';
+    for (const tpl of readdirSync('templates'))
+      combinedTemplates += readFileSync(`templates/${tpl}`).toString() + '\\n';
+    
+    writeFileSync('src/templates.toml', combinedTemplates);
   """

@@ -1,0 +1,31 @@
+[[template]]
+  name = "chomp:svelte"
+  definition = """({ outdir = 'lib', indir = 'src' }) => [{
+    target: `${outdir}/#.svelte.js`,
+    deps: [`${indir}/#.svelte`, 'node_modules/svelte', 'node_modules/mkdirp'],
+    engine: 'node',
+    run: `
+      import { readFileSync, writeFileSync } from 'fs';
+      import { compile } from 'svelte/compiler';
+      import mkdirp from 'mkdirp';
+      import { dirname } from 'path';
+
+      const source = readFileSync(process.env.dep, "utf-8");
+      const result = compile(source, {
+        filename: process.env.DEP,
+        css: false,
+      });
+
+      mkdirp.sync(dirname(process.env.TARGET));
+      writeFileSync(process.env.TARGET, result.js.code);
+      writeFileSync(process.env.TARGET + ".map", JSON.stringify(result.js.map));
+
+      const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
+      writeFileSync(cssFile, result.css.code);
+      writeFileSync(cssFile + ".map", JSON.stringify(result.css.map));
+    `
+  }, {
+    targets: ['node_modules/svelte', 'node_modules/mkdirp'],
+    run: 'npm install svelte mkdirp --save-dev'
+  }]
+  """
