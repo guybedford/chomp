@@ -4,7 +4,7 @@
 # - only if the initial install doesn't locate the packages do we add new installs
 # - installs packages one by one to not reinstall any specific existing package
 [[template]]
-  name = "chomp:npm:packages"
+  name = "chomp:npm:install"
   definition = """({ packages }) => packages.map(pkg => ({
     target: `node_modules/${pkg}`,
     deps: ['chomp:npm:install'],
@@ -18,7 +18,8 @@
 # - if not, runs npm install
 [[task]]
   name = "chomp:npm:install"
-  targets = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
+  target = "package-lock.json"#, "yarn.lock", "pnpm-lock.yaml"]
+  target_check = "exists"
   deps = ["chomp:npm:init"]
   run = "npm install"
 

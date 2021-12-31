@@ -1,5 +1,5 @@
 use crate::chompfile::{
-    ChompTaskMaybeTemplated, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile,
+    ChompTaskMaybeTemplated, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, TargetCheck
 };
 use crate::engines::{ChompEngine, CmdPool};
 use crate::js::init_js_platform;
@@ -32,6 +32,7 @@ use std::sync::mpsc::channel;
 struct Task {
     name: Option<String>,
     targets: Vec<String>,
+    target_check: TargetCheck,
     deps: Vec<String>,
     env: BTreeMap<String, String>,
     run: Option<String>,
@@ -322,6 +323,7 @@ impl<'a> Runner<'a> {
                     name: task.name,
                     target: task.target,
                     targets: task.targets,
+                    target_check: task.target_check,
                     deps: task.deps,
                     env: task.env,
                     run: task.run,
@@ -382,6 +384,11 @@ impl<'a> Runner<'a> {
             env,
             run: task.run.clone(),
             targets,
+            target_check: match task.target_check {
+                Some(TargetCheck::Mtime) => TargetCheck::Mtime,
+                Some(TargetCheck::Exists) => TargetCheck::Exists,
+                None => TargetCheck::Mtime,
+            }
         });
         self.add_job(self.tasks.len() - 1, None);
     }
@@ -602,7 +609,10 @@ impl<'a> Runner<'a> {
                 let dep_change = match &self.nodes[dep] {
                     Node::Job(dep) => {
                         let invalidated = match dep.mtime {
-                            Some(dep_mtime) if dep_mtime > mtime => true,
+                            Some(dep_mtime) => match &self.tasks[dep.task].target_check {
+                                TargetCheck::Exists => false,
+                                TargetCheck::Mtime => dep_mtime > mtime,
+                            },
                             None => true,
                             _ => false,
                         };
@@ -617,7 +627,7 @@ impl<'a> Runner<'a> {
                     }
                     Node::File(dep) => {
                         let invalidated = match dep.mtime {
-                            Some(dep_mtime) if dep_mtime > mtime => true,
+                            Some(dep_mtime) => dep_mtime > mtime,
                             None => true,
                             _ => false,
                         };

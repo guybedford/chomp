@@ -11,11 +11,19 @@ pub struct Chompfile {
     pub template: Vec<ChompTemplate>,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetCheck {
+    Mtime,
+    Exists,
+}
+
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 pub struct ChompTaskMaybeTemplated {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
+    pub target_check: Option<TargetCheck>,
     pub deps: Option<Vec<String>>,
     pub env: Option<BTreeMap<String, String>>,
     pub run: Option<String>,
@@ -31,6 +39,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
+    pub target_check: Option<TargetCheck>,
     pub deps: Option<Vec<String>>,
     pub env: Option<BTreeMap<String, String>>,
     pub run: Option<String>,
