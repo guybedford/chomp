@@ -1,6 +1,19 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChompEngine {
+    Cmd,
+    Node,
+}
+
+impl Default for ChompEngine {
+    fn default () -> Self {
+        ChompEngine::Cmd
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Chompfile {
     pub version: f32,
@@ -18,16 +31,24 @@ pub enum TargetCheck {
     Exists,
 }
 
+impl Default for TargetCheck {
+    fn default () -> Self {
+        TargetCheck::Mtime
+    }
+}
+
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 pub struct ChompTaskMaybeTemplated {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
     pub target_check: Option<TargetCheck>,
-    pub deps: Option<Vec<String>>,
-    pub env: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    pub deps: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
     pub run: Option<String>,
-    pub engine: Option<String>,
+    pub engine: Option<ChompEngine>,
     pub template: Option<String>,
     #[serde(default)]
     pub args: BTreeMap<String, toml::value::Value>,
@@ -43,7 +64,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub deps: Option<Vec<String>>,
     pub env: Option<BTreeMap<String, String>>,
     pub run: Option<String>,
-    pub engine: Option<String>,
+    pub engine: Option<ChompEngine>,
     pub template: Option<String>,
     pub args: Option<BTreeMap<String, toml::value::Value>>,
 }

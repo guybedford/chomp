@@ -1,7 +1,7 @@
 use crate::chompfile::{
-    ChompTaskMaybeTemplated, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, TargetCheck
+    ChompTaskMaybeTemplated, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, TargetCheck, ChompEngine
 };
-use crate::engines::{ChompEngine, CmdPool};
+use crate::engines::CmdPool;
 use crate::js::init_js_platform;
 use crate::ui::ChompUI;
 use async_std::path::Path;
@@ -29,7 +29,7 @@ use notify::{raw_watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 
 #[derive(Debug)]
-struct Task {
+pub struct Task {
     name: Option<String>,
     targets: Vec<String>,
     target_check: TargetCheck,
@@ -286,27 +286,72 @@ impl<'a> Runner<'a> {
         let mut task_queue: VecDeque<ChompTaskMaybeTemplated> =
             VecDeque::from(runner.chompfile.task.clone());
         let mut cur_name: Option<String> = None;
-        let mut i = 0;
+        let mut cur_deps: Option<Vec<String>> = None;
+        let mut cur_targets: Option<Vec<String>> = None;
+        let mut cur_env: Option<BTreeMap<String, String>> = None;
         while task_queue.len() > 0 {
-            i += 1;
-            let mut task = task_queue.pop_front().unwrap();
+            let task = task_queue.pop_front().unwrap();
             if task.template.is_none() {
-                if cur_name.is_some() {
-                    task.name = cur_name.take();
+                let name = if cur_name.is_some() {
+                    if task.name.is_some() {
+                        panic!("Cannot set name for template as it has a name");
+                    }
+                    cur_name.take()
                 }
-                runner.add_task(&task);
+                else {
+                    task.name.clone()
+                };
+                let mut deps = Vec::new();
+                for dep in task.deps {
+                    deps.push(dep);
+                }
+                if let Some(ref mut cur_deps) = cur_deps.take() {
+                    deps.append(cur_deps);
+                }
+                let mut targets = Vec::new();
+                if let Some(target) = &task.target {
+                    targets.push(target.to_string());
+                } else if let Some(task_targets) = &task.targets {
+                    for target in task_targets {
+                        targets.push(target.to_string());
+                    }
+                }
+                if let Some(ref mut cur_targets) = cur_targets.take() {
+                    targets.append(cur_targets);
+                }
+
+                let mut env = BTreeMap::new();
+                if let Some(global_env) = &runner.chompfile.env {
+                    for (item, value) in global_env {
+                        env.insert(item.to_uppercase(), value.to_string());
+                    }
+                }
+                for (item, value) in task.env {
+                    env.insert(item.to_uppercase(), value.to_string());
+                }
+                if let Some(cur_env) = cur_env.take() {
+                    for (item, value) in cur_env {
+                        env.insert(item.to_uppercase(), value.to_string());
+                    }
+                }
+
+                let task = Task {
+                    name,
+                    deps,
+                    engine: task.engine.unwrap_or_default(),
+                    env,
+                    run: task.run.clone(),
+                    targets,
+                    target_check: task.target_check.unwrap_or_default(),
+                };
+                runner.tasks.push(task);
+                runner.add_job(runner.tasks.len() - 1, None);
                 continue;
             }
             let template = task.template.as_ref().unwrap();
             // evaluate templates into tasks
-            if task.deps.is_some()
-                || task.engine.is_some()
-                || task.env.is_some()
-                || task.targets.is_some()
-                || task.target.is_some()
-                || task.run.is_some()
-            {
-                panic!("Template does not support normal task fields");
+            if task.engine.is_some() || task.run.is_some() || task.target_check.is_some() {
+                panic!("Template invocation does not support 'run', 'engine' or 'target_check' fields.");
             }
 
             let template = templates.get(template).expect("Unable to find template");
@@ -316,81 +361,67 @@ impl<'a> Runner<'a> {
                 continue;
             }
             if let Some(name) = task.name {
+                if cur_name.is_some() {
+                    panic!("Template does not support name override");
+                }
                 cur_name = Some(name);
             }
-            for task in template_tasks.drain(..).rev() {
+            if task.deps.len() > 0 {
+                if let Some(ref mut cur_deps) = cur_deps {
+                    for dep in task.deps {
+                        cur_deps.push(dep);
+                    }
+                }
+                else {
+                    cur_deps = Some(task.deps);
+                }
+            }
+            if let Some(target) = task.target {
+                if let Some(ref mut cur_targets) = cur_targets {
+                    cur_targets.push(target);
+                }
+                else {
+                    cur_targets = Some(vec![target]);
+                }
+            }
+            else if let Some(targets) = task.targets {
+                if let Some(ref mut cur_targets) = cur_targets {
+                    for target in targets {
+                        cur_targets.push(target);
+                    }
+                }
+                else {
+                    cur_targets = Some(targets);
+                }
+            }
+            if task.env.len() > 0 {
+                if let Some(ref mut cur_env) = cur_env {
+                    for (item, value) in task.env {
+                        cur_env.insert(item.to_uppercase(), value.to_string());
+                    }
+                }
+                else {
+                    cur_env = Some(Default::default());
+                }
+            }
+            
+            // template functions output a list of tasks
+            for template_task in template_tasks.drain(..).rev() {
                 task_queue.push_front(ChompTaskMaybeTemplated {
-                    name: task.name,
-                    target: task.target,
-                    targets: task.targets,
-                    target_check: task.target_check,
-                    deps: task.deps,
-                    env: task.env,
-                    run: task.run,
-                    engine: task.engine,
-                    template: task.template,
-                    args: task.args.unwrap_or_default(),
+                    name: template_task.name,
+                    target: template_task.target,
+                    targets: template_task.targets,
+                    target_check: template_task.target_check,
+                    deps: template_task.deps.unwrap_or_default(),
+                    env: template_task.env.unwrap_or_default(),
+                    run: template_task.run,
+                    engine: template_task.engine,
+                    template: template_task.template,
+                    args: template_task.args.unwrap_or_default(),
                 });
             }
         }
         runner
-    }
-
-    fn add_task(&mut self, task: &ChompTaskMaybeTemplated) {
-        let deps = match &task.deps {
-            Some(deps) => deps.clone(),
-            None => Vec::new(),
-        };
-        let engine = match &task.engine {
-            Some(engine) if engine == "node" => ChompEngine::Node,
-            Some(engine) if engine == "cmd" => ChompEngine::Cmd,
-            Some(engine) => panic!("Unknown engine {}", engine),
-            None => ChompEngine::Cmd,
-        };
-        let env = if let Some(global_env) = &self.chompfile.env {
-            let mut env = BTreeMap::new();
-            for (item, value) in global_env {
-                env.insert(item.to_uppercase(), value.to_string());
-            }
-            if let Some(local_env) = &task.env {
-                for (item, value) in local_env {
-                    env.insert(item.to_uppercase(), value.to_string());
-                }
-            }
-            env
-        } else if let Some(local_env) = &task.env {
-            let mut env = BTreeMap::new();
-            for (item, value) in local_env {
-                env.insert(item.to_uppercase(), value.to_string());
-            }
-            env
-        } else {
-            BTreeMap::new()
-        };
-
-        let mut targets: Vec<String> = Vec::new();
-        if let Some(target) = &task.target {
-            targets.push(target.to_string());
-        } else if let Some(task_targets) = &task.targets {
-            for target in task_targets {
-                targets.push(target.to_string());
-            }
-        }
-
-        self.tasks.push(Task {
-            name: task.name.clone(),
-            deps,
-            engine,
-            env,
-            run: task.run.clone(),
-            targets,
-            target_check: match task.target_check {
-                Some(TargetCheck::Mtime) => TargetCheck::Mtime,
-                Some(TargetCheck::Exists) => TargetCheck::Exists,
-                None => TargetCheck::Mtime,
-            }
-        });
-        self.add_job(self.tasks.len() - 1, None);
     }
 
     fn add_job(&mut self, task_num: usize, interpolate: Option<String>) -> usize {
@@ -781,7 +812,7 @@ impl<'a> Runner<'a> {
                     if !self.watch {
                         panic!("Task {} not found", file.name);
                     } else {
-                        dbg!(file);
+                        // dbg!(file);
                         panic!("TODO: NON-EXISTING FILE WATCH");
                     }
                 }
