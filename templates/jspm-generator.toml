@@ -1,6 +1,6 @@
 [[template]]
   name = "chomp:jspm-generator"
-  definition = """({ inHtmlFile, outHtmlFile, generatorEnv = ['browser', 'production', 'module'] }) => [{
+  definition = """({ inHtmlFile, outHtmlFile, generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
     target: outHtmlFile,
     deps: [inHtmlFile],
     engine: 'node',
@@ -16,19 +16,17 @@
         env: generatorEnv
       });
 
-      let htmlSource = await readFile(process.env.DEP, 'utf-8');
-
-      await generator.traceInstall('./main.js');
-
-      const map = generator.getMap();
-
-      htmlSource = htmlSource.replace('<script type="importmap"></script>', `<script type="importmap">${JSON.stringify(map, null, 2)}</script>`);
+      const htmlSource = await readFile(process.env.DEP, 'utf-8');
+      const outHtml = await generator.htmlGenerate(htmlSource, generateOpts);
 
       mkdirp.sync(dirname(process.env.TARGET));
-      await writeFile(process.env.TARGET, htmlSource);
+      await writeFile(process.env.TARGET, outHtml);
     `
   }, {
-    targets: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
-    run: 'npm install @jspm/generator mkdirp --save-dev'
+    template: 'chomp:npm:install',
+    args: {
+      packages: ['@jspm/generator', 'mkdirp'],
+      dev: true
+    }
   }]
   """
