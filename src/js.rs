@@ -2,7 +2,7 @@ use v8;
 use serde_v8::from_v8;
 use serde_v8::to_v8;
 use serde::{Serialize, Deserialize};
-use anyhow::{Error,Result};
+use anyhow::{Result, anyhow};
 
 pub fn init_js_platform() {
   let platform = v8::new_default_platform(0, false).make_shared();
@@ -35,64 +35,19 @@ pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize> (js_fn: &str, opts: &U) -
       if is_instance_of_error(tc_scope, exception) {
         let exception: v8::Local<v8::Object> = exception.try_into().unwrap();
 
-        let stack = get_property(scope, exception, "stack");
+        let stack = get_property(tc_scope, exception, "stack");
         let stack: Option<v8::Local<v8::String>> =
           stack.and_then(|s| s.try_into().ok());
-        let stack = stack.map(|s| s.to_rust_string_lossy(scope));
+        let stack = stack.map(|s| s.to_rust_string_lossy(tc_scope));
 
-        // Read an array of structured frames from error.__callSiteEvals.
-        let frames_v8 = get_property(scope, exception, "__callSiteEvals");
-        // Ignore non-array values
-        let frames_v8: Option<v8::Local<v8::Array>> =
-          frames_v8.and_then(|a| a.try_into().ok());
-
-        // Convert them into Vec<JsStackFrame>
-        let frames: Vec<JsStackFrame> = match frames_v8 {
-          Some(frames_v8) => serde_v8::from_v8(scope, frames_v8.into()).unwrap(),
-          None => vec![],
-        };
         println!("{}", exception.to_rust_string_lossy(tc_scope));
         panic!("ERROR");
       }
       else {
-        Err(exception.to_rust_string_lossy(tc_scope))
+        Err(anyhow!("Compilation error: {}", exception.to_rust_string_lossy(tc_scope)))
       }
     }
   }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct JsError {
-  pub message: String,
-  pub source_line: Option<String>,
-  pub script_resource_name: Option<String>,
-  pub line_number: Option<i64>,
-  pub start_column: Option<i64>, // 0-based
-  pub end_column: Option<i64>,   // 0-based
-  pub frames: Vec<JsStackFrame>,
-  pub stack: Option<String>,
-}
-
-#[derive(Debug, PartialEq, Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JsStackFrame {
-  pub type_name: Option<String>,
-  pub function_name: Option<String>,
-  pub method_name: Option<String>,
-  pub file_name: Option<String>,
-  pub line_number: Option<i64>,
-  pub column_number: Option<i64>,
-  pub eval_origin: Option<String>,
-  // Warning! isToplevel has inconsistent snake<>camel case, "typo" originates in v8:
-  // https://source.chromium.org/search?q=isToplevel&sq=&ss=chromium%2Fchromium%2Fsrc:v8%2F
-  #[serde(rename = "isToplevel")]
-  pub is_top_level: Option<bool>,
-  pub is_eval: bool,
-  pub is_native: bool,
-  pub is_constructor: bool,
-  pub is_async: bool,
-  pub is_promise_all: bool,
-  pub promise_index: Option<i64>,
 }
 
 fn get_property<'a>(
@@ -130,7 +85,7 @@ fn is_instance_of_error<'s>(
   false
 }
 
-// pub(crate) fn exception_to_err_result<'s, T>(
+// fn exception_to_err_result<'s, T>(
 //   scope: &mut v8::HandleScope<'s>,
 //   exception: v8::Local<v8::Value>,
 //   in_promise: bool,

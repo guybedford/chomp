@@ -24,6 +24,7 @@ use std::time::Instant;
 extern crate notify;
 use crate::js::run_js_fn;
 use derivative::Derivative;
+use anyhow::{Result, anyhow};
 
 use notify::{raw_watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
@@ -46,33 +47,6 @@ pub struct RunOptions<'a> {
     pub targets: Vec<String>,
     pub watch: bool,
 }
-
-#[derive(Debug)]
-pub enum TaskError {
-    IoError(std::io::Error),
-    BadFileError(String),
-    ConfigParseError(toml::de::Error),
-    InvalidVersionError(String),
-    TaskNotFound(String, String),
-}
-
-impl From<std::io::Error> for TaskError {
-    fn from(e: std::io::Error) -> TaskError {
-        TaskError::IoError(e)
-    }
-}
-
-impl From<toml::de::Error> for TaskError {
-    fn from(e: toml::de::Error) -> TaskError {
-        TaskError::ConfigParseError(e)
-    }
-}
-
-// impl fmt::Display for TaskError {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, format!("Compile error: {}", "test"))
-//     }
-// }
 
 #[derive(Clone, Copy, Debug)]
 enum JobState {
@@ -262,7 +236,7 @@ impl<'a> Job {
 }
 
 impl<'a> Runner<'a> {
-    fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf, watch: bool) -> Runner<'a> {
+    fn new(ui: &'a ChompUI, chompfile: &'a Chompfile, cwd: &'a PathBuf, watch: bool) -> Result<Runner<'a>> {
         let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
         init_js_platform();
         let mut runner = Runner {
@@ -356,7 +330,7 @@ impl<'a> Runner<'a> {
 
             let template = templates.get(template).expect("Unable to find template");
             let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-                run_js_fn(&template.definition, &task.args);
+                run_js_fn(&template.definition, &task.args)?;
             if template_tasks.len() == 0 {
                 continue;
             }
@@ -421,7 +395,7 @@ impl<'a> Runner<'a> {
                 });
             }
         }
-        runner
+        Ok(runner)
     }
 
     fn add_job(&mut self, task_num: usize, interpolate: Option<String>) -> usize {
@@ -581,7 +555,7 @@ impl<'a> Runner<'a> {
         path: PathBuf,
         jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
-    ) -> Result<bool, TaskError> {
+    ) -> Result<bool> {
         let cwd = std::env::current_dir()?;
         let cwd_str = cwd.to_str().unwrap();
         let path_str = path.to_str().unwrap();
@@ -609,7 +583,7 @@ impl<'a> Runner<'a> {
     fn run_job(
         &mut self,
         job_num: usize,
-    ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>, TaskError> {
+    ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>> {
         let job = match &self.nodes[job_num] {
             Node::Job(job) => job,
             Node::File(_) => panic!("Expected job"),
@@ -737,7 +711,7 @@ impl<'a> Runner<'a> {
         jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
         invalidation: bool,
-    ) -> Result<bool, TaskError> {
+    ) -> Result<bool> {
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
                 if invalidation {
@@ -826,7 +800,7 @@ impl<'a> Runner<'a> {
         watcher: &mut RecommendedWatcher,
         target: &str,
         as_task: bool,
-    ) -> Result<usize, TaskError> {
+    ) -> Result<usize> {
         // First match task by name
         if as_task {
             if target.as_bytes()[0] as char == ':' {
@@ -902,7 +876,7 @@ impl<'a> Runner<'a> {
         watcher: &mut RecommendedWatcher,
         target: &str,
         drives: Option<usize>,
-    ) -> Result<(), TaskError> {
+    ) -> Result<()> {
         let job_num = self.lookup_target(watcher, target, true).await?;
         self.expand_job(watcher, job_num, drives).await
     }
@@ -914,7 +888,7 @@ impl<'a> Runner<'a> {
         watcher: &mut RecommendedWatcher,
         job_num: usize,
         drives: Option<usize>,
-    ) -> Result<(), TaskError> {
+    ) -> Result<()> {
         if let Some(drives) = drives {
             self.get_job_mut(drives).unwrap().deps.push(job_num);
         }
@@ -1001,7 +975,7 @@ impl<'a> Runner<'a> {
         dep: String,
         parent_job: usize,
         parent_task: usize,
-    ) -> Result<(), TaskError> {
+    ) -> Result<()> {
         let interpolate_idx = dep.find("#").unwrap();
         if dep[interpolate_idx + 1..].find("#").is_some() {
             panic!("multiple interpolates");
@@ -1042,7 +1016,7 @@ impl<'a> Runner<'a> {
         interpolate: &str,
         parent_job: usize,
         parent_task: usize,
-    ) -> Result<usize, TaskError> {
+    ) -> Result<usize> {
         let watch = self.watch;
         let job_num = self.add_job(parent_task, Some(String::from(interpolate)));
         let file_num = self.add_file(input.to_string());
@@ -1080,7 +1054,7 @@ impl<'a> Runner<'a> {
     }
 
     // find the job for the target, and drive its completion
-    async fn drive_targets(&mut self, targets: &Vec<String>) -> Result<(), TaskError> {
+    async fn drive_targets(&mut self, targets: &Vec<String>) -> Result<()> {
         let mut jobs: Vec<usize> = Vec::new();
         let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
 
@@ -1154,7 +1128,7 @@ impl<'a> Runner<'a> {
         jobs: &mut Vec<usize>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
         blocking: bool,
-    ) -> Result<bool, TaskError> {
+    ) -> Result<bool> {
         let evt = if blocking {
             match rx.recv() {
                 Ok(evt) => evt,
@@ -1197,7 +1171,7 @@ impl<'a> Runner<'a> {
 async fn drive_watcher<'a>(
     runner: &mut Runner<'a>,
     rx: &Receiver<RawEvent>,
-) -> Result<(), TaskError> {
+) -> Result<()> {
     let mut jobs: Vec<usize> = Vec::new();
     let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>> = Vec::new();
     loop {
@@ -1249,7 +1223,7 @@ async fn drive_watcher<'a>(
     }
 }
 
-pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
+pub async fn run<'a>(opts: RunOptions<'a>) -> Result<()> {
     let mut default_chompfile: Chompfile = toml::from_str(include_str!("templates.toml")).unwrap();
 
     let chompfile_source = fs::read_to_string(opts.cfg_file).await?;
@@ -1263,13 +1237,10 @@ pub async fn run<'a>(opts: RunOptions<'a>) -> Result<(), TaskError> {
     }
 
     if chompfile.version != 0.1 {
-        return Err(TaskError::InvalidVersionError(format!(
-            "Invalid chompfile version {}, only 0.1 is supported",
-            chompfile.version
-        )));
+        return Err(anyhow!("Invalid chompfile version {}, only 0.1 is supported", chompfile.version));
     }
 
-    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd, opts.watch);
+    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd, opts.watch)?;
     let (tx, rx) = channel();
     let mut watcher = raw_watcher(tx).unwrap();
 

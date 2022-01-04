@@ -3,6 +3,7 @@ extern crate clap;
 extern crate lazy_static;
 use clap::{App, Arg};
 use std::io::stdout;
+use anyhow::{Result, anyhow};
 
 use crossterm::tty::IsTty;
 
@@ -16,26 +17,8 @@ mod js;
 use std::path::PathBuf;
 use std::env;
 
-#[derive(Debug)]
-enum ChompError {
-    IoError(std::io::Error),
-    TaskError(task::TaskError),
-}
-
-impl From<std::io::Error> for ChompError {
-    fn from(e: std::io::Error) -> ChompError {
-        ChompError::IoError(e)
-    }
-}
-
-impl From<task::TaskError> for ChompError {
-    fn from(e: task::TaskError) -> ChompError {
-        ChompError::TaskError(e)
-    }
-}
-
 #[tokio::main]
-async fn main() -> Result<(), ChompError> {
+async fn main() -> Result<()> {
     let matches = App::new("Chomp")
         .version("0.1.0")
         .about("ᗧ h o m p • ᗣ")
