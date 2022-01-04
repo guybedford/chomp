@@ -1,14 +1,23 @@
 version = 0.1
 
 [[task]]
-  name = "svelte"
-  template = "chomp:jspm"
-  [task.args]
-    inhtml = "app.html"
-    outhtml = "app-build.html"
+  name = "test"
+  serial = true
+  deps = ["clear", "jspm", "done"]
 
 [[task]]
-  name = "is"
-  template = "chomp:npm:install"
+  name = "clear"
+  run = "rm -r node_modules"
+
+[[task]]
+  name = "jspm"
+  template = "chomp:jspm-generator"
+  [task.args]
+    inHtml = "app.html"
+    outHtml = "app-build.html"
+
+[[task]]
+  name = "svelte"
+  template = "chomp:npm:install"  
   [task.args]
     packages = ['react']

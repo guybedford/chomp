@@ -45,6 +45,7 @@ pub struct ChompTaskMaybeTemplated {
     pub target_check: Option<TargetCheck>,
     #[serde(default)]
     pub deps: Vec<String>,
+    pub serial: Option<bool>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub run: Option<String>,
@@ -62,6 +63,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub targets: Option<Vec<String>>,
     pub target_check: Option<TargetCheck>,
     pub deps: Option<Vec<String>>,
+    pub serial: Option<bool>,
     pub env: Option<BTreeMap<String, String>>,
     pub run: Option<String>,
     pub engine: Option<ChompEngine>,

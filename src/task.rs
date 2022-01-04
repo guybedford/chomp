@@ -35,6 +35,7 @@ pub struct Task {
     targets: Vec<String>,
     target_check: TargetCheck,
     deps: Vec<String>,
+    serial: bool,
     env: BTreeMap<String, String>,
     run: Option<String>,
     engine: ChompEngine,
@@ -63,7 +64,8 @@ struct Job {
     interpolate: Option<String>,
     task: usize,
     deps: Vec<usize>,
-    drives: Vec<usize>,
+    serial: bool,
+    parents: Vec<usize>,
     state: JobState,
     mtime: Option<Duration>,
     targets: Vec<String>,
@@ -91,7 +93,7 @@ enum FileState {
 #[derive(Debug)]
 struct File {
     name: String,
-    drives: Vec<usize>,
+    parents: Vec<usize>,
     state: FileState,
     mtime: Option<Duration>,
 }
@@ -101,7 +103,7 @@ impl File {
         File {
             name,
             mtime: None,
-            drives: Vec::new(),
+            parents: Vec::new(),
             state: FileState::Uninitialized,
         }
     }
@@ -109,7 +111,7 @@ impl File {
     async fn init(&mut self, watcher: Option<&mut RecommendedWatcher>, parent_job: Option<usize>) {
         self.state = FileState::Initializing;
         if let Some(parent_job) = parent_job {
-            self.drives.push(parent_job);
+            self.parents.push(parent_job);
         }
         match fs::metadata(&self.name).await {
             Ok(n) => {
@@ -150,12 +152,13 @@ struct Runner<'a> {
 }
 
 impl<'a> Job {
-    fn new(task: usize, interpolate: Option<String>) -> Job {
+    fn new(task: usize, serial: bool, interpolate: Option<String>) -> Job {
         Job {
             interpolate,
             task,
             deps: Vec::new(),
-            drives: Vec::new(),
+            serial,
+            parents: Vec::new(),
             state: JobState::Uninitialized,
             targets: Vec::new(),
             mtime: None,
@@ -192,7 +195,7 @@ impl<'a> Job {
         self.state = JobState::Initializing;
         self.start_time_deps = Some(Instant::now());
         if let Some(parent_job) = parent_job {
-            self.drives.push(parent_job);
+            self.parents.push(parent_job);
         }
         let mut futures = Vec::new();
         for target in &self.targets {
@@ -268,7 +271,7 @@ impl<'a> Runner<'a> {
             if task.template.is_none() {
                 let name = if cur_name.is_some() {
                     if task.name.is_some() {
-                        panic!("Cannot set name for template as it has a name");
+                        return Err(anyhow!("Cannot set name for template as it has a name"));
                     }
                     cur_name.take()
                 }
@@ -312,6 +315,7 @@ impl<'a> Runner<'a> {
                 let task = Task {
                     name,
                     deps,
+                    serial: task.serial.unwrap_or(false),
                     engine: task.engine.unwrap_or_default(),
                     env,
                     run: task.run.clone(),
@@ -319,24 +323,24 @@ impl<'a> Runner<'a> {
                     target_check: task.target_check.unwrap_or_default(),
                 };
                 runner.tasks.push(task);
-                runner.add_job(runner.tasks.len() - 1, None);
+                runner.add_job(runner.tasks.len() - 1, None)?;
                 continue;
             }
             let template = task.template.as_ref().unwrap();
             // evaluate templates into tasks
-            if task.engine.is_some() || task.run.is_some() || task.target_check.is_some() {
-                panic!("Template invocation does not support 'run', 'engine' or 'target_check' fields.");
+            if task.engine.is_some() || task.run.is_some() || task.target_check.is_some() || task.serial.is_some() {
+                return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial' or 'target_check' fields."));
             }
 
             let template = templates.get(template).expect("Unable to find template");
             let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-                run_js_fn(&template.definition, &task.args)?;
+                run_js_fn(&template.definition, &template.name, &task.args)?;
             if template_tasks.len() == 0 {
                 continue;
             }
             if let Some(name) = task.name {
                 if cur_name.is_some() {
-                    panic!("Template does not support name override");
+                    return Err(anyhow!("Template does not support name override"));
                 }
                 cur_name = Some(name);
             }
@@ -387,6 +391,7 @@ impl<'a> Runner<'a> {
                     targets: template_task.targets,
                     target_check: template_task.target_check,
                     deps: template_task.deps.unwrap_or_default(),
+                    serial: template_task.serial,
                     env: template_task.env.unwrap_or_default(),
                     run: template_task.run,
                     engine: template_task.engine,
@@ -398,7 +403,7 @@ impl<'a> Runner<'a> {
         Ok(runner)
     }
 
-    fn add_job(&mut self, task_num: usize, interpolate: Option<String>) -> usize {
+    fn add_job(&mut self, task_num: usize, interpolate: Option<String>) -> Result<usize> {
         let num = self.nodes.len();
         let task = &self.tasks[task_num];
 
@@ -413,7 +418,7 @@ impl<'a> Runner<'a> {
         if let Some(ref name) = task.name {
             if interpolate.is_none() {
                 if self.task_jobs.contains_key(name) {
-                    panic!("Already has job");
+                    return Err(anyhow!("Already has job {}", name));
                 }
                 self.task_jobs.insert(name.to_string(), num);
             }
@@ -442,7 +447,7 @@ impl<'a> Runner<'a> {
                 };
                 match self.file_nodes.get(&file_target) {
                     Some(_) => {
-                        panic!("Multiple targets pointing to same file");
+                        return Err(anyhow!("Multiple targets pointing to same file"));
                     }
                     None => {
                         self.file_nodes.insert(file_target, num);
@@ -451,19 +456,19 @@ impl<'a> Runner<'a> {
             }
         }
 
-        self.nodes.push(Node::Job(Job::new(task_num, interpolate)));
-        return num;
+        self.nodes.push(Node::Job(Job::new(task_num, task.serial, interpolate)));
+        return Ok(num);
     }
 
-    fn add_file(&mut self, file: String) -> usize {
+    fn add_file(&mut self, file: String) -> Result<usize> {
         let num = self.nodes.len();
         let file2 = file.to_string();
         self.nodes.push(Node::File(File::new(file)));
         if self.file_nodes.contains_key(&file2) {
-            panic!("Already has file");
+            return Err(anyhow!("Already has file {}", &file2));
         }
         self.file_nodes.insert(file2, num);
-        return num;
+        return Ok(num);
     }
 
     fn get_job(&self, num: usize) -> Option<&Job> {
@@ -487,7 +492,7 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn mark_complete(&mut self, job_num: usize, updated: bool, failed: bool) {
+    fn mark_complete(&mut self, job_num: usize, updated: bool, failed: bool) -> Result<()> {
         {
             let job = self.get_job_mut(job_num).unwrap();
             if updated {
@@ -522,7 +527,7 @@ impl<'a> Runner<'a> {
                 }
             } else {
                 if failed {
-                    panic!("Did not expect failed for cached");
+                    return Err(anyhow!("Did not expect failed for cached"));
                 }
                 println!(
                     "- {} [- {:?}]",
@@ -539,7 +544,7 @@ impl<'a> Runner<'a> {
                 }
             } else {
                 if failed {
-                    panic!("Did not expect failed for cached");
+                    return Err(anyhow!("Did not expect failed for cached"));
                 }
                 println!("● {} [cached]", job.display_name(self));
             }
@@ -547,6 +552,7 @@ impl<'a> Runner<'a> {
         {
             let job = self.get_job_mut(job_num).unwrap();
             job.start_time_deps = None;
+            Ok(())
         }
     }
 
@@ -560,7 +566,7 @@ impl<'a> Runner<'a> {
         let cwd_str = cwd.to_str().unwrap();
         let path_str = path.to_str().unwrap();
         if !path_str.starts_with(cwd_str) {
-            panic!("Expected path within cwd");
+            return Err(anyhow!("Expected path within cwd"));
         }
         let rel_str = &path_str[cwd_str.len() + 1..];
         let sanitized_path = rel_str.replace("\\", "/");
@@ -569,7 +575,7 @@ impl<'a> Runner<'a> {
                 Node::Job(_) => panic!("TODO: Job invalidator"),
                 Node::File(ref mut file) => {
                     file.mtime = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
-                    let drives = file.drives.clone();
+                    let drives = file.parents.clone();
                     for drive in drives {
                         self.drive_all(drive, jobs, futures, true)?;
                     }
@@ -591,7 +597,7 @@ impl<'a> Runner<'a> {
         let task = &self.tasks[job.task];
         // CMD Exec
         if task.run.is_none() {
-            self.mark_complete(job_num, false, false);
+            self.mark_complete(job_num, false, false)?;
             return Ok(None);
         }
         // the interpolation template itself is not run
@@ -603,7 +609,7 @@ impl<'a> Runner<'a> {
                 }
             }
             if has_interpolation {
-                self.mark_complete(job_num, false, false);
+                self.mark_complete(job_num, false, false)?;
                 return Ok(None);
             }
         }
@@ -648,7 +654,7 @@ impl<'a> Runner<'a> {
                 }
             }
             if all_fresh {
-                self.mark_complete(job_num, false, false);
+                self.mark_complete(job_num, false, false)?;
                 return Ok(None);
             }
         }
@@ -727,7 +733,7 @@ impl<'a> Runner<'a> {
                 }
                 match job.state {
                     JobState::Uninitialized | JobState::Initializing => {
-                        panic!("Expected initialized job");
+                        return Err(anyhow!("Expected initialized job"));
                     }
                     JobState::Running => {
                         let job = self.get_job(job_num).unwrap();
@@ -738,17 +744,21 @@ impl<'a> Runner<'a> {
                             }
                             Ok(false)
                         } else {
-                            panic!("Unexpected internal state");
+                            return Err(anyhow!("Unexpected internal state"));
                         }
                     }
                     JobState::Pending => {
                         let mut all_completed = true;
                         let job = self.get_job_mut(job_num).unwrap();
+                        let serial = job.serial;
                         let deps = job.deps.clone();
                         // TODO: Use a driver counter for deps
                         for dep in deps {
                             let completed = self.drive_all(dep, jobs, futures, invalidation)?;
                             if !completed {
+                                if serial {
+                                    return Ok(false);
+                                }
                                 all_completed = false;
                             }
                         }
@@ -784,7 +794,7 @@ impl<'a> Runner<'a> {
                     Ok(true)
                 } else {
                     if !self.watch {
-                        panic!("Task {} not found", file.name);
+                        return Err(anyhow!("Task {} not found", file.name));
                     } else {
                         // dbg!(file);
                         panic!("TODO: NON-EXISTING FILE WATCH");
@@ -864,7 +874,7 @@ impl<'a> Runner<'a> {
                         Ok(num)
                     }
                     // Otherwise add as a file dependency
-                    None => Ok(self.add_file(String::from(target))),
+                    None => Ok(self.add_file(String::from(target))?),
                 }
             }
         }
@@ -887,17 +897,17 @@ impl<'a> Runner<'a> {
         &mut self,
         watcher: &mut RecommendedWatcher,
         job_num: usize,
-        drives: Option<usize>,
+        parent: Option<usize>,
     ) -> Result<()> {
-        if let Some(drives) = drives {
-            self.get_job_mut(drives).unwrap().deps.push(job_num);
+        if let Some(parent) = parent {
+            self.get_job_mut(parent).unwrap().deps.push(job_num);
         }
 
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
                 if matches!(job.state, JobState::Pending) {
-                    if let Some(drives) = drives {
-                        job.drives.push(drives);
+                    if let Some(parent) = parent {
+                        job.parents.push(parent);
                     }
                     return Ok(());
                 }
@@ -916,7 +926,7 @@ impl<'a> Runner<'a> {
                         is_wildcard = true;
                     }
                     if is_wildcard && is_interpolate {
-                        panic!("Cannot have wildcard + interpolate");
+                        return Err(anyhow!("Cannot have wildcard + interpolate"));
                     }
                     job_targets.push(target.to_string());
                 }
@@ -925,7 +935,7 @@ impl<'a> Runner<'a> {
                 }
 
                 // this must come after setting target above
-                job.init(drives).await;
+                job.init(parent).await;
 
                 if is_wildcard {
                     panic!("TODO: wildcard targets");
@@ -936,33 +946,35 @@ impl<'a> Runner<'a> {
                 for dep in deps {
                     if dep.contains('#') {
                         if dep.contains('*') {
-                            panic!("Wildcard + interpolate not supported");
+                            return Err(anyhow!("Wildcard + interpolate not supported"));
                         }
                         if !is_interpolate {
-                            panic!("Interpolate in deps can only be used when contained in target (and run)");
+                            return Err(anyhow!("Interpolate in deps can only be used when contained in target (and run)"));
                         }
                         if expanded_interpolate {
-                            panic!("Only one interpolated deps is allowed");
+                            return Err(anyhow!("Only one interpolated deps is allowed"));
                         }
                         self.expand_interpolate(watcher, String::from(dep), job_num, task_num)
                             .await?;
                         expanded_interpolate = true;
                     } else if dep.contains('*') {
-                        panic!("TODO: Wilrdcard deps");
+                        panic!("TODO: Wildcard deps");
                     } else {
                         self.expand_target(watcher, &String::from(dep), Some(job_num))
                             .await?;
                     }
                 }
-                if is_interpolate && !expanded_interpolate {
-                    panic!("Never found deps interpolates");
+                if is_interpolate {
+                    if !expanded_interpolate {
+                        return Err(anyhow!("Never found deps interpolates"));
+                    }
                 }
             }
             Node::File(ref mut file) => {
-                if let Some(drives) = drives {
-                    file.drives.push(drives);
+                if let Some(parent) = parent {
+                    file.parents.push(parent);
                 }
-                file.init(if self.watch { Some(watcher) } else { None }, drives)
+                file.init(if self.watch { Some(watcher) } else { None }, parent)
                     .await;
             }
         }
@@ -978,7 +990,7 @@ impl<'a> Runner<'a> {
     ) -> Result<()> {
         let interpolate_idx = dep.find("#").unwrap();
         if dep[interpolate_idx + 1..].find("#").is_some() {
-            panic!("multiple interpolates");
+            return Err(anyhow!("multiple interpolates"));
         }
         let mut glob_target = String::new();
         glob_target.push_str(&dep[0..interpolate_idx]);
@@ -1002,7 +1014,7 @@ impl<'a> Runner<'a> {
                 }
                 Err(e) => {
                     eprintln!("{:?}", e);
-                    panic!("GLOB ERROR");
+                    return Err(anyhow!("GLOB ERROR"));
                 }
             }
         }
@@ -1018,8 +1030,8 @@ impl<'a> Runner<'a> {
         parent_task: usize,
     ) -> Result<usize> {
         let watch = self.watch;
-        let job_num = self.add_job(parent_task, Some(String::from(interpolate)));
-        let file_num = self.add_file(input.to_string());
+        let job_num = self.add_job(parent_task, Some(String::from(interpolate)))?;
+        let file_num = self.add_file(input.to_string())?;
         {
             let file = self.get_file_mut(file_num).unwrap();
             file.init(if watch { Some(watcher) } else { None }, Some(job_num))
@@ -1094,27 +1106,27 @@ impl<'a> Runner<'a> {
             match completed.code() {
                 Some(code) => {
                     if code == 0 {
-                        self.mark_complete(completed_job_num, true, false);
+                        self.mark_complete(completed_job_num, true, false)?;
                         let job = match &self.nodes[completed_job_num] {
                             Node::Job(job) => job,
                             _ => panic!("Expected job"),
                         };
-                        let drives = job.drives.clone();
-                        for drive in drives {
-                            let job = match &self.nodes[drive] {
+                        let parents = job.parents.clone();
+                        for parent in parents {
+                            let job = match &self.nodes[parent] {
                                 Node::Job(job) => job,
                                 _ => panic!("Expected job"),
                             };
                             if !matches!(job.state, JobState::Uninitialized) {
-                                self.drive_all(drive, &mut jobs, &mut futures, false)?;
+                                self.drive_all(parent, &mut jobs, &mut futures, false)?;
                             }
                         }
                     } else {
-                        self.mark_complete(completed_job_num, true, true);
+                        self.mark_complete(completed_job_num, true, true)?;
                     }
                 }
                 None => {
-                    panic!("Unexpected signal exit of subprocess")
+                    return Err(anyhow!("Unexpected signal exit of subprocess"))
                 }
             }
         }
@@ -1194,12 +1206,12 @@ async fn drive_watcher<'a>(
                 match completed.code() {
                     Some(code) => {
                         if code == 0 {
-                            runner.mark_complete(completed_job_num, true, false);
+                            runner.mark_complete(completed_job_num, true, false)?;
                             let job = match &runner.nodes[completed_job_num] {
                                 Node::Job(job) => job,
                                 _ => panic!("Expected job"),
                             };
-                            let drives = job.drives.clone();
+                            let drives = job.parents.clone();
                             for drive in drives {
                                 let job = match &runner.nodes[drive] {
                                     Node::Job(job) => job,
@@ -1210,11 +1222,11 @@ async fn drive_watcher<'a>(
                                 }
                             }
                         } else {
-                            runner.mark_complete(completed_job_num, true, true);
+                            runner.mark_complete(completed_job_num, true, true)?;
                         }
                     }
                     None => {
-                        panic!("Unexpected signal exit of subprocess")
+                        return Err(anyhow!("Unexpected signal exit of subprocess"))
                     }
                 }
             }

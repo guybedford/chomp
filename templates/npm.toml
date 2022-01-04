@@ -5,11 +5,15 @@
 # - installs packages one by one to not reinstall any specific existing package
 [[template]]
   name = "chomp:npm:install"
-  definition = """({ packages, dev }) => packages.map(pkg => ({
+  definition = """({ packages, dev }) => [{
+    deps: packages.map(pkg => `node_modules/${pkg}`),
+    serial: true
+  }, ...packages.map(pkg => ({
     target: `node_modules/${pkg}`,
+    target_check: 'exists',
     deps: ['chomp:npm:init'],
     run: `npm install ${pkg}${dev ? ' --save-dev' : ''}`
-  }))
+  }))]
   """
 
 # npm install task
@@ -29,4 +33,5 @@
 [[task]]
   name = "chomp:npm:init"
   target = "package.json"
+  target_check = "exists"
   run = "npm init -y"

@@ -1,8 +1,8 @@
 [[template]]
   name = "chomp:jspm-generator"
-  definition = """({ inHtmlFile, outHtmlFile, generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
-    target: outHtmlFile,
-    deps: [inHtmlFile],
+  definition = """({ inHtml, outHtml, generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
+    target: outHtml,
+    deps: [inHtml, 'node_modules/@jspm/generator', 'node_modules/mkdirp'],
     engine: 'node',
     run: `
       import { Generator } from '@jspm/generator';
@@ -12,12 +12,12 @@
       import { dirname } from 'path';
 
       const generator = new Generator({
-        mapUrl: pathToFileURL(outHtmlFile),
-        env: generatorEnv
+        mapUrl: pathToFileURL(process.env.TARGET),
+        env: ${JSON.stringify(generatorEnv)}
       });
 
       const htmlSource = await readFile(process.env.DEP, 'utf-8');
-      const outHtml = await generator.htmlGenerate(htmlSource, generateOpts);
+      const outHtml = await generator.htmlGenerate(htmlSource, ${JSON.stringify(generateOpts)});
 
       mkdirp.sync(dirname(process.env.TARGET));
       await writeFile(process.env.TARGET, outHtml);

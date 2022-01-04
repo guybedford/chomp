@@ -1,8 +1,8 @@
-use v8;
+use anyhow::{anyhow, Error, Result};
+use serde::{Deserialize, Serialize};
 use serde_v8::from_v8;
 use serde_v8::to_v8;
-use serde::{Serialize, Deserialize};
-use anyhow::{Result, anyhow};
+use v8;
 
 pub fn init_js_platform() {
   let platform = v8::new_default_platform(0, false).make_shared();
@@ -10,14 +10,32 @@ pub fn init_js_platform() {
   v8::V8::initialize();
 }
 
-pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize> (js_fn: &str, opts: &U) -> Result<T> {
+pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize>(
+  js_fn: &str,
+  name: &str,
+  opts: &U,
+) -> Result<T> {
   let isolate = &mut v8::Isolate::new(Default::default());
   let handle_scope = &mut v8::HandleScope::new(isolate);
   let context = v8::Context::new(handle_scope);
   let scope = &mut v8::ContextScope::new(handle_scope, context);
   let code = v8::String::new(scope, js_fn).unwrap();
   let tc_scope = &mut v8::TryCatch::new(scope);
-  match v8::Script::compile(tc_scope, code, None) {
+  let resource_name = v8::String::new(tc_scope, name).unwrap().into();
+  let source_map = v8::String::new(tc_scope, "").unwrap().into();
+  let origin = v8::ScriptOrigin::new(
+    tc_scope,
+    resource_name,
+    0,
+    0,
+    false,
+    123,
+    source_map,
+    true,
+    false,
+    false,
+  );
+  match v8::Script::compile(tc_scope, code, Some(&origin)) {
     Some(script) => {
       let function = script.run(tc_scope).unwrap();
       if !function.is_function() {
@@ -25,28 +43,30 @@ pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize> (js_fn: &str, opts: &U) -
       }
       let cb = v8::Local::<v8::Function>::try_from(function).unwrap();
       let this = v8::undefined(tc_scope).into();
-      let args: Vec<v8::Local<v8::Value>> = vec![to_v8(tc_scope, opts).expect("Unable to serialize")];
-      let result = cb.call(tc_scope, this, args.as_slice()).unwrap();
-      let task: T = from_v8(tc_scope, result).expect("Unable to deserialize");
+      let args: Vec<v8::Local<v8::Value>> =
+        vec![to_v8(tc_scope, opts).expect("Unable to serialize")];
+      let result = match cb.call(tc_scope, this, args.as_slice()) {
+        Some(result) => result,
+        None => return Err(v8_exception(tc_scope)),
+      };
+      let task: T = from_v8(tc_scope, result).expect("Unable to deserialize template task list due to invalid structure");
       Ok(task)
-    },
-    None => {
-      let exception = tc_scope.exception().unwrap();
-      if is_instance_of_error(tc_scope, exception) {
-        let exception: v8::Local<v8::Object> = exception.try_into().unwrap();
-
-        let stack = get_property(tc_scope, exception, "stack");
-        let stack: Option<v8::Local<v8::String>> =
-          stack.and_then(|s| s.try_into().ok());
-        let stack = stack.map(|s| s.to_rust_string_lossy(tc_scope));
-
-        println!("{}", exception.to_rust_string_lossy(tc_scope));
-        panic!("ERROR");
-      }
-      else {
-        Err(anyhow!("Compilation error: {}", exception.to_rust_string_lossy(tc_scope)))
-      }
     }
+    None => Err(v8_exception(tc_scope)),
+  }
+}
+
+fn v8_exception<'a>(scope: &mut v8::TryCatch<v8::HandleScope>) -> Error {
+  let exception = scope.exception().unwrap();
+  if is_instance_of_error(scope, exception) {
+    let exception: v8::Local<v8::Object> = exception.try_into().unwrap();
+
+    let stack = get_property(scope, exception, "stack");
+    let stack: Option<v8::Local<v8::String>> = stack.and_then(|s| s.try_into().ok());
+    let stack = stack.map(|s| s.to_rust_string_lossy(scope));
+    anyhow!("JS error: {}", stack.unwrap())
+  } else {
+    anyhow!("JS error: {}", exception.to_rust_string_lossy(scope))
   }
 }
 
@@ -59,10 +79,7 @@ fn get_property<'a>(
   object.get(scope, key.into())
 }
 
-fn is_instance_of_error<'s>(
-  scope: &mut v8::HandleScope<'s>,
-  value: v8::Local<v8::Value>,
-) -> bool {
+fn is_instance_of_error<'s>(scope: &mut v8::HandleScope<'s>, value: v8::Local<v8::Value>) -> bool {
   if !value.is_object() {
     return false;
   }
@@ -72,8 +89,7 @@ fn is_instance_of_error<'s>(
     .unwrap()
     .get_prototype(scope)
     .unwrap();
-  let mut maybe_prototype =
-    value.to_object(scope).unwrap().get_prototype(scope);
+  let mut maybe_prototype = value.to_object(scope).unwrap().get_prototype(scope);
   while let Some(prototype) = maybe_prototype {
     if prototype.strict_equals(error_prototype) {
       return true;
