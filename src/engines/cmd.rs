@@ -147,10 +147,8 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>) -> Chi
     path.push_str(cwd);
     path += "/node_modules/.bin";
     command.env("PATH", path);
-    if let Some(env) = env {
-        for (name, value) in env {
-            command.env(name, value);
-        }
+    for (name, value) in env {
+        command.env(name, value);
     }
     command.arg("-c");
     command.arg(run);
