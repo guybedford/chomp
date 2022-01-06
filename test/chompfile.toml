@@ -20,6 +20,8 @@ version = 0.1
     rm test.js.map
     rm -r lib
     rm app-build.html
+    # this line clears error code
+    echo cleared
   """
 
 [[task]]
