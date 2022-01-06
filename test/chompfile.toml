@@ -24,12 +24,12 @@ version = 0.1
 
 [[task]]
   name = "jspm"
-  template = "chomp:jspm-generator"
+  template = "jspm:generate"
   target = "app-build.html"
   deps = ["app.html"]
 
 [[task]]
   name = "typescript"
-  template = "chomp:typescript"
+  template = "typescript"
   target = "test.js"
   deps = ["test.ts"]

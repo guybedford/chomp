@@ -1,5 +1,5 @@
 [[template]]
-  name = "chomp:jspm-generator"
+  name = "jspm:generate"
   definition = """({ generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
     deps: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
     engine: 'node',
@@ -22,7 +22,7 @@
       await writeFile(process.env.TARGET, outHtml);
     `
   }, {
-    template: 'chomp:npm:install',
+    template: 'npm:install',
     args: {
       packages: ['@jspm/generator', 'mkdirp'],
       dev: true

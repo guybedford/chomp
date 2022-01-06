@@ -280,7 +280,10 @@ impl<'a> Runner<'a> {
 
         let mut templates: BTreeMap<&String, &ChompTemplate> = BTreeMap::new();
         for template in &chompfile.template {
-            templates.insert(&template.name, &template);
+            // first template wins (and local overrides chomp included)
+            if templates.get(&template.name).is_none() {
+                templates.insert(&template.name, &template);
+            }
         }
 
         // expand tasks into initial job list
