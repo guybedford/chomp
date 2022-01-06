@@ -1,0 +1,118 @@
+﻿version = 0.1
+[[template]]
+  name = "jspm:generate"
+  definition = """({ generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
+    deps: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
+    engine: 'node',
+    run: `
+      import { Generator } from '@jspm/generator';
+      import { readFile, writeFile } from 'fs/promises';
+      import { pathToFileURL } from 'url';
+      import mkdirp from 'mkdirp';
+      import { dirname } from 'path';
+
+      const generator = new Generator({
+        mapUrl: pathToFileURL(process.env.TARGET),
+        env: ${JSON.stringify(generatorEnv)}
+      });
+
+      const htmlSource = await readFile(process.env.DEP, 'utf-8');
+      const outHtml = await generator.htmlGenerate(htmlSource, ${JSON.stringify(generateOpts)});
+
+      mkdirp.sync(dirname(process.env.TARGET));
+      await writeFile(process.env.TARGET, outHtml);
+    `
+  }, {
+    template: 'npm:install',
+    args: {
+      packages: ['@jspm/generator', 'mkdirp'],
+      dev: true
+    }
+  }]
+  """
+# npm packages template
+# - takes an array of packages, and ensures they are installed in node_modules
+# - depends on the npm install task, which ensures package.json + lock
+# - only if the initial install doesn't locate the packages do we add new installs
+# - installs packages one by one to not reinstall any specific existing package
+[[template]]
+  name = "npm:install"
+  definition = """({ packages, dev }) => [{
+    deps: packages.map(pkg => `node_modules/${pkg}`),
+    serial: true
+  }, ...packages.map(pkg => ({
+    target: `node_modules/${pkg}`,
+    target_check: 'exists',
+    deps: ['npm:init'],
+    run: `npm install ${pkg}${dev ? ' --save-dev' : ''}`
+  }))]
+  """
+
+# npm install task
+# - depends on npm init (package.json existing)
+# - checks if package-lock.json | yarn.lock | pnpm-lock.yaml exists
+# - if not, runs npm install
+[[task]]
+  name = "npm:install-all"
+  target = "package-lock.json"#, "yarn.lock", "pnpm-lock.yaml"]
+  target_check = "exists"
+  deps = ["npm:init"]
+  run = "npm install"
+
+# npm init task
+# - checks if the package.json exists, if it does its done
+# - if the package.json does not exist, runs npm init with default prompts
+[[task]]
+  name = "npm:init"
+  target = "package.json"
+  target_check = "exists"
+  run = "npm init -y"
+[[template]]
+  name = "chomp:svelte"
+  definition = """() => [{
+    deps: ['node_modules/svelte', 'node_modules/mkdirp'],
+    engine: 'node',
+    run: `
+      import { readFile, writeFile } from 'fs/promises';
+      import { compile } from 'svelte/compiler';
+      import mkdirp from 'mkdirp';
+      import { dirname } from 'path';
+
+      const source = await readFile(process.env.DEP, 'utf-8');
+      const result = compile(source, {
+        // TODO:
+        // - preprocessor support for eg TypeScript
+        filename: process.env.DEP,
+        css: false,
+      });
+
+      mkdirp.sync(dirname(process.env.TARGET));
+      const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
+      await Promise.all[
+        writeFile(process.env.TARGET, result.js.code),
+        writeFile(process.env.TARGET + ".map", JSON.stringify(result.js.map)),
+        writeFile(cssFile, result.css.code),
+        writeFile(cssFile + ".map", JSON.stringify(result.css.map))
+      ];
+    `
+  }, {
+    template: 'npm:install',
+    args: {
+      packages: ['svelte', 'mkdirp'],
+      dev: true
+    }
+  }]
+  """
+[[template]]
+  name = "typescript"
+  definition = """() => [{
+    deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
+    run: "swc $DEP -o $TARGET"
+  }, {
+    template: 'npm:install',
+    args: {
+      packages: ['@swc/core', '@swc/cli'],
+      dev: true
+    }
+  }]
+  """
