@@ -208,11 +208,17 @@ struct StateTransition {
 }
 
 impl StateTransition {
-    fn from_job (idx: usize, state: JobState) -> Self {
-        StateTransition { job_num: idx, state: JobOrFileState::Job(state) }
+    fn from_job(idx: usize, state: JobState) -> Self {
+        StateTransition {
+            job_num: idx,
+            state: JobOrFileState::Job(state),
+        }
     }
-    fn from_file (idx: usize, state: FileState) -> Self {
-        StateTransition { job_num: idx, state: JobOrFileState::File(state) }
+    fn from_file(idx: usize, state: FileState) -> Self {
+        StateTransition {
+            job_num: idx,
+            state: JobOrFileState::File(state),
+        }
     }
 }
 
@@ -231,8 +237,7 @@ impl QueuedStateTransitions {
         let transition = StateTransition::from_job(idx, state);
         if self.state_transitions.insert(transition.clone()) {
             Some(transition)
-        }
-        else {
+        } else {
             None
         }
     }
@@ -240,8 +245,7 @@ impl QueuedStateTransitions {
         let transition = StateTransition::from_file(idx, state);
         if self.state_transitions.insert(transition.clone()) {
             Some(transition)
-        }
-        else {
+        } else {
             None
         }
     }
@@ -298,13 +302,18 @@ impl<'a> Runner<'a> {
                     task.name.clone()
                 };
                 let mut deps = Vec::new();
-                for dep in task.deps {
-                    deps.push(dep);
-                }
+                // this ordering means template instantiation deps come first
                 if let Some(ref mut cur_deps) = cur_deps.take() {
                     deps.append(cur_deps);
                 }
+                for dep in task.deps {
+                    deps.push(dep);
+                }
                 let mut targets = Vec::new();
+                // this ordering means template instantiation targets come first
+                if let Some(ref mut cur_targets) = cur_targets.take() {
+                    targets.append(cur_targets);
+                }
                 if let Some(target) = &task.target {
                     targets.push(target.to_string());
                 } else if let Some(task_targets) = &task.targets {
@@ -312,10 +321,6 @@ impl<'a> Runner<'a> {
                         targets.push(target.to_string());
                     }
                 }
-                if let Some(ref mut cur_targets) = cur_targets.take() {
-                    targets.append(cur_targets);
-                }
-
                 let mut env = BTreeMap::new();
                 if let Some(global_env) = &runner.chompfile.env {
                     for (item, value) in global_env {
@@ -578,7 +583,7 @@ impl<'a> Runner<'a> {
         &mut self,
         path: PathBuf,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>,
-        queued: &mut QueuedStateTransitions
+        queued: &mut QueuedStateTransitions,
     ) -> Result<bool> {
         let cwd = std::env::current_dir()?;
         let cwd_str = cwd.to_str().unwrap();
@@ -606,7 +611,7 @@ impl<'a> Runner<'a> {
 
     fn run_job(
         &mut self,
-        job_num: usize
+        job_num: usize,
     ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>> {
         let job = match &self.nodes[job_num] {
             Node::Job(job) => job,
@@ -732,9 +737,12 @@ impl<'a> Runner<'a> {
         job.start_time = Some(Instant::now());
         let transition = StateTransition::from_job(job_num, JobState::Running);
         Ok(Some(
-            async move { return_future.await; transition }
-                .boxed()
-                .shared(),
+            async move {
+                return_future.await;
+                transition
+            }
+            .boxed()
+            .shared(),
         ))
     }
 
@@ -806,18 +814,36 @@ impl<'a> Runner<'a> {
                                 }
                             }
                             last_mtime
-                        }.boxed().shared();
+                        }
+                        .boxed()
+                        .shared();
                         job.mtime_future = Some(mtime_future.clone());
                         job.state = JobState::Checking;
-                        let transition = queued.insert_job(job_num, JobState::Checking).expect("Expected first job check");
-                        futures.push(async move { mtime_future.await; transition }.boxed().shared());
+                        let transition = queued
+                            .insert_job(job_num, JobState::Checking)
+                            .expect("Expected first job check");
+                        futures.push(
+                            async move {
+                                mtime_future.await;
+                                transition
+                            }
+                            .boxed()
+                            .shared(),
+                        );
                         Ok(false)
                     }
                     JobState::Checking => {
                         let job = self.get_job(job_num).unwrap();
                         if let Some(transition) = queued.insert_job(job_num, JobState::Checking) {
                             let future = job.run_future.clone().unwrap();
-                            futures.push(async move { future.await; transition }.boxed().shared());
+                            futures.push(
+                                async move {
+                                    future.await;
+                                    transition
+                                }
+                                .boxed()
+                                .shared(),
+                            );
                         }
                         Ok(false)
                     }
@@ -848,12 +874,19 @@ impl<'a> Runner<'a> {
                         if all_completed {
                             return match self.run_job(job_num)? {
                                 Some(future) => {
-                                    queued.insert_job(job_num, JobState::Running).expect("Expected new run");
+                                    queued
+                                        .insert_job(job_num, JobState::Running)
+                                        .expect("Expected new run");
                                     futures.push(future);
                                     Ok(false)
                                 }
                                 None => {
-                                    self.drive_completion(StateTransition::from_job(job_num, JobState::Running), invalidation, futures, queued)?;
+                                    self.drive_completion(
+                                        StateTransition::from_job(job_num, JobState::Running),
+                                        invalidation,
+                                        futures,
+                                        queued,
+                                    )?;
                                     Ok(true)
                                 }
                             };
@@ -864,7 +897,14 @@ impl<'a> Runner<'a> {
                         let job = self.get_job(job_num).unwrap();
                         if let Some(transition) = queued.insert_job(job_num, JobState::Running) {
                             let future = job.run_future.clone().unwrap();
-                            futures.push(async move { future.await; transition }.boxed().shared());
+                            futures.push(
+                                async move {
+                                    future.await;
+                                    transition
+                                }
+                                .boxed()
+                                .shared(),
+                            );
                         }
                         Ok(false)
                     }
@@ -888,20 +928,38 @@ impl<'a> Runner<'a> {
                                     _ => panic!("Unknown file error"),
                                 },
                             }
-                        }.boxed().shared();
+                        }
+                        .boxed()
+                        .shared();
                         file.mtime_future = Some(mtime_future.clone());
                         file.state = FileState::Checking;
-                        let transition = queued.insert_file(job_num, FileState::Checking).expect("Expected first file check");
-                        futures.push(async move { mtime_future.await; transition }.boxed().shared());
+                        let transition = queued
+                            .insert_file(job_num, FileState::Checking)
+                            .expect("Expected first file check");
+                        futures.push(
+                            async move {
+                                mtime_future.await;
+                                transition
+                            }
+                            .boxed()
+                            .shared(),
+                        );
                         Ok(false)
-                    },
+                    }
                     FileState::Checking => {
                         if let Some(transition) = queued.insert_file(job_num, FileState::Checking) {
                             let future = file.mtime_future.clone().unwrap();
-                            futures.push(async move { future.await; transition }.boxed().shared());
+                            futures.push(
+                                async move {
+                                    future.await;
+                                    transition
+                                }
+                                .boxed()
+                                .shared(),
+                            );
                         }
                         Ok(false)
-                    },
+                    }
                     FileState::Found => Ok(true),
                     FileState::NotFound => {
                         if !self.watch {
@@ -942,8 +1000,14 @@ impl<'a> Runner<'a> {
                 let job = self.get_job_mut(job_num).unwrap();
                 job.state = if let Some(ref run_future) = job.run_future {
                     let status = run_future.peek().unwrap();
-                    if status.success() { JobState::Fresh } else { JobState::Failed }
-                } else { JobState::Fresh };
+                    if status.success() {
+                        JobState::Fresh
+                    } else {
+                        JobState::Failed
+                    }
+                } else {
+                    JobState::Fresh
+                };
                 if matches!(job.state, JobState::Fresh) {
                     for parent in job.parents.clone() {
                         self.drive_all(parent, invalidation, futures, queued)?;
@@ -952,14 +1016,17 @@ impl<'a> Runner<'a> {
                 Ok(())
             }
             JobOrFileState::File(FileState::Checking) => {
-                let file = match self.nodes[job_num] { Node::File(ref mut file) => file, _ => panic!("Expected file") };
+                let file = match self.nodes[job_num] {
+                    Node::File(ref mut file) => file,
+                    _ => panic!("Expected file"),
+                };
                 let mtime_future = file.mtime_future.as_ref().unwrap();
                 let mtime = mtime_future.peek().unwrap();
                 file.mtime = mtime.clone();
                 file.mtime_future = None;
                 file.state = match file.mtime {
                     Some(_mtime) => FileState::Found,
-                    None => FileState::NotFound
+                    None => FileState::NotFound,
                 };
                 for parent in file.parents.clone() {
                     self.drive_all(parent, invalidation, futures, queued)?;
@@ -1315,11 +1382,18 @@ impl<'a> Runner<'a> {
 
 async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<RawEvent>) -> Result<()> {
     loop {
-        let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>> = Vec::new();
+        let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>> =
+            Vec::new();
         let mut queued = QueuedStateTransitions::new();
-        if runner.check_watcher(&rx, &mut futures, &mut queued, true).await? {
+        if runner
+            .check_watcher(&rx, &mut futures, &mut queued, true)
+            .await?
+        {
             loop {
-                while runner.check_watcher(&rx, &mut futures, &mut queued, false).await? {}
+                while runner
+                    .check_watcher(&rx, &mut futures, &mut queued, false)
+                    .await?
+                {}
                 if futures.len() == 0 {
                     break;
                 }
@@ -1332,7 +1406,7 @@ async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<RawEvent>) -> 
     }
 }
 
-pub async fn run<'a>(opts: RunOptions<'a>) -> Result<()> {
+pub async fn run<'a>(opts: RunOptions<'a>) -> Result<bool> {
     let mut default_chompfile: Chompfile = toml::from_str(include_str!("templates.toml")).unwrap();
 
     let chompfile_source = fs::read_to_string(opts.cfg_file).await?;
@@ -1368,5 +1442,16 @@ pub async fn run<'a>(opts: RunOptions<'a>) -> Result<()> {
         drive_watcher(&mut runner, &rx).await?;
     }
 
-    Ok(())
+    // if all targets completed successfully, exit code is 0, otherwise its an error
+    let mut all_ok = true;
+    for target in &opts.targets {
+        let job_num = runner.lookup_target(&mut watcher, target, true).await?;
+        let task = runner.get_job(job_num).unwrap();
+        if !matches!(task.state, JobState::Fresh) {
+            all_ok = false;
+            break;
+        }
+    }
+
+    Ok(all_ok)
 }

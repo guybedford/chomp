@@ -3,21 +3,33 @@ version = 0.1
 [[task]]
   name = "test"
   serial = true
-  deps = ["clear", "jspm", "done"]
+  deps = ["clear", "jspm", "typescript", "check"]
+
+[[task]]
+  name = "check"
+  deps = ["app-build.html", "test.js"]
+  run = "echo \"TESTS OK\""
 
 [[task]]
   name = "clear"
-  run = "rm -r node_modules"
+  run = """
+    rm -r node_modules
+    rm package.json
+    rm package-lock.json
+    rm test.js
+    rm test.js.map
+    rm -r lib
+    rm app-build.html
+  """
 
 [[task]]
   name = "jspm"
   template = "chomp:jspm-generator"
-  [task.args]
-    inHtml = "app.html"
-    outHtml = "app-build.html"
+  target = "app-build.html"
+  deps = ["app.html"]
 
 [[task]]
-  name = "svelte"
-  template = "chomp:npm:install"  
-  [task.args]
-    packages = ['react']
+  name = "typescript"
+  template = "chomp:typescript"
+  target = "test.js"
+  deps = ["test.ts"]

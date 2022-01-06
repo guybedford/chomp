@@ -1,8 +1,7 @@
 [[template]]
   name = "chomp:svelte"
-  definition = """({ outdir = 'lib', indir = 'src' }) => [{
-    target: `${outdir}/#.svelte.js`,
-    deps: [`${indir}/#.svelte`, 'node_modules/svelte', 'node_modules/mkdirp'],
+  definition = """() => [{
+    deps: ['node_modules/svelte', 'node_modules/mkdirp'],
     engine: 'node',
     run: `
       import { readFile, writeFile } from 'fs/promises';
@@ -12,6 +11,8 @@
 
       const source = await readFile(process.env.DEP, 'utf-8');
       const result = compile(source, {
+        // TODO:
+        // - preprocessor support for eg TypeScript
         filename: process.env.DEP,
         css: false,
       });
@@ -28,7 +29,8 @@
   }, {
     template: 'chomp:npm:install',
     args: {
-      packages: ['svelte', 'mkdirp']
+      packages: ['svelte', 'mkdirp'],
+      dev: true
     }
   }]
   """

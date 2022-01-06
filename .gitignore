@@ -3,3 +3,7 @@ target
 package.json
 package-lock.json
 src/templates.toml
+test/lib
+test/app-build.html
+test/test.js
+test/test.js.map

@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
     //     args.push(String::from(item));
     // }
 
-    task::run(task::RunOptions {
+    let ok = task::run(task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),
         ui: &ui,
         cwd: env::current_dir()?,
@@ -110,5 +110,5 @@ async fn main() -> Result<()> {
         cfg_file: PathBuf::from(matches.value_of("config").unwrap_or_default()),
     }).await?;
 
-    Ok(())
+    std::process::exit(if ok { 0 } else { 1 });
 }

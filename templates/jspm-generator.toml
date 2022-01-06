@@ -1,8 +1,7 @@
 [[template]]
   name = "chomp:jspm-generator"
-  definition = """({ inHtml, outHtml, generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
-    target: outHtml,
-    deps: [inHtml, 'node_modules/@jspm/generator', 'node_modules/mkdirp'],
+  definition = """({ generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
+    deps: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
     engine: 'node',
     run: `
       import { Generator } from '@jspm/generator';
