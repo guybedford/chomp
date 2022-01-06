@@ -27,7 +27,7 @@
       ];
     `
   }, {
-    template: 'chomp:npm:install',
+    template: 'npm:install',
     args: {
       packages: ['svelte', 'mkdirp'],
       dev: true

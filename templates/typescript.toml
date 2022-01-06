@@ -1,10 +1,10 @@
 [[template]]
-  name = "chomp:typescript"
+  name = "typescript"
   definition = """() => [{
     deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
     run: "swc $DEP -o $TARGET"
   }, {
-    template: 'chomp:npm:install',
+    template: 'npm:install',
     args: {
       packages: ['@swc/core', '@swc/cli'],
       dev: true
