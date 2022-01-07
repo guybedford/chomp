@@ -24,7 +24,7 @@
   }, {
     template: 'npm:install',
     args: {
-      packages: ['@jspm/generator', 'mkdirp'],
+      packages: ['@jspm/generator@^1.0.0-beta.21', 'mkdirp'],
       dev: true
     }
   }]

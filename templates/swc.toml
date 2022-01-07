@@ -6,7 +6,7 @@
   }, {
     template: 'npm:install',
     args: {
-      packages: ['@swc/core', '@swc/cli'],
+      packages: ['@swc/core@1', '@swc/cli@0.1'],
       dev: true
     }
   }]

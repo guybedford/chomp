@@ -23,7 +23,7 @@
 [[task]]
   name = "npm:install-all"
   target = "package-lock.json"#, "yarn.lock", "pnpm-lock.yaml"]
-  target_check = "exists"
+  target_check = "exists" # opts-out of mtime invalidation
   deps = ["npm:init"]
   run = "npm install"
 

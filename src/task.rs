@@ -472,7 +472,7 @@ impl<'a> Runner<'a> {
                 };
                 match self.file_nodes.get(&file_target) {
                     Some(_) => {
-                        return Err(anyhow!("Multiple targets pointing to same file"));
+                        // return Err(anyhow!("Multiple targets pointing to same file {}", file_target));
                     }
                     None => {
                         self.file_nodes.insert(file_target, num);

@@ -76,7 +76,7 @@
 [[task]]
   name = "npm:install-all"
   target = "package-lock.json"#, "yarn.lock", "pnpm-lock.yaml"]
-  target_check = "exists"
+  target_check = "exists" # opts-out of mtime invalidation
   deps = ["npm:init"]
   run = "npm install"
 
@@ -89,7 +89,7 @@
   target_check = "exists"
   run = "npm init -y"
 [[template]]
-  name = "chomp:svelte"
+  name = "svelte"
   definition = """() => [{
     deps: ['node_modules/svelte', 'node_modules/mkdirp'],
     engine: 'node',

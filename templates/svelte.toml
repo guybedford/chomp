@@ -1,5 +1,5 @@
 [[template]]
-  name = "chomp:svelte"
+  name = "svelte"
   definition = """() => [{
     deps: ['node_modules/svelte', 'node_modules/mkdirp'],
     engine: 'node',
@@ -29,7 +29,7 @@
   }, {
     template: 'npm:install',
     args: {
-      packages: ['svelte', 'mkdirp'],
+      packages: ['svelte@3', 'mkdirp'],
       dev: true
     }
   }]

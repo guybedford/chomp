@@ -3,7 +3,7 @@ version = 0.1
 [[task]]
   name = "test"
   serial = true
-  deps = ["clear", "jspm", "swc", "babel", "check"]
+  deps = ["clear", "jspm", "svelte", "swc", "babel", "check"]
 
 [[task]]
   name = "check"
@@ -31,6 +31,12 @@ version = 0.1
   template = "jspm:generate"
   target = "app-build.html"
   deps = ["app.html"]
+
+[[task]]
+  name = "svelte"
+  template = "svelte"
+  target = "lib/test.js"
+  deps = ["src/test.svelte"]
 
 [[task]]
   name = "swc"

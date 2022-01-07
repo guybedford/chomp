@@ -63,7 +63,7 @@ version = 0.1
     dev = true
 ```
 
-The template will skip the install if the package is already present, and also ensure a package.json file is initialized if it does not exist.
+The template includes conveniences to skip the install if the package is already present, and also ensure a package.json file is initialized if it does not exist.
 
 #### TypeScript with SWC
 
