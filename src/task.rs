@@ -877,10 +877,10 @@ impl<'a> Runner<'a> {
                         if all_completed {
                             return match self.run_job(job_num)? {
                                 Some(future) => {
-                                    queued
-                                        .insert_job(job_num, JobState::Running)
-                                        .expect("Expected new run");
-                                    futures.push(future);
+                                    match queued.insert_job(job_num, JobState::Running) {
+                                        Some(_) => futures.push(future),
+                                        None => {}
+                                    }
                                     Ok(false)
                                 }
                                 None => {
@@ -1300,6 +1300,11 @@ impl<'a> Runner<'a> {
             Vec::new();
 
         let mut queued = QueuedStateTransitions::new();
+
+        if self.chompfile.debug {
+            dbg!(&self.task_jobs);
+            dbg!(&self.nodes);
+        }
 
         // first try named target, then fall back to file name check
         for target in targets {

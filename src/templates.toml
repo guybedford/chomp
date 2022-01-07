@@ -14,7 +14,7 @@
     }, {
       template: 'npm:install',
       args: {
-        packages: [...presets, ...plugins, '@babel/core', '@babel/cli'],
+        packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
         dev: true
       }
     }];
@@ -46,7 +46,7 @@
   }, {
     template: 'npm:install',
     args: {
-      packages: ['@jspm/generator', 'mkdirp'],
+      packages: ['@jspm/generator@^1.0.0-beta.21', 'mkdirp'],
       dev: true
     }
   }]
@@ -119,7 +119,7 @@
   }, {
     template: 'npm:install',
     args: {
-      packages: ['svelte', 'mkdirp'],
+      packages: ['svelte@3', 'mkdirp'],
       dev: true
     }
   }]
@@ -132,7 +132,7 @@
   }, {
     template: 'npm:install',
     args: {
-      packages: ['@swc/core', '@swc/cli'],
+      packages: ['@swc/core@1', '@swc/cli@0.1'],
       dev: true
     }
   }]

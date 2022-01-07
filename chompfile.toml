@@ -2,13 +2,13 @@ version = 0.1
 
 [[task]]
   name = "build"
-  target = "target/Debug/chp.exe"
+  target = "target/Debug/chomp.exe"
   deps = ["check-not-local", "build:templates"]
   run = "cargo build"
 
 [[task]]
   name = "build:release"
-  target = "target/Release/chp.exe"
+  target = "target/Release/chomp.exe"
   deps = ["check-not-local", "build:templates"]
   run = "cargo build --release"
 
@@ -25,7 +25,7 @@ version = 0.1
   run = """
     import path from 'path';
     if (process.env.CHOMP_PATH.startsWith(path.resolve('target'))) {
-      console.error('Cannot build Chomp with local Chomp! Instead use the global "chp build".');
+      console.error('Cannot build Chomp with local Chomp! Instead use the global "chomp build".');
       process.exit(1);
     }
   """
