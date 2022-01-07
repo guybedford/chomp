@@ -1,3 +1,3 @@
-chp build
-cp ~/bin/chp.exe ~/bin/chp2.exe
-cp ./target/Debug/chp.exe ~/bin/chp.exe
+chomp build
+cp ~/bin/chomp.exe ~/bin/chomp2.exe
+cp ./target/Debug/chomp.exe ~/bin/chomp.exe

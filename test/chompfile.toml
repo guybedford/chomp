@@ -3,7 +3,7 @@ version = 0.1
 [[task]]
   name = "test"
   serial = true
-  deps = ["clear", "jspm", "typescript", "check"]
+  deps = ["clear", "jspm", "swc", "check"]
 
 [[task]]
   name = "check"
@@ -31,7 +31,7 @@ version = 0.1
   deps = ["app.html"]
 
 [[task]]
-  name = "typescript"
-  template = "typescript"
+  name = "swc"
+  template = "swc"
   target = "test.js"
   deps = ["test.ts"]

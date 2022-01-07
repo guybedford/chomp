@@ -1000,17 +1000,11 @@ impl<'a> Runner<'a> {
             }
             JobOrFileState::Job(JobState::Running) => {
                 // job can complete running without an exec promise if eg cached
-                let job = self.get_job_mut(job_num).unwrap();
-                job.state = if let Some(ref run_future) = job.run_future {
-                    let status = run_future.peek().unwrap();
-                    if status.success() {
-                        JobState::Fresh
-                    } else {
-                        JobState::Failed
-                    }
-                } else {
-                    JobState::Fresh
-                };
+                let job = self.get_job(job_num).unwrap();
+                let run_future = job.run_future.as_ref().unwrap();
+                let success = run_future.peek().unwrap().success();
+                self.mark_complete(job_num, true, !success)?;
+                let job = self.get_job(job_num).unwrap();
                 if matches!(job.state, JobState::Fresh) {
                     for parent in job.parents.clone() {
                         self.drive_all(parent, invalidation, futures, queued)?;

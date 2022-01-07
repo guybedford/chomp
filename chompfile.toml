@@ -1,25 +1,13 @@
 version = 0.1
 
 [[task]]
-  name = "svelte"
-  template = "chomp:svelte"
-  [task.args]
-    indir = "test/src"
-    outdir = "test/lib"
-
-[[task]]
-  name = "build:release"
-  deps = ["build:templates"]
-  run = "cargo build --release"
-
-[[task]]
   name = "build"
   target = "target/Debug/chp.exe"
   deps = ["check-not-local", "build:templates"]
   run = "cargo build"
 
 [[task]]
-  name = "build:rust:release"
+  name = "build:release"
   target = "target/Release/chp.exe"
   deps = ["check-not-local", "build:templates"]
   run = "cargo build --release"

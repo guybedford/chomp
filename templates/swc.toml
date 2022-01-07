@@ -1,0 +1,13 @@
+[[template]]
+  name = "swc"
+  definition = """() => [{
+    deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
+    run: "swc $DEP -o $TARGET"
+  }, {
+    template: 'npm:install',
+    args: {
+      packages: ['@swc/core', '@swc/cli'],
+      dev: true
+    }
+  }]
+  """

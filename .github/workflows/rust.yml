@@ -17,4 +17,4 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run tests
-      run: cd test && ../target/debug/chp test
+      run: cd test && ../target/debug/chomp test
