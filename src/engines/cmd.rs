@@ -19,7 +19,10 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>) -> Child {
+pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug: bool) -> Child {
+    if debug {
+        println!("RUN: {}", run);
+    }
     lazy_static! {
         // Currently does not support spaces in arg quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
@@ -136,7 +139,10 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>) -> Chi
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>) -> Child {
+pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug: bool) -> Child {
+    if debug {
+        println!("RUN: {}", run);
+    }
     let mut command = Command::new("sh");
     let mut path = env::var("PATH").unwrap_or_default();
     if path.len() > 0 {

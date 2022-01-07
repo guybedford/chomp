@@ -3,7 +3,7 @@ version = 0.1
 [[task]]
   name = "test"
   serial = true
-  deps = ["clear", "jspm", "swc", "check"]
+  deps = ["clear", "jspm", "swc", "babel", "check"]
 
 [[task]]
   name = "check"
@@ -20,7 +20,9 @@ version = 0.1
     rm test.js.map
     rm -r lib
     rm app-build.html
-    # this line clears error code
+    rm test-babel.js
+    rm test-babel.js.map
+    # this line clears any error code
     echo cleared
   """
 
@@ -35,3 +37,11 @@ version = 0.1
   template = "swc"
   target = "test.js"
   deps = ["test.ts"]
+
+[[task]]
+  name = "babel"
+  template = "babel"
+  target = "test-babel.js"
+  deps = ["test.ts"]
+  [task.args]
+    presets = ['@babel/preset-typescript']

@@ -1,5 +1,26 @@
 ﻿version = 0.1
 [[template]]
+  name = "babel"
+  definition = """({ presets = [], plugins = [], sourceMap = true }) => {
+    return [{
+      deps: [...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
+      run: `babel $DEP -o $TARGET${
+          sourceMap ? ' --source-maps' : ''
+        }${
+          plugins.length ? ` --plugins=${plugins.join(',')}` : ''
+        }${
+          presets.length ? ` --presets=${presets.join(',')}` : ''
+        }`
+    }, {
+      template: 'npm:install',
+      args: {
+        packages: [...presets, ...plugins, '@babel/core', '@babel/cli'],
+        dev: true
+      }
+    }];
+  }
+  """
+[[template]]
   name = "jspm:generate"
   definition = """({ generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
     deps: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
@@ -105,19 +126,6 @@
   """
 [[template]]
   name = "swc"
-  definition = """() => [{
-    deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
-    run: "swc $DEP -o $TARGET"
-  }, {
-    template: 'npm:install',
-    args: {
-      packages: ['@swc/core', '@swc/cli'],
-      dev: true
-    }
-  }]
-  """
-[[template]]
-  name = "typescript"
   definition = """() => [{
     deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
     run: "swc $DEP -o $TARGET"

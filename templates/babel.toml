@@ -1,0 +1,21 @@
+[[template]]
+  name = "babel"
+  definition = """({ presets = [], plugins = [], sourceMap = true }) => {
+    return [{
+      deps: [...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
+      run: `babel $DEP -o $TARGET${
+          sourceMap ? ' --source-maps' : ''
+        }${
+          plugins.length ? ` --plugins=${plugins.join(',')}` : ''
+        }${
+          presets.length ? ` --presets=${presets.join(',')}` : ''
+        }`
+    }, {
+      template: 'npm:install',
+      args: {
+        packages: [...presets, ...plugins, '@babel/core', '@babel/cli'],
+        dev: true
+      }
+    }];
+  }
+  """

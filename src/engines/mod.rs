@@ -24,8 +24,9 @@ impl<'a> CmdPool {
         &mut self,
         run: String,
         env: &BTreeMap<String, String>,
+        debug: bool
     ) -> BoxFuture<'static, Child> {
-        let child = create_cmd(&self.cwd, run, env);
+        let child = create_cmd(&self.cwd, run, env, debug);
         Box::pin(async { child })
     }
 
@@ -34,16 +35,17 @@ impl<'a> CmdPool {
         run: String,
         env: &mut BTreeMap<String, String>,
         engine: ChompEngine,
+        debug: bool
     ) -> BoxFuture<'a, ExitStatus> {
         match engine {
             ChompEngine::Cmd => {
-                let child_future = self.get_next(run, env);
+                let child_future = self.get_next(run, env, debug);
                 Box::pin(async {
                     let mut child = child_future.await;
                     child.status().await.expect("Child process error")
                 })
             },
-            ChompEngine::Node => node_runner(self, run, env),
+            ChompEngine::Node => node_runner(self, run, env, debug),
         }
     }
 }
