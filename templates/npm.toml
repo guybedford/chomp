@@ -6,14 +6,17 @@
 [[template]]
   name = "npm:install"
   definition = """({ packages, dev }) => [{
-    deps: packages.map(pkg => `node_modules/${pkg}`),
+    deps: packages.map(pkg => {
+      const versionIndex = pkg.indexOf('@', 1);
+      return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
+    }),
     serial: true
   }, ...packages.map(pkg => ({
     target: `node_modules/${pkg}`,
     target_check: 'exists',
     deps: ['npm:init'],
     run: `npm install ${pkg}${dev ? ' --save-dev' : ''}`
-  }))]
+  }))];
   """
 
 # npm install task
