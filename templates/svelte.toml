@@ -8,7 +8,7 @@
       import { compile } from 'svelte/compiler';
       import mkdirp from 'mkdirp';
       import { dirname } from 'path';
-
+  
       let config;
       ${svelteConfig ? `
         config = await import(${svelteConfig === true ? '"./svelte.config.js"' : svelteConfig});

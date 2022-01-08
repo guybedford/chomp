@@ -1,9 +1,9 @@
 [[template]]
   name = "swc"
-  definition = """({ autoInstall = false, configFile = null, noSwcrc, sourceMaps = true, config = {} }) => [{
+  definition = """({ autoInstall = false, configFile = null, swcRc, sourceMaps = true, config = {} }) => [{
     deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
     run: `swc $DEP -o $TARGET${
-        noSwcrc ? ' --no-swcrc' : ''
+        !swcRc ? ' --no-swcrc' : ''
       }${
         configFile ? ` --config-file=${configFile}` : ''
       }${

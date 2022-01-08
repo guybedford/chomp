@@ -77,6 +77,9 @@ version = 0.1
   template = "swc"
   target = "lib/#.js"
   deps = ["src/#.ts]
+  [task.args]
+    # automatically install swc with npm if not present
+    autoInstall = true
 ```
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.
