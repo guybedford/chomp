@@ -1,6 +1,6 @@
 [[template]]
   name = "jspm:generate"
-  definition = """({ generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
+  definition = """({ autoInstall = false, generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
     deps: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
     engine: 'node',
     run: `
@@ -22,9 +22,9 @@
       await writeFile(process.env.TARGET, outHtml);
     `
   }, {
-    template: 'npm:install',
+    template: autoInstall ? 'npm:install' : 'npm:verify',
     args: {
-      packages: ['@jspm/generator@^1.0.0-beta.21', 'mkdirp'],
+      packages: ['@jspm/generator', 'mkdirp'],
       dev: true
     }
   }]
