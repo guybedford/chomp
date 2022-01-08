@@ -1,6 +1,6 @@
 [[template]]
   name = "svelte"
-  definition = """() => [{
+  definition = """({ autoInstall = false, svelteConfig = null }) => [{
     deps: ['node_modules/svelte', 'node_modules/mkdirp'],
     engine: 'node',
     run: `
@@ -9,13 +9,18 @@
       import mkdirp from 'mkdirp';
       import { dirname } from 'path';
 
+      let config;
+      ${svelteConfig ? `
+        config = await import(${svelteConfig === true ? '"./svelte.config.js"' : svelteConfig});
+      ` : `
+        config = {
+          css: false
+        };
+      `}
+      config.filename = process.env.DEP;
+
       const source = await readFile(process.env.DEP, 'utf-8');
-      const result = compile(source, {
-        // TODO:
-        // - preprocessor support for eg TypeScript
-        filename: process.env.DEP,
-        css: false,
-      });
+      const result = compile(source, config);
 
       mkdirp.sync(dirname(process.env.TARGET));
       const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
@@ -27,7 +32,7 @@
       ];
     `
   }, {
-    template: 'npm:install',
+    template: autoInstall ? 'npm:install' : 'npm:verify',
     args: {
       packages: ['svelte@3', 'mkdirp'],
       dev: true

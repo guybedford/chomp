@@ -1,5 +1,4 @@
 version = 0.1
-debug = true
 
 [[task]]
   name = "test"
@@ -32,18 +31,24 @@ debug = true
   template = "jspm:generate"
   target = "app-build.html"
   deps = ["app.html"]
+  [task.args]
+    autoInstall = true
 
 [[task]]
   name = "svelte"
   template = "svelte"
   target = "lib/test.js"
   deps = ["src/test.svelte"]
+  [task.args]
+    autoInstall = true
 
 [[task]]
   name = "swc"
   template = "swc"
   target = "test.js"
   deps = ["test.ts"]
+  [task.args]
+    autoInstall = true
 
 [[task]]
   name = "babel"
@@ -52,3 +57,4 @@ debug = true
   deps = ["test.ts"]
   [task.args]
     presets = ['@babel/preset-typescript']
+    autoInstall = true

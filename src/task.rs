@@ -77,7 +77,7 @@ struct Job {
     start_time: Option<Instant>,
     end_time: Option<Instant>,
     #[derivative(Debug = "ignore")]
-    run_future: Option<Shared<Pin<Box<dyn Future<Output = ExitStatus> + Send>>>>,
+    run_future: Option<Shared<Pin<Box<dyn Future<Output = (ExitStatus, Option<Duration>)> + Send>>>>,
 }
 
 #[derive(Debug)]
@@ -257,6 +257,52 @@ impl Default for QueuedStateTransitions {
     }
 }
 
+// None = NotFound
+pub async fn check_target_mtimes (targets: Vec<String>) -> Option<Duration> {
+    if targets.len() == 0 {
+        return Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
+    }
+    let mut futures = Vec::new();
+    for target in &targets {
+        let target_path = Path::new(target);
+        futures.push(
+            async move {
+                match fs::metadata(target_path).await {
+                    Ok(n) => Some(
+                        n.modified()
+                            .expect("No modified implementation")
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap(),
+                    ),
+                    Err(e) => match e.kind() {
+                        NotFound => {
+                            if let Some(parent) = target_path.parent() {
+                                fs::create_dir_all(parent).await.unwrap();
+                            }
+                            None
+                        }
+                        _ => panic!("Unknown file error"),
+                    },
+                }
+            }
+            .boxed(),
+        );
+    }
+    let mut has_missing = false;
+    let mut last_mtime = None;
+    while futures.len() > 0 {
+        let (mtime, _, new_futures) = select_all(futures).await;
+        futures = new_futures;
+        if mtime.is_none() {
+            has_missing = true;
+            last_mtime = None;
+        } else if !has_missing && mtime > last_mtime {
+            last_mtime = mtime;
+        }
+    }
+    last_mtime
+}
+
 impl<'a> Runner<'a> {
     fn new(
         ui: &'a ChompUI,
@@ -363,7 +409,10 @@ impl<'a> Runner<'a> {
                 return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial' or 'target_check' fields."));
             }
 
-            let template = templates.get(template).expect("Unable to find template");
+            let template = match templates.get(template) {
+                Some(template) => template,
+                None => return Err(anyhow!("Unable to find template {}", template))
+            };
             let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
                 run_js_fn(&template.definition, &template.name, &task.args)?;
             if template_tasks.len() == 0 {
@@ -730,7 +779,7 @@ impl<'a> Runner<'a> {
 
         let job_future = self
             .cmd_pool
-            .run(run, &mut env, task.engine, self.chompfile.debug)
+            .run(run, job.targets.clone(), &mut env, task.engine, self.chompfile.debug)
             .boxed()
             .shared();
         let return_future = job_future.clone();
@@ -777,49 +826,7 @@ impl<'a> Runner<'a> {
                     JobState::Initialized => {
                         job.start_time_deps = Some(Instant::now());
                         let targets = job.targets.clone();
-                        let mtime_future = async move {
-                            let mut futures = Vec::new();
-                            for target in &targets {
-                                let target_path = Path::new(target);
-                                futures.push(
-                                    async move {
-                                        match fs::metadata(target_path).await {
-                                            Ok(n) => Some(
-                                                n.modified()
-                                                    .expect("No modified implementation")
-                                                    .duration_since(UNIX_EPOCH)
-                                                    .unwrap(),
-                                            ),
-                                            Err(e) => match e.kind() {
-                                                NotFound => {
-                                                    if let Some(parent) = target_path.parent() {
-                                                        fs::create_dir_all(parent).await.unwrap();
-                                                    }
-                                                    None
-                                                }
-                                                _ => panic!("Unknown file error"),
-                                            },
-                                        }
-                                    }
-                                    .boxed(),
-                                );
-                            }
-                            let mut has_missing = false;
-                            let mut last_mtime = None;
-                            while futures.len() > 0 {
-                                let (mtime, _, new_futures) = select_all(futures).await;
-                                futures = new_futures;
-                                if mtime.is_none() {
-                                    has_missing = true;
-                                    last_mtime = None;
-                                } else if !has_missing && mtime > last_mtime {
-                                    last_mtime = mtime;
-                                }
-                            }
-                            last_mtime
-                        }
-                        .boxed()
-                        .shared();
+                        let mtime_future = check_target_mtimes(targets).boxed().shared();
                         job.mtime_future = Some(mtime_future.clone());
                         job.state = JobState::Checking;
                         let transition = queued
@@ -1002,7 +1009,8 @@ impl<'a> Runner<'a> {
                 // job can complete running without an exec promise if eg cached
                 let job = self.get_job(job_num).unwrap();
                 if let Some(ref run_future) = job.run_future {
-                    let success = run_future.peek().unwrap().success();
+                    let (status, mtime) = run_future.peek().unwrap();
+                    let success = status.success() && mtime.is_some();
                     self.mark_complete(job_num, true, !success)?;
                 }
                 let job = self.get_job(job_num).unwrap();

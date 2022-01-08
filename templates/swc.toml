@@ -1,10 +1,18 @@
 [[template]]
   name = "swc"
-  definition = """() => [{
+  definition = """({ autoInstall = false, configFile = null, noSwcrc, sourceMaps = true, config = {} }) => [{
     deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
-    run: "swc $DEP -o $TARGET"
+    run: `swc $DEP -o $TARGET${
+        noSwcrc ? ' --no-swcrc' : ''
+      }${
+        configFile ? ` --config-file=${configFile}` : ''
+      }${
+        sourceMaps ? ' --source-maps' : ''
+      }${
+        Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
+      }`
   }, {
-    template: 'npm:install',
+    template: autoInstall ? 'npm:install' : 'npm:verify',
     args: {
       packages: ['@swc/core@1', '@swc/cli@0.1'],
       dev: true
