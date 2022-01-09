@@ -48,6 +48,7 @@ fn unsupported_method() -> Response<Body> {
 fn not_found(path: &str) -> Response<Body> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
+        .header(header::CONTENT_TYPE, header::HeaderValue::from_str("text/plain").unwrap())
         .body(Body::from(format!("\"{}\" Not Found", path)))
         .unwrap()
 }

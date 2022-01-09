@@ -530,14 +530,16 @@ impl<'a> Runner<'a> {
     }
 
     fn add_file(&mut self, file: String) -> Result<usize> {
-        let num = self.nodes.len();
         let file2 = file.to_string();
-        self.nodes.push(Node::File(File::new(file)));
-        if self.file_nodes.contains_key(&file2) {
-            return Err(anyhow!("Already has file {}", &file2));
-        }
-        self.file_nodes.insert(file2, num);
-        return Ok(num);
+        Ok(match self.file_nodes.get(&file2) {
+            Some(&num) => num,
+            None => {
+                let num = self.nodes.len();
+                self.nodes.push(Node::File(File::new(file)));
+                self.file_nodes.insert(file2, num);
+                num
+            }
+        })
     }
 
     fn get_job(&self, num: usize) -> Option<&Job> {

@@ -1,8 +1,5 @@
 version = 0.1
 
-[env]
-  X = "1"
-
 [[task]]
   name = "build"
   target = "target/Debug/chomp.exe"
