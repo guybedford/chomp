@@ -9,17 +9,16 @@ pub struct ServeOptions {
     pub port: u16,
 }
 
-static NOTFOUND: &[u8] = b"Not Found";
-static HELLOWORLD: &[u8] = b"Hello World";
-
 async fn handle(req: Request<Body>) -> Result<Response<Body>> {
     match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => Ok(static_page(&HELLOWORLD)),
         (&Method::GET, _) => {
-            let subpath = &req.uri().path()[1..];
+            let mut subpath = &req.uri().path()[1..];
+            if subpath.len() == 0 {
+                subpath = "index.html"
+            }
             file_serve(subpath).await
         }
-        _ => Ok(not_found()),
+        _ => Ok(unsupported_method()),
     }
 }
 
@@ -36,20 +35,20 @@ async fn file_serve(filename: &str) -> Result<Response<Body>> {
         }
         return Ok(res);
     }
-    Ok(not_found())
+    Ok(not_found(filename))
 }
 
-fn static_page(static_body: &'static [u8]) -> Response<Body> {
+fn unsupported_method() -> Response<Body> {
     Response::builder()
-        .status(StatusCode::OK)
-        .body(static_body.into())
+        .status(StatusCode::NOT_FOUND)
+        .body("Unsupported Method".as_bytes().into())
         .unwrap()
 }
 
-fn not_found() -> Response<Body> {
+fn not_found(path: &str) -> Response<Body> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
-        .body(NOTFOUND.into())
+        .body(Body::from(format!("\"{}\" Not Found", path)))
         .unwrap()
 }
 
