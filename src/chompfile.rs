@@ -19,7 +19,8 @@ pub struct Chompfile {
     pub version: f32,
     #[serde(default)]
     pub debug: bool,
-    pub env: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
     #[serde(default)]
     pub task: Vec<ChompTaskMaybeTemplated>,
     #[serde(default)]

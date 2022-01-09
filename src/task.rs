@@ -366,10 +366,8 @@ impl<'a> Runner<'a> {
                     }
                 }
                 let mut env = BTreeMap::new();
-                if let Some(global_env) = &runner.chompfile.env {
-                    for (item, value) in global_env {
-                        env.insert(item.to_uppercase(), value.to_string());
-                    }
+                for (item, value) in &chompfile.env {
+                    env.insert(item.to_uppercase(), value.to_string());
                 }
                 for (item, value) in task.env {
                     env.insert(item.to_uppercase(), value.to_string());
@@ -390,6 +388,7 @@ impl<'a> Runner<'a> {
                     targets,
                     target_check: task.target_check.unwrap_or_default(),
                 };
+
                 runner.tasks.push(task);
                 runner.add_job(runner.tasks.len() - 1, None)?;
                 continue;
@@ -409,7 +408,7 @@ impl<'a> Runner<'a> {
                 None => return Err(anyhow!("Unable to find template {}", template)),
             };
             let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-                run_js_fn(&template.definition, &template.name, &task.args)?;
+                run_js_fn(&template.definition, &template.name, &task.args, &chompfile.env)?;
             if template_tasks.len() == 0 {
                 continue;
             }

@@ -60,7 +60,7 @@ definition = """({ autoInstall = false, generatorEnv = ['browser', 'production',
 # - installs packages one by one to not reinstall any specific existing package
 [[template]]
 name = "npm:install"
-definition = """({ packages, dev }) => [{
+definition = """({ packages, dev }, { PKG_MANAGER = 'npm' }) => [{
   deps: packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
     return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
@@ -73,7 +73,7 @@ definition = """({ packages, dev }) => [{
   }),
   target_check: 'exists',
   deps: ['npm:init'],
-  run: `npm install ${packages.join(' ')}${dev ? ' -D' : ''}`
+  run: `${PKG_MANAGER} install ${packages.join(' ')}${dev ? ' -D' : ''}`
 }))];
 """
 
@@ -93,23 +93,37 @@ definition = """({ packages, dev }) => [{
 
 # npm install task
 # - depends on npm init (package.json existing)
-# - checks if package-lock.json | yarn.lock | pnpm-lock.yaml exists
+# - checks if package-lock.json exists
 # - if not, runs npm install
 [[task]]
 name = "npm:install-all"
-target = "package-lock.json"#, "yarn.lock", "pnpm-lock.yaml"]
-target_check = "exists" # opts-out of mtime invalidation
-deps = ["npm:init"]
-run = "npm install"
+template = "npm:_install-all"
+
+[[template]]
+name = "npm:_install-all"
+definition = """({}, { PKG_MANAGER = 'npm' }) => [{
+  target: PKG_MANAGER === 'pnpm' ? 'pnpm-lock.yaml' : PKG_MANAGER === 'yarn' ? 'yarn.lock' : 'package-lock.json',
+  // opts-out of mtime invalidation (package.json mtime > package-lock.json mtime)
+  target_check: 'exists',
+  deps: ['npm:init'],
+  run: `${PKG_MANAGER} install`
+}];
+"""
 
 # npm init task
 # - checks if the package.json exists, if it does its done
 # - if the package.json does not exist, runs npm init with default prompts
 [[task]]
 name = "npm:init"
-target = "package.json"
-target_check = "exists"
-run = "npm init -y"
+template = "npm:_init"
+
+[[template]]
+name = "npm:_init"
+definition = """({}, { PKG_MANAGER = 'npm' }) => [{
+  target: 'package.json',
+  run: `${PKG_MANAGER} init -y`
+}];
+"""
 [[template]]
 name = "prettier"
 definition = """({ autoInstall = false, files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false }) => [{

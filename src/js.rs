@@ -10,10 +10,11 @@ pub fn init_js_platform() {
   v8::V8::initialize();
 }
 
-pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize>(
+pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize, V: Serialize>(
   js_fn: &str,
   name: &str,
   opts: &U,
+  env: &V,
 ) -> Result<T> {
   let isolate = &mut v8::Isolate::new(Default::default());
   let handle_scope = &mut v8::HandleScope::new(isolate);
@@ -44,7 +45,7 @@ pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize>(
       let cb = v8::Local::<v8::Function>::try_from(function).unwrap();
       let this = v8::undefined(tc_scope).into();
       let args: Vec<v8::Local<v8::Value>> =
-        vec![to_v8(tc_scope, opts).expect("Unable to serialize")];
+        vec![to_v8(tc_scope, opts).expect("Unable to serialize template params"), to_v8(tc_scope, env).expect("Unable to serialize environment variables")];
       let result = match cb.call(tc_scope, this, args.as_slice()) {
         Some(result) => result,
         None => return Err(v8_exception(tc_scope)),
