@@ -1,5 +1,5 @@
 [package]
-name = "chomp"
+name = "chomp-build"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
