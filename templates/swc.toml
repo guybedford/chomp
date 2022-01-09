@@ -1,21 +1,21 @@
 [[template]]
-  name = "swc"
-  definition = """({ autoInstall = false, configFile = null, swcRc, sourceMaps = true, config = {} }) => [{
-    deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
-    run: `swc $DEP -o $TARGET${
-        !swcRc ? ' --no-swcrc' : ''
-      }${
-        configFile ? ` --config-file=${configFile}` : ''
-      }${
-        sourceMaps ? ' --source-maps' : ''
-      }${
-        Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
-      }`
-  }, {
-    template: autoInstall ? 'npm:install' : 'npm:verify',
-    args: {
-      packages: ['@swc/core@1', '@swc/cli@0.1'],
-      dev: true
-    }
-  }]
-  """
+name = "swc"
+definition = """({ autoInstall = false, configFile = null, swcRc, sourceMaps = true, config = {} }) => [{
+  deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
+  run: `swc $DEP -o $TARGET${
+      !swcRc ? ' --no-swcrc' : ''
+    }${
+      configFile ? ` --config-file=${configFile}` : ''
+    }${
+      sourceMaps ? ' --source-maps' : ''
+    }${
+      Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
+    }`
+}, {
+  template: autoInstall ? 'npm:install' : 'npm:verify',
+  args: {
+    packages: ['@swc/core@1', '@swc/cli@0.1'],
+    dev: true
+  }
+}]
+"""

@@ -1,174 +1,195 @@
 ﻿version = 0.1
 [[template]]
-  name = "babel"
-  definition = """({ autoInstall = false, presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null }) => [{
-    deps: [...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
-    run: `babel $DEP -o $TARGET${
-        sourceMap ? ' --source-maps' : ''
-      }${
-        plugins.length ? ` --plugins=${plugins.join(',')}` : ''
-      }${
-        presets.length ? ` --presets=${presets.join(',')}` : ''
-      }${
-        noBabelRc ? ' --no-babelrc' : ''
-      }${
-        configFile ? ` --config-file=${configFile}` : ''
-      }`
-  }, {
-    template: autoInstall ? 'npm:install' : 'npm:verify',
-    args: {
-      packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
-      dev: true
-    }
-  }];
-  """
+name = "babel"
+definition = """({ autoInstall = false, presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null }) => [{
+  deps: [...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
+  run: `babel $DEP -o $TARGET${
+      sourceMap ? ' --source-maps' : ''
+    }${
+      plugins.length ? ` --plugins=${plugins.join(',')}` : ''
+    }${
+      presets.length ? ` --presets=${presets.join(',')}` : ''
+    }${
+      !babelRc ? ' --no-babelrc' : ''
+    }${
+      configFile ? ` --config-file=${configFile}` : ''
+    }`
+}, {
+  template: autoInstall ? 'npm:install' : 'npm:verify',
+  args: {
+    packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
+    dev: true
+  }
+}];
+"""
 [[template]]
-  name = "jspm:generate"
-  definition = """({ autoInstall = false, generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
-    deps: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
-    engine: 'node',
-    run: `
-      import { Generator } from '@jspm/generator';
-      import { readFile, writeFile } from 'fs/promises';
-      import { pathToFileURL } from 'url';
-      import mkdirp from 'mkdirp';
-      import { dirname } from 'path';
+name = "jspm:generate"
+definition = """({ autoInstall = false, generatorEnv = ['browser', 'production', 'module'], ...generateOpts }) => [{
+  deps: ['node_modules/@jspm/generator', 'node_modules/mkdirp'],
+  engine: 'node',
+  run: `
+    import { Generator } from '@jspm/generator';
+    import { readFile, writeFile } from 'fs/promises';
+    import { pathToFileURL } from 'url';
+    import mkdirp from 'mkdirp';
+    import { dirname } from 'path';
 
-      const generator = new Generator({
-        mapUrl: pathToFileURL(process.env.TARGET),
-        env: ${JSON.stringify(generatorEnv)}
-      });
+    const generator = new Generator({
+      mapUrl: pathToFileURL(process.env.TARGET),
+      env: ${JSON.stringify(generatorEnv)}
+    });
 
-      const htmlSource = await readFile(process.env.DEP, 'utf-8');
-      const outHtml = await generator.htmlGenerate(htmlSource, ${JSON.stringify(generateOpts)});
+    const htmlSource = await readFile(process.env.DEP, 'utf-8');
+    const outHtml = await generator.htmlGenerate(htmlSource, ${JSON.stringify(generateOpts)});
 
-      mkdirp.sync(dirname(process.env.TARGET));
-      await writeFile(process.env.TARGET, outHtml);
-    `
-  }, {
-    template: autoInstall ? 'npm:install' : 'npm:verify',
-    args: {
-      packages: ['@jspm/generator', 'mkdirp'],
-      dev: true
-    }
-  }]
-  """
+    mkdirp.sync(dirname(process.env.TARGET));
+    await writeFile(process.env.TARGET, outHtml);
+  `
+}, {
+  template: autoInstall ? 'npm:install' : 'npm:verify',
+  args: {
+    packages: ['@jspm/generator', 'mkdirp'],
+    dev: true
+  }
+}]
+"""
 # npm packages template
 # - takes an array of packages, and ensures they are installed in node_modules
 # - depends on the npm install task, which ensures package.json + lock
 # - only if the initial install doesn't locate the packages do we add new installs
 # - installs packages one by one to not reinstall any specific existing package
 [[template]]
-  name = "npm:install"
-  definition = """({ packages, dev }) => [{
-    deps: packages.map(pkg => {
-      const versionIndex = pkg.indexOf('@', 1);
-      return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-    }),
-    serial: true
-  }, ...packages.map(pkg => ({
-    targets: packages.map(pkg => {
-      const versionIndex = pkg.indexOf('@', 1);
-      return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-    }),
-    target_check: 'exists',
-    deps: ['npm:init'],
-    run: `npm install ${packages.join(' ')}${dev ? ' -D' : ''}`
-  }))];
-  """
+name = "npm:install"
+definition = """({ packages, dev }) => [{
+  deps: packages.map(pkg => {
+    const versionIndex = pkg.indexOf('@', 1);
+    return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
+  }),
+  serial: true
+}, ...packages.map(pkg => ({
+  targets: packages.map(pkg => {
+    const versionIndex = pkg.indexOf('@', 1);
+    return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
+  }),
+  target_check: 'exists',
+  deps: ['npm:init'],
+  run: `npm install ${packages.join(' ')}${dev ? ' -D' : ''}`
+}))];
+"""
 
 # npm verify template
 # instead of installing packages, it just verifies they are present, providing an
 # error and instruction if they are not
 [[template]]
-  name = "npm:verify"
-  definition = """({ packages, dev }) => [{
-    targets: packages.map(pkg => {
-      const versionIndex = pkg.indexOf('@', 1);
-      return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-    }),
-    run: `echo "\n\\x1b[93mChomp\\x1b[0m: Some packages are missing. Please run \\x1b[1mnpm install ${packages.join(' ')}${dev ? ' -D' : ''}\\x1b[0m\n"`
-  }];
-  """
+name = "npm:verify"
+definition = """({ packages, dev }) => [{
+  targets: packages.map(pkg => {
+    const versionIndex = pkg.indexOf('@', 1);
+    return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
+  }),
+  run: `echo "\n\\x1b[93mChomp\\x1b[0m: Some packages are missing. Please run \\x1b[1mnpm install ${packages.join(' ')}${dev ? ' -D' : ''}\\x1b[0m\n"`
+}];
+"""
 
 # npm install task
 # - depends on npm init (package.json existing)
 # - checks if package-lock.json | yarn.lock | pnpm-lock.yaml exists
 # - if not, runs npm install
 [[task]]
-  name = "npm:install-all"
-  target = "package-lock.json"#, "yarn.lock", "pnpm-lock.yaml"]
-  target_check = "exists" # opts-out of mtime invalidation
-  deps = ["npm:init"]
-  run = "npm install"
+name = "npm:install-all"
+target = "package-lock.json"#, "yarn.lock", "pnpm-lock.yaml"]
+target_check = "exists" # opts-out of mtime invalidation
+deps = ["npm:init"]
+run = "npm install"
 
 # npm init task
 # - checks if the package.json exists, if it does its done
 # - if the package.json does not exist, runs npm init with default prompts
 [[task]]
-  name = "npm:init"
-  target = "package.json"
-  target_check = "exists"
-  run = "npm init -y"
+name = "npm:init"
+target = "package.json"
+target_check = "exists"
+run = "npm init -y"
 [[template]]
-  name = "svelte"
-  definition = """({ autoInstall = false, svelteConfig = null }) => [{
-    deps: ['node_modules/svelte', 'node_modules/mkdirp'],
-    engine: 'node',
-    run: `
-      import { readFile, writeFile } from 'fs/promises';
-      import { compile } from 'svelte/compiler';
-      import mkdirp from 'mkdirp';
-      import { dirname } from 'path';
-
-      let config;
-      ${svelteConfig ? `
-        config = await import(${svelteConfig === true ? '"./svelte.config.js"' : svelteConfig});
-      ` : `
-        config = {
-          css: false
-        };
-      `}
-      config.filename = process.env.DEP;
-
-      const source = await readFile(process.env.DEP, 'utf-8');
-      const result = compile(source, config);
-
-      mkdirp.sync(dirname(process.env.TARGET));
-      const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
-      await Promise.all[
-        writeFile(process.env.TARGET, result.js.code),
-        writeFile(process.env.TARGET + ".map", JSON.stringify(result.js.map)),
-        writeFile(cssFile, result.css.code),
-        writeFile(cssFile + ".map", JSON.stringify(result.css.map))
-      ];
-    `
-  }, {
-    template: autoInstall ? 'npm:install' : 'npm:verify',
-    args: {
-      packages: ['svelte@3', 'mkdirp'],
-      dev: true
-    }
-  }]
-  """
+name = "prettier"
+definition = """({ autoInstall = false, files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false }) => [{
+  deps: ['node_modules/prettier'],
+  run: `prettier ${files} ${
+      check ? ' --check' : ''
+    }${
+      write ? ' --write' : ''
+    }${
+      config ? ` --config ${config}` : ''
+    }${
+      noErrorOnUnmatchedPattern ? ' --no-error-on-unmatched-pattern' : ''
+    }`
+}, {
+  template: autoInstall ? 'npm:install' : 'npm:verify',
+  args: {
+    packages: ['prettier'],
+    dev: true
+  }
+}]
+"""
 [[template]]
-  name = "swc"
-  definition = """({ autoInstall = false, configFile = null, noSwcrc, sourceMaps = true, config = {} }) => [{
-    deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
-    run: `swc $DEP -o $TARGET${
-        noSwcrc ? ' --no-swcrc' : ''
-      }${
-        configFile ? ` --config-file=${configFile}` : ''
-      }${
-        sourceMaps ? ' --source-maps' : ''
-      }${
-        Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
-      }`
-  }, {
-    template: autoInstall ? 'npm:install' : 'npm:verify',
-    args: {
-      packages: ['@swc/core@1', '@swc/cli@0.1'],
-      dev: true
-    }
-  }]
-  """
+name = "svelte"
+definition = """({ autoInstall = false, svelteConfig = null }) => [{
+  deps: ['node_modules/svelte', 'node_modules/mkdirp'],
+  engine: 'node',
+  run: `
+    import { readFile, writeFile } from 'fs/promises';
+    import { compile } from 'svelte/compiler';
+    import mkdirp from 'mkdirp';
+    import { dirname } from 'path';
+
+    let config;
+    ${svelteConfig ? `
+      config = await import(${svelteConfig === true ? '"./svelte.config.js"' : svelteConfig});
+    ` : `
+      config = {
+        css: false
+      };
+    `}
+    config.filename = process.env.DEP;
+
+    const source = await readFile(process.env.DEP, 'utf-8');
+    const result = compile(source, config);
+
+    mkdirp.sync(dirname(process.env.TARGET));
+    const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
+    await Promise.all[
+      writeFile(process.env.TARGET, result.js.code),
+      writeFile(process.env.TARGET + ".map", JSON.stringify(result.js.map)),
+      writeFile(cssFile, result.css.code),
+      writeFile(cssFile + ".map", JSON.stringify(result.css.map))
+    ];
+  `
+}, {
+  template: autoInstall ? 'npm:install' : 'npm:verify',
+  args: {
+    packages: ['svelte@3', 'mkdirp'],
+    dev: true
+  }
+}]
+"""
+[[template]]
+name = "swc"
+definition = """({ autoInstall = false, configFile = null, swcRc, sourceMaps = true, config = {} }) => [{
+  deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
+  run: `swc $DEP -o $TARGET${
+      !swcRc ? ' --no-swcrc' : ''
+    }${
+      configFile ? ` --config-file=${configFile}` : ''
+    }${
+      sourceMaps ? ' --source-maps' : ''
+    }${
+      Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
+    }`
+}, {
+  template: autoInstall ? 'npm:install' : 'npm:verify',
+  args: {
+    packages: ['@swc/core@1', '@swc/cli@0.1'],
+    dev: true
+  }
+}]
+"""

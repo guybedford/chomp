@@ -1,0 +1,21 @@
+[[template]]
+name = "prettier"
+definition = """({ autoInstall = false, files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false }) => [{
+  deps: ['node_modules/prettier'],
+  run: `prettier ${files} ${
+      check ? ' --check' : ''
+    }${
+      write ? ' --write' : ''
+    }${
+      config ? ` --config ${config}` : ''
+    }${
+      noErrorOnUnmatchedPattern ? ' --no-error-on-unmatched-pattern' : ''
+    }`
+}, {
+  template: autoInstall ? 'npm:install' : 'npm:verify',
+  args: {
+    packages: ['prettier'],
+    dev: true
+  }
+}]
+"""

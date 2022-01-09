@@ -3,15 +3,41 @@ version = 0.1
 [[task]]
   name = "test"
   serial = true
-  deps = ["clear", "jspm", "svelte", "swc", "babel", "check"]
+  deps = ["test:init", "fail", "prettier", "jspm", "svelte", "swc", "babel", "check"]
+
+[[task]]
+  name = "fail"
+  run = """
+    chomp test:fail
+    echo "recover"
+  """
+
+# verify that a serial failure stops the build and logs correctly
+[[task]]
+  name = "test:fail"
+  serial = true
+  deps = ["test:init", "prettier", "jspm", "failtask", "test:never"]
+
+# never task -> writes never.txt which is caught by check
+[[task]]
+  name = "test:never"
+  run = "echo \"FAILURE\" > testlog.txt"
+
+[[task]]
+  name = "failtask"
+  run = "none"
 
 [[task]]
   name = "check"
   deps = ["app-build.html", "test.js"]
-  run = "echo \"TESTS OK\""
+  run = """
+    echo \"TESTS OK\" >> testlog.txt
+    cat testlog.txt
+    rm testlog.txt
+  """
 
 [[task]]
-  name = "clear"
+  name = "test:init"
   run = """
     rm -r node_modules
     rm package.json
@@ -22,9 +48,14 @@ version = 0.1
     rm app-build.html
     rm test-babel.js
     rm test-babel.js.map
-    # this line clears any error code
-    echo cleared
+    echo "export var p:number=5;" > test.ts
   """
+
+[[task]]
+  name = "prettier"
+  template = "prettier"
+  [task.args]
+    autoInstall = true
 
 [[task]]
   name = "jspm"

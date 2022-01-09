@@ -63,11 +63,14 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
             for (name, value) in env {
                 command.env(name, value);
             }
-            for arg in capture["args"][1..].split(" ") {
-                if env.len() > 0 {
-                    command.arg(replace_env_vars(arg, env));
-                } else {
-                    command.arg(arg);
+            let args = capture["args"].to_string();
+            if args.len() > 1 {
+                for arg in args[1..].split(" ") {
+                    if env.len() > 0 {
+                        command.arg(replace_env_vars(arg, env));
+                    } else {
+                        command.arg(arg);
+                    }
                 }
             }
             command.stdin(Stdio::null());
