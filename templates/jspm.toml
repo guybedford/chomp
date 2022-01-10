@@ -10,14 +10,16 @@ definition = """({ autoInstall = false, generatorEnv = ['browser', 'production',
     import mkdirp from 'mkdirp';
     import { dirname } from 'path';
 
+    const opts = ${JSON.stringify(generateOpts)};
+
     const htmlUrl = pathToFileURL(process.env.TARGET);
     const generator = new Generator({
       mapUrl: htmlUrl,
-      env: ${JSON.stringify(generatorEnv)}
+      env: ${JSON.stringify(generatorEnv)},
+      ...opts
     });
 
     const htmlSource = await readFile(process.env.DEP, 'utf-8');
-    const opts = ${JSON.stringify(generateOpts)};
     opts.htmlUrl = htmlUrl;
     const outHtml = await generator.htmlGenerate(htmlSource, opts);
 
