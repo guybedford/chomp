@@ -50,15 +50,16 @@ A number of system templates are provided out of the box in the templates direct
 
 #### npm install
 
-For example, to install an npm library, rather than manually writing an `npm install` call, you can use the `npm:install` template:
+For example, to install an npm library, rather than manually writing an `npm install` call, you can use the `npm` template:
 
 ```chompfile.toml
 version = 0.1
 
 [[task]]
   name = "Install Mocha"
-  template = "npm:install"
-  [task.args]
+  template = "npm"
+  [task.template-opts]
+    auto-install = true
     packages = ['mocha']
     dev = true
 ```
@@ -72,14 +73,15 @@ To compile TypeScript with the SWC template:
 ```toml
 version = 0.1
 
+# Installs SWC automatically if needed
+[default-template-opts.npm]
+  auto-install = true
+
 [[task]]
   name = "typescript"
   template = "swc"
   target = "lib/#.js"
   deps = ["src/#.ts]
-  [task.args]
-    # automatically install swc with npm if not present
-    autoInstall = true
 ```
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.

@@ -19,6 +19,7 @@ async-recursion = "0.3.2"
 async-std = { version = "1.10.0", features = ["unstable"] }
 capturing-glob = "0.1.1"
 clap = "2.33.3"
+convert_case = "0.5.0"
 crossterm = "0.22.1"
 derivative = "2.2.0"
 futures = "0.3.18"

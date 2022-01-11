@@ -1,7 +1,10 @@
 [[template]]
 name = "swc"
-definition = """({ autoInstall = false, configFile = null, swcRc, sourceMaps = true, config = {} }) => [{
-  deps: ['node_modules/@swc/core', 'node_modules/@swc/cli'],
+definition = """({ name, targets, deps, env, templateOpts: { configFile = null, swcRc, sourceMaps = true, config = {} } }) => [{
+  name,
+  targets,
+  deps: [...deps, 'node_modules/@swc/core', 'node_modules/@swc/cli'],
+  env,
   run: `swc $DEP -o $TARGET${
       !swcRc ? ' --no-swcrc' : ''
     }${
@@ -12,8 +15,8 @@ definition = """({ autoInstall = false, configFile = null, swcRc, sourceMaps = t
       Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
     }`
 }, {
-  template: autoInstall ? 'npm:install' : 'npm:verify',
-  args: {
+  template: 'npm',
+  templateOpts: {
     packages: ['@swc/core@1', '@swc/cli@0.1'],
     dev: true
   }

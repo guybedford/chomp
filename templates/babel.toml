@@ -1,7 +1,10 @@
 [[template]]
 name = "babel"
-definition = """({ autoInstall = false, presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null }) => [{
-  deps: [...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
+definition = """({ name, targets, deps, env, templateOpts: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null } }) => [{
+  name,
+  targets,
+  deps: [...deps, ...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
+  env,
   run: `babel $DEP -o $TARGET${
       sourceMap ? ' --source-maps' : ''
     }${
@@ -14,8 +17,8 @@ definition = """({ autoInstall = false, presets = [], plugins = [], sourceMap = 
       configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
     }`
 }, {
-  template: autoInstall ? 'npm:install' : 'npm:verify',
-  args: {
+  template: 'npm',
+  templateOpts: {
     packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
     dev: true
   }
