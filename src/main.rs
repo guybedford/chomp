@@ -38,9 +38,9 @@ async fn main() -> Result<()> {
                 .help("Run a local dev server"),
         )
         .arg(
-            Arg::with_name("serve-root")
+            Arg::with_name("server-root")
                 .short("r")
-                .long("serve-root")
+                .long("server-root")
                 .help("Server root path")
                 .takes_value(true),
         )
@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let mut serve_options = chompfile.serve.clone();
+    let mut serve_options = chompfile.server.clone();
     {
         if let Some(root) = matches.value_of("serve-root") {
             serve_options.root = root.to_string();

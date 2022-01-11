@@ -4,7 +4,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use tokio::fs::File;
 use tokio_util::codec::{BytesCodec, FramedRead};
-use crate::chompfile::ServeOptions;
+use crate::chompfile::ServerOptions;
 
 async fn handle(req: Request<Body>) -> Result<Response<Body>> {
     match (req.method(), req.uri().path()) {
@@ -50,7 +50,7 @@ fn not_found(path: &str) -> Response<Body> {
         .unwrap()
 }
 
-pub async fn serve(opts: ServeOptions) -> Result<()> {
+pub async fn serve(opts: ServerOptions) -> Result<()> {
     println!("Serving \x1b[1m{}\x1b[0m on \x1b[0;36mhttp://localhost:{}\x1b[0m...", opts.root, opts.port);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], opts.port));

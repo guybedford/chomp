@@ -22,7 +22,7 @@ pub struct Chompfile {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     #[serde(default)]
-    pub serve: ServeOptions,
+    pub server: ServerOptions,
     #[serde(default)]
     pub task: Vec<ChompTaskMaybeTemplated>,
     #[serde(default)]
@@ -30,16 +30,16 @@ pub struct Chompfile {
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
-pub struct ServeOptions {
+pub struct ServerOptions {
     #[serde(default)]
     pub root: String,
     #[serde(default)]
     pub port: u16,
 }
 
-impl Default for ServeOptions {
+impl Default for ServerOptions {
     fn default () -> Self {
-        ServeOptions {
+        ServerOptions {
             root: ".".to_string(),
             port: 8080
         }
