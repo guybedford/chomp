@@ -590,7 +590,7 @@ impl<'a> Runner<'a> {
                     );
                 } else {
                     println!(
-                        "√ {} [{:?} {:?}]",
+                        "✓ {} [{:?} {:?}]",
                         job.display_name(self),
                         end_time - start_time,
                         end_time - start_time_deps
@@ -741,7 +741,7 @@ impl<'a> Runner<'a> {
                 }
             }
         }
-        println!("○ {}", job.display_name(self));
+        println!("🞂 {}", job.display_name(self));
 
         let run: String = task.run.as_ref().unwrap().to_string();
         let mut env = task.env.clone();
@@ -1465,26 +1465,7 @@ async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<RawEvent>) -> 
     }
 }
 
-pub async fn run<'a>(opts: RunOptions<'a>) -> Result<bool> {
-    let mut default_chompfile: Chompfile = toml::from_str(include_str!("templates.toml")).unwrap();
-
-    let chompfile_source = fs::read_to_string(opts.cfg_file).await?;
-    let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
-
-    for template in default_chompfile.template.drain(..) {
-        chompfile.template.push(template);
-    }
-    for task in default_chompfile.task.drain(..) {
-        chompfile.task.push(task);
-    }
-
-    if chompfile.version != 0.1 {
-        return Err(anyhow!(
-            "Invalid chompfile version {}, only 0.1 is supported",
-            chompfile.version
-        ));
-    }
-
+pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool> {
     let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd, opts.watch)?;
     let (tx, rx) = channel();
     let mut watcher = raw_watcher(tx).unwrap();

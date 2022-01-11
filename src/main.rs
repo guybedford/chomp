@@ -1,9 +1,12 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
+use crate::chompfile::ServeOptions;
+use crate::chompfile::Chompfile;
 use clap::{App, Arg};
 use std::io::stdout;
 use anyhow::{Result, anyhow};
+use async_std::fs;
 
 use crossterm::tty::IsTty;
 
@@ -35,12 +38,18 @@ async fn main() -> Result<()> {
                 .help("Run a local dev server"),
         )
         .arg(
+            Arg::with_name("serve-root")
+                .short("r")
+                .long("serve-root")
+                .help("Server root path")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("port")
                 .short("p")
                 .long("port")
                 .value_name("PORT")
                 .help("Custom port to serve")
-                .default_value("8080")
                 .takes_value(true),
         )
         .arg(
@@ -84,17 +93,43 @@ async fn main() -> Result<()> {
         targets.push(String::from(item));
     }
 
-    let port = matches.value_of("port").unwrap_or("8080").parse().unwrap();
+    let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
 
-    if matches.is_present("serve") {
-        tokio::spawn(async move {
-            if let Err(e) = serve::serve(serve::ServeOptions {
-                port,
-            }).await {
-                eprintln!("{:?}", e);
-                std::process::exit(1);
-            }
-        });
+    let chompfile_source = fs::read_to_string(&cfg_file).await?;
+    let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
+    {
+        let mut default_chompfile: Chompfile = toml::from_str(include_str!("templates.toml")).unwrap();
+        for template in default_chompfile.template.drain(..) {
+            chompfile.template.push(template);
+        }
+        for task in default_chompfile.task.drain(..) {
+            chompfile.task.push(task);
+        }
+
+        if chompfile.version != 0.1 {
+            return Err(anyhow!(
+                "Invalid chompfile version {}, only 0.1 is supported",
+                chompfile.version
+            ));
+        }
+    }
+
+    let mut serve_options = chompfile.serve.clone();
+    {
+        if let Some(root) = matches.value_of("serve-root") {
+            serve_options.root = root.to_string();
+        }
+        if let Some(port) = matches.value_of("port") {
+            serve_options.port = port.parse().unwrap();
+        }
+        if matches.is_present("serve") {
+            tokio::spawn(async move {
+                if let Err(e) = serve::serve(serve_options).await {
+                    eprintln!("{:?}", e);
+                    std::process::exit(1);
+                }
+            });
+        }
     }
 
     // let mut args: Vec<String> = Vec::new();
@@ -102,12 +137,12 @@ async fn main() -> Result<()> {
     //     args.push(String::from(item));
     // }
 
-    let ok = task::run(task::RunOptions {
+    let ok = task::run(&chompfile, task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),
         ui: &ui,
         cwd: env::current_dir()?,
         targets,
-        cfg_file: PathBuf::from(matches.value_of("config").unwrap_or_default()),
+        cfg_file,
     }).await?;
 
     std::process::exit(if ok { 0 } else { 1 });

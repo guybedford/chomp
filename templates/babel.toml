@@ -11,7 +11,7 @@ definition = """({ autoInstall = false, presets = [], plugins = [], sourceMap = 
     }${
       !babelRc ? ' --no-babelrc' : ''
     }${
-      configFile ? ` --config-file=${configFile}` : ''
+      configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
     }`
 }, {
   template: autoInstall ? 'npm:install' : 'npm:verify',
