@@ -1,6 +1,5 @@
 use crate::chompfile::{
-    ChompEngine, ChompTaskMaybeTemplated, ChompTaskMaybeTemplatedNoDefault, ChompTemplate,
-    Chompfile, TargetCheck,
+    ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, TargetCheck,
 };
 use crate::engines::CmdPool;
 use crate::js::init_js_platform;
@@ -24,9 +23,10 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Instant;
 extern crate notify;
-use crate::js::run_js_fn;
+use crate::js::run_js_tpl;
 use anyhow::{anyhow, Result};
 use derivative::Derivative;
+use convert_case::{Case, Casing};
 
 use notify::{raw_watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
@@ -298,6 +298,28 @@ pub async fn check_target_mtimes(targets: Vec<String>) -> Option<Duration> {
     last_mtime
 }
 
+fn create_template_opts(
+    template: &str,
+    task_template_opts: &Option<BTreeMap<String, toml::value::Value>>,
+    default_opts: &BTreeMap<String, BTreeMap<String, toml::value::Value>>,
+) -> BTreeMap<String, toml::value::Value> {
+    let mut template_opts = BTreeMap::new();
+    if let Some(task_template_opts) = task_template_opts {
+        for (key, value) in task_template_opts {
+            template_opts.insert(key.from_case(Case::Kebab).to_case(Case::Camel), value.clone());
+        }
+    };
+    if let Some(default_template_opts) = default_opts.get(template) {
+        for (key, value) in default_template_opts {
+            if template_opts.get(key).is_some() {
+                continue;
+            }
+            template_opts.insert(key.from_case(Case::Kebab).to_case(Case::Camel), value.clone());
+        }
+    }
+    template_opts
+}
+
 impl<'a> Runner<'a> {
     fn new(
         ui: &'a ChompUI,
@@ -328,59 +350,49 @@ impl<'a> Runner<'a> {
         }
 
         // expand tasks into initial job list
-        let mut task_queue: VecDeque<ChompTaskMaybeTemplated> =
-            VecDeque::from(runner.chompfile.task.clone());
-        let mut cur_name: Option<String> = None;
-        let mut cur_deps: Option<Vec<String>> = None;
-        let mut cur_targets: Option<Vec<String>> = None;
-        let mut cur_env: Option<BTreeMap<String, String>> = None;
+        let mut task_queue: VecDeque<ChompTaskMaybeTemplatedNoDefault> = VecDeque::new();
+        for task in runner.chompfile.task.iter() {
+            let template = task.template.clone();
+            let template_opts = if let Some(ref template) = template {
+                Some(create_template_opts(
+                    &template,
+                    &task.template_opts,
+                    &chompfile.default_template_opts,
+                ))
+            } else {
+                None
+            };
+
+            task_queue.push_back(ChompTaskMaybeTemplatedNoDefault {
+                name: task.name.clone(),
+                target: None,
+                targets: Some(task.targets_vec()),
+                target_check: task.target_check.clone(),
+                deps: Some(task.deps.clone()),
+                serial: task.serial,
+                env: Some(task.env.clone()),
+                run: task.run.clone(),
+                engine: task.engine,
+                template,
+                template_opts,
+            });
+        }
         while task_queue.len() > 0 {
-            let task = task_queue.pop_front().unwrap();
+            let mut task = task_queue.pop_front().unwrap();
             if task.template.is_none() {
-                let name = if cur_name.is_some() {
-                    if task.name.is_some() {
-                        return Err(anyhow!("Cannot set name for template as it has a name"));
-                    }
-                    cur_name.take()
-                } else {
-                    task.name.clone()
-                };
-                let mut deps = Vec::new();
-                // this ordering means template instantiation deps come first
-                if let Some(ref mut cur_deps) = cur_deps.take() {
-                    deps.append(cur_deps);
-                }
-                for dep in task.deps {
-                    deps.push(dep);
-                }
-                let mut targets = Vec::new();
-                // this ordering means template instantiation targets come first
-                if let Some(ref mut cur_targets) = cur_targets.take() {
-                    targets.append(cur_targets);
-                }
-                if let Some(target) = &task.target {
-                    targets.push(target.to_string());
-                } else if let Some(task_targets) = &task.targets {
-                    for target in task_targets {
-                        targets.push(target.to_string());
-                    }
-                }
+                let targets = task.targets.unwrap();
                 let mut env = BTreeMap::new();
                 for (item, value) in &chompfile.env {
                     env.insert(item.to_uppercase(), value.to_string());
                 }
-                for (item, value) in task.env {
-                    env.insert(item.to_uppercase(), value.to_string());
-                }
-                if let Some(cur_env) = cur_env.take() {
-                    for (item, value) in cur_env {
+                if let Some(task_env) = task.env {
+                    for (item, value) in task_env {
                         env.insert(item.to_uppercase(), value.to_string());
                     }
                 }
-
                 let task = Task {
-                    name,
-                    deps,
+                    name: task.name,
+                    deps: task.deps.unwrap_or_default(),
                     serial: task.serial.unwrap_or(false),
                     engine: task.engine.unwrap_or_default(),
                     env,
@@ -407,65 +419,28 @@ impl<'a> Runner<'a> {
                 Some(template) => template,
                 None => return Err(anyhow!("Unable to find template {}", template)),
             };
+            if task.deps.is_none() {
+                task.deps = Some(Default::default());
+            }
             let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-                run_js_fn(&template.definition, &template.name, &task.args, &chompfile.env)?;
-            if template_tasks.len() == 0 {
-                continue;
-            }
-            if let Some(name) = task.name {
-                if cur_name.is_some() {
-                    return Err(anyhow!("Template does not support name override"));
-                }
-                cur_name = Some(name);
-            }
-            if task.deps.len() > 0 {
-                if let Some(ref mut cur_deps) = cur_deps {
-                    for dep in task.deps {
-                        cur_deps.push(dep);
-                    }
-                } else {
-                    cur_deps = Some(task.deps);
-                }
-            }
-            if let Some(target) = task.target {
-                if let Some(ref mut cur_targets) = cur_targets {
-                    cur_targets.push(target);
-                } else {
-                    cur_targets = Some(vec![target]);
-                }
-            } else if let Some(targets) = task.targets {
-                if let Some(ref mut cur_targets) = cur_targets {
-                    for target in targets {
-                        cur_targets.push(target);
-                    }
-                } else {
-                    cur_targets = Some(targets);
-                }
-            }
-            if task.env.len() > 0 {
-                if let Some(ref mut cur_env) = cur_env {
-                    for (item, value) in task.env {
-                        cur_env.insert(item.to_uppercase(), value.to_string());
-                    }
-                } else {
-                    cur_env = Some(Default::default());
-                }
-            }
+                run_js_tpl(&template.definition, &template.name, &task)?;
             // template functions output a list of tasks
-            for template_task in template_tasks.drain(..).rev() {
-                task_queue.push_front(ChompTaskMaybeTemplated {
-                    name: template_task.name,
-                    target: template_task.target,
-                    targets: template_task.targets,
-                    target_check: template_task.target_check,
-                    deps: template_task.deps.unwrap_or_default(),
-                    serial: template_task.serial,
-                    env: template_task.env.unwrap_or_default(),
-                    run: template_task.run,
-                    engine: template_task.engine,
-                    template: template_task.template,
-                    args: template_task.args.unwrap_or_default(),
-                });
+            for mut template_task in template_tasks.drain(..) {
+                if template_task.target.is_some() {
+                    let target = template_task.target.clone().unwrap();
+                    template_task.target = None;
+                    template_task.targets = Some(vec![target]);
+                } else if template_task.targets.is_none() {
+                    template_task.targets = Some(vec![]);
+                }
+                if let Some(ref template) = template_task.template {
+                    template_task.template_opts = Some(create_template_opts(
+                        &template,
+                        &template_task.template_opts,
+                        &chompfile.default_template_opts,
+                    ));
+                }
+                task_queue.push_front(template_task);
             }
         }
         Ok(runner)
@@ -486,7 +461,7 @@ impl<'a> Runner<'a> {
         if let Some(ref name) = task.name {
             if interpolate.is_none() {
                 if self.task_jobs.contains_key(name) {
-                    return Err(anyhow!("Already has job {}", name));
+                    // 
                 }
                 self.task_jobs.insert(name.to_string(), num);
             }

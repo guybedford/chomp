@@ -1,5 +1,5 @@
+use crate::chompfile::ChompTaskMaybeTemplatedNoDefault;
 use anyhow::{anyhow, Error, Result};
-use serde::{Deserialize, Serialize};
 use serde_v8::from_v8;
 use serde_v8::to_v8;
 use v8;
@@ -10,12 +10,11 @@ pub fn init_js_platform() {
   v8::V8::initialize();
 }
 
-pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize, V: Serialize>(
+pub fn run_js_tpl<'a>(
   js_fn: &str,
   name: &str,
-  opts: &U,
-  env: &V,
-) -> Result<T> {
+  task: &ChompTaskMaybeTemplatedNoDefault,
+) -> Result<Vec<ChompTaskMaybeTemplatedNoDefault>> {
   let isolate = &mut v8::Isolate::new(Default::default());
   let handle_scope = &mut v8::HandleScope::new(isolate);
   let context = v8::Context::new(handle_scope);
@@ -45,12 +44,12 @@ pub fn run_js_fn<'a, T: Deserialize<'a>, U: Serialize, V: Serialize>(
       let cb = v8::Local::<v8::Function>::try_from(function).unwrap();
       let this = v8::undefined(tc_scope).into();
       let args: Vec<v8::Local<v8::Value>> =
-        vec![to_v8(tc_scope, opts).expect("Unable to serialize template params"), to_v8(tc_scope, env).expect("Unable to serialize environment variables")];
+        vec![to_v8(tc_scope, task).expect("Unable to serialize template params")];
       let result = match cb.call(tc_scope, this, args.as_slice()) {
         Some(result) => result,
         None => return Err(v8_exception(tc_scope)),
       };
-      let task: T = from_v8(tc_scope, result).expect("Unable to deserialize template task list due to invalid structure");
+      let task: Vec<ChompTaskMaybeTemplatedNoDefault> = from_v8(tc_scope, result).expect("Unable to deserialize template task list due to invalid structure");
       Ok(task)
     }
     None => Err(v8_exception(tc_scope)),

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum ChompEngine {
     Cmd,
     Node,
@@ -15,25 +15,28 @@ impl Default for ChompEngine {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Chompfile {
     pub version: f32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub debug: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub env: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub server: ServerOptions,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub task: Vec<ChompTaskMaybeTemplated>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub template: Vec<ChompTemplate>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub default_template_opts: BTreeMap<String, BTreeMap<String, toml::value::Value>>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 pub struct ServerOptions {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub root: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub port: u16,
 }
 
@@ -47,7 +50,7 @@ impl Default for ServerOptions {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum TargetCheck {
     Mtime,
     Exists,
@@ -60,25 +63,44 @@ impl Default for TargetCheck {
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
+#[serde(rename_all = "kebab-case")]
 pub struct ChompTaskMaybeTemplated {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
     pub target_check: Option<TargetCheck>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub deps: Vec<String>,
     pub serial: Option<bool>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub env: BTreeMap<String, String>,
     pub run: Option<String>,
     pub engine: Option<ChompEngine>,
     pub template: Option<String>,
-    #[serde(default)]
-    pub args: BTreeMap<String, toml::value::Value>,
+    pub template_opts: Option<BTreeMap<String, toml::value::Value>>,
+}
+
+impl ChompTaskMaybeTemplated {
+    pub fn targets_vec (&self) -> Vec<String> {
+        if let Some(ref target) = self.target {
+            vec![target.to_string()]
+        }
+        else if let Some(ref targets) = self.targets {
+            targets.clone()
+        }
+        else {
+            vec![]
+        }
+    }
+}
+
+fn is_default<T: Default + PartialEq>(t: &T) -> bool {
+    t == &T::default()
 }
 
 // Pending https://github.com/denoland/deno/issues/13185
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ChompTaskMaybeTemplatedNoDefault {
     pub name: Option<String>,
     pub target: Option<String>,
@@ -90,7 +112,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub run: Option<String>,
     pub engine: Option<ChompEngine>,
     pub template: Option<String>,
-    pub args: Option<BTreeMap<String, toml::value::Value>>,
+    pub template_opts: Option<BTreeMap<String, toml::value::Value>>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize)]

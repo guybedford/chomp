@@ -1,71 +1,33 @@
-# npm packages template
-# - takes an array of packages, and ensures they are installed in node_modules
-# - depends on the npm install task, which ensures package.json + lock
-# - only if the initial install doesn't locate the packages do we add new installs
-# - installs packages one by one to not reinstall any specific existing package
 [[template]]
-name = "npm:install"
-definition = """({ packages, dev }, { PKG_MANAGER = 'npm' }) => [{
-  deps: packages.map(pkg => {
+name = "npm"
+definition = """({ name, deps, env, templateOpts: { packages, dev, pkgManager = 'npm', autoInstall } }) => autoInstall ? [{
+  name,
+  deps: [...deps, ...packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
     return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-  }),
+  })],
   serial: true
-}, ...packages.map(pkg => ({
-  targets: packages.map(pkg => {
-    const versionIndex = pkg.indexOf('@', 1);
-    return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-  }),
-  target_check: 'exists',
-  deps: ['npm:init'],
-  run: `${PKG_MANAGER} install ${packages.join(' ')}${dev ? ' -D' : ''}`
-}))];
-"""
-
-# npm verify template
-# instead of installing packages, it just verifies they are present, providing an
-# error and instruction if they are not
-[[template]]
-name = "npm:verify"
-definition = """({ packages, dev }) => [{
+}, ...packages.map(pkg => {
+  const versionIndex = pkg.indexOf('@', 1);
+  return {
+    target: `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`,
+    targetCheck: 'exists',
+    deps: ['npm:init'],
+    env,
+    run: `${pkgManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
+  };
+}), {
+  name: 'npm:init',
+  target: 'package.json',
+  env,
+  run: `${pkgManager} init -y`
+}] : [{
+  name,
+  env,
   targets: packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
     return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
   }),
   run: `echo "\n\\x1b[93mChomp\\x1b[0m: Some packages are missing. Please run \\x1b[1mnpm install ${packages.join(' ')}${dev ? ' -D' : ''}\\x1b[0m\n"`
-}];
-"""
-
-# npm install task
-# - depends on npm init (package.json existing)
-# - checks if package-lock.json exists
-# - if not, runs npm install
-[[task]]
-name = "npm:install-all"
-template = "npm:_install-all"
-
-[[template]]
-name = "npm:_install-all"
-definition = """({}, { PKG_MANAGER = 'npm' }) => [{
-  target: PKG_MANAGER === 'pnpm' ? 'pnpm-lock.yaml' : PKG_MANAGER === 'yarn' ? 'yarn.lock' : 'package-lock.json',
-  // opts-out of mtime invalidation (package.json mtime > package-lock.json mtime)
-  target_check: 'exists',
-  deps: ['npm:init'],
-  run: `${PKG_MANAGER} install`
-}];
-"""
-
-# npm init task
-# - checks if the package.json exists, if it does its done
-# - if the package.json does not exist, runs npm init with default prompts
-[[task]]
-name = "npm:init"
-template = "npm:_init"
-
-[[template]]
-name = "npm:_init"
-definition = """({}, { PKG_MANAGER = 'npm' }) => [{
-  target: 'package.json',
-  run: `${PKG_MANAGER} init -y`
 }];
 """

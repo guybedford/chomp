@@ -1,7 +1,10 @@
 [[template]]
 name = "svelte"
-definition = """({ autoInstall = false, svelteConfig = null }) => [{
-  deps: ['node_modules/svelte', 'node_modules/mkdirp'],
+definition = """({ name, targets, deps, env, templateOpts: { svelteConfig = null } }) => [{
+  name,
+  targets,
+  deps: [...deps, 'node_modules/svelte', 'node_modules/mkdirp'],
+  env,
   engine: 'node',
   run: `
     import { readFile, writeFile } from 'fs/promises';
@@ -32,8 +35,8 @@ definition = """({ autoInstall = false, svelteConfig = null }) => [{
     ];
   `
 }, {
-  template: autoInstall ? 'npm:install' : 'npm:verify',
-  args: {
+  template: 'npm',
+  templateOpts: {
     packages: ['svelte@3', 'mkdirp'],
     dev: true
   }
