@@ -1,6 +1,6 @@
 [[template]]
 name = "swc"
-definition = """({ name, targets, deps, env, templateOpts: { configFile = null, swcRc, sourceMaps = true, config = {} } }) => [{
+definition = """({ name, targets, deps, env, options: { configFile = null, swcRc, sourceMaps = true, config = {} } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/@swc/core', 'node_modules/@swc/cli'],
@@ -16,7 +16,7 @@ definition = """({ name, targets, deps, env, templateOpts: { configFile = null, 
     }`
 }, {
   template: 'npm',
-  templateOpts: {
+  options: {
     packages: ['@swc/core@1', '@swc/cli@0.1'],
     dev: true
   }

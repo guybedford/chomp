@@ -1,6 +1,6 @@
 [[template]]
 name = "npm"
-definition = """({ name, deps, env, templateOpts: { packages, dev, pkgManager = 'npm', autoInstall } }) => autoInstall ? [{
+definition = """({ name, deps, env, options: { packages, dev, pkgManager = 'npm', autoInstall } }) => autoInstall ? [{
   name,
   deps: [...deps, ...packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);

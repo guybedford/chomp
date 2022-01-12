@@ -58,7 +58,7 @@ version = 0.1
 [[task]]
   name = "Install Mocha"
   template = "npm"
-  [task.template-opts]
+  [task.options]
     auto-install = true
     packages = ['mocha']
     dev = true
@@ -74,7 +74,7 @@ To compile TypeScript with the SWC template:
 version = 0.1
 
 # Installs SWC automatically if needed
-[default-template-opts.npm]
+[default-options.npm]
   auto-install = true
 
 [[task]]

@@ -298,26 +298,26 @@ pub async fn check_target_mtimes(targets: Vec<String>) -> Option<Duration> {
     last_mtime
 }
 
-fn create_template_opts(
+fn create_options(
     template: &str,
-    task_template_opts: &Option<BTreeMap<String, toml::value::Value>>,
+    task_options: &Option<BTreeMap<String, toml::value::Value>>,
     default_opts: &BTreeMap<String, BTreeMap<String, toml::value::Value>>,
 ) -> BTreeMap<String, toml::value::Value> {
-    let mut template_opts = BTreeMap::new();
-    if let Some(task_template_opts) = task_template_opts {
-        for (key, value) in task_template_opts {
-            template_opts.insert(key.from_case(Case::Kebab).to_case(Case::Camel), value.clone());
+    let mut options = BTreeMap::new();
+    if let Some(task_options) = task_options {
+        for (key, value) in task_options {
+            options.insert(key.from_case(Case::Kebab).to_case(Case::Camel), value.clone());
         }
     };
-    if let Some(default_template_opts) = default_opts.get(template) {
-        for (key, value) in default_template_opts {
-            if template_opts.get(key).is_some() {
+    if let Some(default_options) = default_opts.get(template) {
+        for (key, value) in default_options {
+            if options.get(key).is_some() {
                 continue;
             }
-            template_opts.insert(key.from_case(Case::Kebab).to_case(Case::Camel), value.clone());
+            options.insert(key.from_case(Case::Kebab).to_case(Case::Camel), value.clone());
         }
     }
-    template_opts
+    options
 }
 
 impl<'a> Runner<'a> {
@@ -353,11 +353,11 @@ impl<'a> Runner<'a> {
         let mut task_queue: VecDeque<ChompTaskMaybeTemplatedNoDefault> = VecDeque::new();
         for task in runner.chompfile.task.iter() {
             let template = task.template.clone();
-            let template_opts = if let Some(ref template) = template {
-                Some(create_template_opts(
+            let options = if let Some(ref template) = template {
+                Some(create_options(
                     &template,
-                    &task.template_opts,
-                    &chompfile.default_template_opts,
+                    &task.options,
+                    &chompfile.default_options,
                 ))
             } else {
                 None
@@ -374,7 +374,7 @@ impl<'a> Runner<'a> {
                 run: task.run.clone(),
                 engine: task.engine,
                 template,
-                template_opts,
+                options,
             });
         }
         while task_queue.len() > 0 {
@@ -434,10 +434,10 @@ impl<'a> Runner<'a> {
                     template_task.targets = Some(vec![]);
                 }
                 if let Some(ref template) = template_task.template {
-                    template_task.template_opts = Some(create_template_opts(
+                    template_task.options = Some(create_options(
                         &template,
-                        &template_task.template_opts,
-                        &chompfile.default_template_opts,
+                        &template_task.options,
+                        &chompfile.default_options,
                     ));
                 }
                 task_queue.push_front(template_task);

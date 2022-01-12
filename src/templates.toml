@@ -1,7 +1,7 @@
 ﻿version = 0.1
 [[template]]
 name = "babel"
-definition = """({ name, targets, deps, env, templateOpts: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null } }) => [{
+definition = """({ name, targets, deps, env, options: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null } }) => [{
   name,
   targets,
   deps: [...deps, ...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
@@ -19,7 +19,7 @@ definition = """({ name, targets, deps, env, templateOpts: { presets = [], plugi
     }`
 }, {
   template: 'npm',
-  templateOpts: {
+  options: {
     packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
     dev: true
   }
@@ -27,7 +27,7 @@ definition = """({ name, targets, deps, env, templateOpts: { presets = [], plugi
 """
 [[template]]
 name = "jspm"
-definition = """({ name, targets, deps, env, templateOpts: {
+definition = """({ name, targets, deps, env, options: {
   env: generatorEnv = ['browser', 'production', 'module'],
   preload,
   integrity,
@@ -63,7 +63,6 @@ definition = """({ name, targets, deps, env, templateOpts: {
         const normalizedTarget = relative(dirname(resolve(cwd, process.env.TARGET)), resolve(cwd, target)).replace(/\\\\\\\\/g, '/');
         newResolutions[key] = normalizedTarget;
       }
-      console.log(newResolutions);
       opts.resolutions = newResolutions;
     }
 
@@ -83,7 +82,7 @@ definition = """({ name, targets, deps, env, templateOpts: {
   `
 }, {
   template: 'npm',
-  templateOpts: {
+  options: {
     packages: ['@jspm/generator', 'mkdirp'],
     dev: true
   }
@@ -91,7 +90,7 @@ definition = """({ name, targets, deps, env, templateOpts: {
 """
 [[template]]
 name = "npm"
-definition = """({ name, deps, env, templateOpts: { packages, dev, pkgManager = 'npm', autoInstall } }) => autoInstall ? [{
+definition = """({ name, deps, env, options: { packages, dev, pkgManager = 'npm', autoInstall } }) => autoInstall ? [{
   name,
   deps: [...deps, ...packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
@@ -124,7 +123,7 @@ definition = """({ name, deps, env, templateOpts: { packages, dev, pkgManager = 
 """
 [[template]]
 name = "prettier"
-definition = """({ name, targets, deps, env, templateOpts: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false } }) => [{
+definition = """({ name, targets, deps, env, options: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/prettier'],
@@ -140,7 +139,7 @@ definition = """({ name, targets, deps, env, templateOpts: { files = '.', check 
     }`
 }, {
   template: 'npm',
-  templateOpts: {
+  options: {
     packages: ['prettier'],
     dev: true
   }
@@ -148,7 +147,7 @@ definition = """({ name, targets, deps, env, templateOpts: { files = '.', check 
 """
 [[template]]
 name = "svelte"
-definition = """({ name, targets, deps, env, templateOpts: { svelteConfig = null } }) => [{
+definition = """({ name, targets, deps, env, options: { svelteConfig = null } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/svelte', 'node_modules/mkdirp'],
@@ -184,7 +183,7 @@ definition = """({ name, targets, deps, env, templateOpts: { svelteConfig = null
   `
 }, {
   template: 'npm',
-  templateOpts: {
+  options: {
     packages: ['svelte@3', 'mkdirp'],
     dev: true
   }
@@ -192,7 +191,7 @@ definition = """({ name, targets, deps, env, templateOpts: { svelteConfig = null
 """
 [[template]]
 name = "swc"
-definition = """({ name, targets, deps, env, templateOpts: { configFile = null, swcRc, sourceMaps = true, config = {} } }) => [{
+definition = """({ name, targets, deps, env, options: { configFile = null, swcRc, sourceMaps = true, config = {} } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/@swc/core', 'node_modules/@swc/cli'],
@@ -208,7 +207,7 @@ definition = """({ name, targets, deps, env, templateOpts: { configFile = null, 
     }`
 }, {
   template: 'npm',
-  templateOpts: {
+  options: {
     packages: ['@swc/core@1', '@swc/cli@0.1'],
     dev: true
   }
