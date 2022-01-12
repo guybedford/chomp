@@ -1,6 +1,6 @@
 [[template]]
 name = "babel"
-definition = """({ name, targets, deps, env, templateOpts: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null } }) => [{
+definition = """({ name, targets, deps, env, options: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null, autoInstall } }) => [{
   name,
   targets,
   deps: [...deps, ...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
@@ -18,9 +18,10 @@ definition = """({ name, targets, deps, env, templateOpts: { presets = [], plugi
     }`
 }, {
   template: 'npm',
-  templateOpts: {
+  options: {
     packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
-    dev: true
+    dev: true,
+    autoInstall
   }
 }];
 """

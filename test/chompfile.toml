@@ -1,6 +1,6 @@
 version = 0.1
 
-[default-template-opts.npm]
+[default-options.npm]
   auto-install = true
 
 [[task]]
@@ -81,5 +81,5 @@ version = 0.1
   template = "babel"
   target = "test-babel.js"
   deps = ["test.ts"]
-  [task.template-opts]
+  [task.options]
     presets = ['@babel/preset-typescript']

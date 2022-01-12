@@ -58,7 +58,7 @@ version = 0.1
 [[task]]
   name = "Install Mocha"
   template = "npm"
-  [task.template-opts]
+  [task.options]
     auto-install = true
     packages = ['mocha']
     dev = true
@@ -73,15 +73,14 @@ To compile TypeScript with the SWC template:
 ```toml
 version = 0.1
 
-# Installs SWC automatically if needed
-[default-template-opts.npm]
-  auto-install = true
-
 [[task]]
   name = "typescript"
   template = "swc"
   target = "lib/#.js"
   deps = ["src/#.ts]
+  # Installs SWC automatically if needed
+  [task.options]
+    auto-install = true
 ```
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.

@@ -1,6 +1,7 @@
 [[template]]
 name = "jspm"
-definition = """({ name, targets, deps, env, templateOpts: {
+definition = """({ name, targets, deps, env, options: {
+  autoInstall,
   env: generatorEnv = ['browser', 'production', 'module'],
   preload,
   integrity,
@@ -55,7 +56,8 @@ definition = """({ name, targets, deps, env, templateOpts: {
   `
 }, {
   template: 'npm',
-  templateOpts: {
+  options: {
+    autoInstall,
     packages: ['@jspm/generator', 'mkdirp'],
     dev: true
   }
