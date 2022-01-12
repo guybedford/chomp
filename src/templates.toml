@@ -1,7 +1,7 @@
 ﻿version = 0.1
 [[template]]
 name = "babel"
-definition = """({ name, targets, deps, env, options: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null, autoInstall } }) => [{
+definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null, autoInstall } }) => [{
   name,
   targets,
   deps: [...deps, ...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
@@ -19,16 +19,17 @@ definition = """({ name, targets, deps, env, options: { presets = [], plugins = 
     }`
 }, {
   template: 'npm',
-  options: {
+  templateOptions: {
     packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
     dev: true,
-    autoInstall: autoInstall
+    autoInstall
   }
 }];
 """
 [[template]]
 name = "jspm"
-definition = """({ name, targets, deps, env, options: {
+definition = """({ name, targets, deps, env, templateOptions: {
+  autoInstall,
   env: generatorEnv = ['browser', 'production', 'module'],
   preload,
   integrity,
@@ -83,7 +84,8 @@ definition = """({ name, targets, deps, env, options: {
   `
 }, {
   template: 'npm',
-  options: {
+  templateOptions: {
+    autoInstall,
     packages: ['@jspm/generator', 'mkdirp'],
     dev: true
   }
@@ -91,7 +93,7 @@ definition = """({ name, targets, deps, env, options: {
 """
 [[template]]
 name = "npm"
-definition = """({ name, deps, env, options: { packages, dev, packageManager = 'npm', autoInstall } }) => autoInstall ? [{
+definition = """({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }) => autoInstall ? [{
   name,
   deps: [...deps, ...packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
@@ -124,7 +126,7 @@ definition = """({ name, deps, env, options: { packages, dev, packageManager = '
 """
 [[template]]
 name = "prettier"
-definition = """({ name, targets, deps, env, options: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false } }) => [{
+definition = """({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/prettier'],
@@ -140,7 +142,8 @@ definition = """({ name, targets, deps, env, options: { files = '.', check = fal
     }`
 }, {
   template: 'npm',
-  options: {
+  templateOptions: {
+    autoInstall,
     packages: ['prettier'],
     dev: true
   }
@@ -148,7 +151,7 @@ definition = """({ name, targets, deps, env, options: { files = '.', check = fal
 """
 [[template]]
 name = "svelte"
-definition = """({ name, targets, deps, env, options: { svelteConfig = null } }) => [{
+definition = """({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/svelte', 'node_modules/mkdirp'],
@@ -184,7 +187,8 @@ definition = """({ name, targets, deps, env, options: { svelteConfig = null } })
   `
 }, {
   template: 'npm',
-  options: {
+  templateOptions: {
+    autoInstall,
     packages: ['svelte@3', 'mkdirp'],
     dev: true
   }
@@ -192,7 +196,7 @@ definition = """({ name, targets, deps, env, options: { svelteConfig = null } })
 """
 [[template]]
 name = "swc"
-definition = """({ name, targets, deps, env, options: { configFile = null, swcRc, sourceMaps = true, config = {} } }) => [{
+definition = """({ name, targets, deps, env, templateOptions: { configFile = null, swcRc, sourceMaps = true, config = {}, autoInstall } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/@swc/core', 'node_modules/@swc/cli'],
@@ -208,7 +212,8 @@ definition = """({ name, targets, deps, env, options: { configFile = null, swcRc
     }`
 }, {
   template: 'npm',
-  options: {
+  templateOptions: {
+    autoInstall,
     packages: ['@swc/core@1', '@swc/cli@0.1'],
     dev: true
   }
