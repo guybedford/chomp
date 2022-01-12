@@ -29,7 +29,7 @@ pub struct Chompfile {
     #[serde(default, skip_serializing_if = "is_default")]
     pub template: Vec<ChompTemplate>,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub default_options: BTreeMap<String, BTreeMap<String, toml::value::Value>>,
+    pub template_options: BTreeMap<String, BTreeMap<String, toml::value::Value>>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
@@ -77,7 +77,7 @@ pub struct ChompTaskMaybeTemplated {
     pub run: Option<String>,
     pub engine: Option<ChompEngine>,
     pub template: Option<String>,
-    pub options: Option<BTreeMap<String, toml::value::Value>>,
+    pub template_options: Option<BTreeMap<String, toml::value::Value>>,
 }
 
 impl ChompTaskMaybeTemplated {
@@ -112,7 +112,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub run: Option<String>,
     pub engine: Option<ChompEngine>,
     pub template: Option<String>,
-    pub options: Option<BTreeMap<String, toml::value::Value>>,
+    pub template_options: Option<BTreeMap<String, toml::value::Value>>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize)]

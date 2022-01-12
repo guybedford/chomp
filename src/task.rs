@@ -360,11 +360,11 @@ impl<'a> Runner<'a> {
         let mut task_queue: VecDeque<ChompTaskMaybeTemplatedNoDefault> = VecDeque::new();
         for task in runner.chompfile.task.iter() {
             let template = task.template.clone();
-            let options = if let Some(ref template) = template {
+            let template_options = if let Some(ref template) = template {
                 Some(create_template_options(
                     &template,
-                    &task.options,
-                    &chompfile.default_options,
+                    &task.template_options,
+                    &chompfile.template_options,
                     true
                 ))
             } else {
@@ -382,7 +382,7 @@ impl<'a> Runner<'a> {
                 run: task.run.clone(),
                 engine: task.engine,
                 template,
-                options,
+                template_options,
             });
         }
         while task_queue.len() > 0 {
@@ -442,10 +442,10 @@ impl<'a> Runner<'a> {
                     template_task.targets = Some(vec![]);
                 }
                 if let Some(ref template) = template_task.template {
-                    template_task.options = Some(create_template_options(
+                    template_task.template_options = Some(create_template_options(
                         &template,
-                        &template_task.options,
-                        &chompfile.default_options,
+                        &template_task.template_options,
+                        &chompfile.template_options,
                         false
                     ));
                 }
@@ -684,7 +684,7 @@ impl<'a> Runner<'a> {
                     let dep_change = match &self.nodes[dep] {
                         Node::Job(dep) => {
                             let invalidated = match dep.mtime {
-                                Some(dep_mtime) => match &self.tasks[dep.task].target_check {
+                                Some(dep_mtime) => match task.target_check {
                                     TargetCheck::Exists => false,
                                     TargetCheck::Mtime => dep_mtime > mtime,
                                 },
@@ -701,7 +701,10 @@ impl<'a> Runner<'a> {
                         }
                         Node::File(dep) => {
                             let invalidated = match dep.mtime {
-                                Some(dep_mtime) => dep_mtime > mtime,
+                                Some(dep_mtime) => match task.target_check {
+                                    TargetCheck::Exists => false,
+                                    TargetCheck::Mtime => dep_mtime > mtime,
+                                },
                                 None => true,
                             };
                             if invalidated {
@@ -824,7 +827,7 @@ impl<'a> Runner<'a> {
                 }
                 match job.state {
                     JobState::Uninitialized => {
-                        panic!("Unexpected uninitialized job");
+                        panic!("Unexpected uninitialized job {}", job_num);
                     }
                     JobState::Initialized => {
                         job.start_time_deps = Some(Instant::now());
@@ -1300,35 +1303,32 @@ impl<'a> Runner<'a> {
         parent_task: usize,
     ) -> Result<usize> {
         let watch = self.watch;
+
         let job_num = self.add_job(parent_task, Some(String::from(interpolate)))?;
+
         let file_num = self.add_file(input.to_string())?;
-        {
-            let file = self.get_file_mut(file_num).unwrap();
-            file.init(if watch { Some(watcher) } else { None });
-        }
+        let file = self.get_file_mut(file_num).unwrap();
+        file.init(if watch { Some(watcher) } else { None });
+
         let task = &self.tasks[parent_task];
-        let mut parent_targets = Vec::new();
-        for parent_target in task.targets.iter() {
-            parent_targets.push(parent_target.to_string());
+
+        let targets = task.targets.clone();
+        let job = self.get_job_mut(job_num).unwrap();
+        job.deps.push(file_num);
+        job.init();
+
+        for parent_target in targets {
+            job.targets.push(parent_target.replace("#", interpolate));
         }
-        for parent_target in parent_targets {
-            let output_path = parent_target.replace("#", interpolate);
-            let job = self.get_job_mut(job_num).unwrap();
-            job.deps.push(file_num);
-            job.targets = vec![output_path.to_string()];
-            job.init();
-            let parent = self.get_job_mut(parent_job).unwrap();
-            parent.deps.push(job_num);
-            // non-interpolation parent interpolation template deps are child deps
-            let parent_task_deps = self.tasks[parent_task].deps.clone();
-            for dep in parent_task_deps {
-                if !dep.contains("#") {
-                    let dep_job = self.lookup_target(watcher, &dep, true).await?;
-                    let job = self.get_job_mut(job_num).unwrap();
-                    job.deps.push(dep_job);
-                    // important aspect of retaining depth-first semantics
-                    self.expand_job(watcher, dep_job, Some(job_num)).await?;
-                }
+        let parent = self.get_job_mut(parent_job).unwrap();
+        parent.deps.push(job_num);
+
+        // non-interpolation parent interpolation template deps are child deps
+        let parent_task_deps = self.tasks[parent_task].deps.clone();
+        for dep in parent_task_deps {
+            if !dep.contains("#") {
+                let dep_job = self.lookup_target(watcher, &dep, true).await?;
+                self.expand_job(watcher, dep_job, Some(job_num)).await?;
             }
         }
         Ok(job_num)
@@ -1343,6 +1343,7 @@ impl<'a> Runner<'a> {
 
         if self.chompfile.debug {
             dbg!(&self.task_jobs);
+            dbg!(&self.tasks);
             dbg!(&self.nodes);
         }
 
