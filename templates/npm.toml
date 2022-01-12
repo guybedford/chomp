@@ -1,6 +1,6 @@
 [[template]]
 name = "npm"
-definition = """({ name, deps, env, options: { packages, dev, pkgManager = 'npm', autoInstall } }) => autoInstall ? [{
+definition = """({ name, deps, env, options: { packages, dev, packageManager = 'npm', autoInstall } }) => autoInstall ? [{
   name,
   deps: [...deps, ...packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
@@ -14,13 +14,13 @@ definition = """({ name, deps, env, options: { packages, dev, pkgManager = 'npm'
     targetCheck: 'exists',
     deps: ['npm:init'],
     env,
-    run: `${pkgManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
+    run: `${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
   };
 }), {
   name: 'npm:init',
   target: 'package.json',
   env,
-  run: `${pkgManager} init -y`
+  run: `${packageManager} init -y`
 }] : [{
   name,
   env,

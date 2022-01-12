@@ -1,7 +1,7 @@
 ﻿version = 0.1
 [[template]]
 name = "babel"
-definition = """({ name, targets, deps, env, options: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null } }) => [{
+definition = """({ name, targets, deps, env, options: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null, autoInstall } }) => [{
   name,
   targets,
   deps: [...deps, ...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
@@ -21,7 +21,8 @@ definition = """({ name, targets, deps, env, options: { presets = [], plugins = 
   template: 'npm',
   options: {
     packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
-    dev: true
+    dev: true,
+    autoInstall: autoInstall
   }
 }];
 """
@@ -90,7 +91,7 @@ definition = """({ name, targets, deps, env, options: {
 """
 [[template]]
 name = "npm"
-definition = """({ name, deps, env, options: { packages, dev, pkgManager = 'npm', autoInstall } }) => autoInstall ? [{
+definition = """({ name, deps, env, options: { packages, dev, packageManager = 'npm', autoInstall } }) => autoInstall ? [{
   name,
   deps: [...deps, ...packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
@@ -104,13 +105,13 @@ definition = """({ name, deps, env, options: { packages, dev, pkgManager = 'npm'
     targetCheck: 'exists',
     deps: ['npm:init'],
     env,
-    run: `${pkgManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
+    run: `${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
   };
 }), {
   name: 'npm:init',
   target: 'package.json',
   env,
-  run: `${pkgManager} init -y`
+  run: `${packageManager} init -y`
 }] : [{
   name,
   env,

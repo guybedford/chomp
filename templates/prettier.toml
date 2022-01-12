@@ -1,6 +1,6 @@
 [[template]]
 name = "prettier"
-definition = """({ name, targets, deps, env, options: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false } }) => [{
+definition = """({ name, targets, deps, env, options: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/prettier'],
@@ -17,6 +17,7 @@ definition = """({ name, targets, deps, env, options: { files = '.', check = fal
 }, {
   template: 'npm',
   options: {
+    autoInstall,
     packages: ['prettier'],
     dev: true
   }

@@ -298,23 +298,30 @@ pub async fn check_target_mtimes(targets: Vec<String>) -> Option<Duration> {
     last_mtime
 }
 
-fn create_options(
+fn create_template_options(
     template: &str,
     task_options: &Option<BTreeMap<String, toml::value::Value>>,
-    default_opts: &BTreeMap<String, BTreeMap<String, toml::value::Value>>,
+    default_options: &BTreeMap<String, BTreeMap<String, toml::value::Value>>,
+    convert_case: bool
 ) -> BTreeMap<String, toml::value::Value> {
     let mut options = BTreeMap::new();
     if let Some(task_options) = task_options {
         for (key, value) in task_options {
-            options.insert(key.from_case(Case::Kebab).to_case(Case::Camel), value.clone());
+            let converted_key = if convert_case {
+                key.from_case(Case::Kebab).to_case(Case::Camel)
+            } else {
+                key.to_string()
+            };
+            options.insert(converted_key, value.clone());
         }
     };
-    if let Some(default_options) = default_opts.get(template) {
+    if let Some(default_options) = default_options.get(template) {
         for (key, value) in default_options {
-            if options.get(key).is_some() {
+            let converted_key = key.from_case(Case::Kebab).to_case(Case::Camel);
+            if options.get(&converted_key).is_some() {
                 continue;
             }
-            options.insert(key.from_case(Case::Kebab).to_case(Case::Camel), value.clone());
+            options.insert(converted_key, value.clone());
         }
     }
     options
@@ -354,10 +361,11 @@ impl<'a> Runner<'a> {
         for task in runner.chompfile.task.iter() {
             let template = task.template.clone();
             let options = if let Some(ref template) = template {
-                Some(create_options(
+                Some(create_template_options(
                     &template,
                     &task.options,
                     &chompfile.default_options,
+                    true
                 ))
             } else {
                 None
@@ -434,10 +442,11 @@ impl<'a> Runner<'a> {
                     template_task.targets = Some(vec![]);
                 }
                 if let Some(ref template) = template_task.template {
-                    template_task.options = Some(create_options(
+                    template_task.options = Some(create_template_options(
                         &template,
                         &template_task.options,
                         &chompfile.default_options,
+                        false
                     ));
                 }
                 task_queue.push_front(template_task);

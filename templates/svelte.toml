@@ -1,6 +1,6 @@
 [[template]]
 name = "svelte"
-definition = """({ name, targets, deps, env, options: { svelteConfig = null } }) => [{
+definition = """({ name, targets, deps, env, options: { svelteConfig = null, autoInstall } }) => [{
   name,
   targets,
   deps: [...deps, 'node_modules/svelte', 'node_modules/mkdirp'],
@@ -37,6 +37,7 @@ definition = """({ name, targets, deps, env, options: { svelteConfig = null } })
 }, {
   template: 'npm',
   options: {
+    autoInstall,
     packages: ['svelte@3', 'mkdirp'],
     dev: true
   }
