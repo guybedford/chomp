@@ -1497,7 +1497,10 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
     let mut all_ok = true;
     for target in normalized_targets {
         let job_num = runner.lookup_target(&mut watcher, &target, true).await?;
-        let job = runner.get_job(job_num).unwrap();
+        let job = match runner.get_job(job_num) {
+            Some(job) => job,
+            None => return Err(anyhow!("Unable to build target {}", &target))
+        };
         if !matches!(job.state, JobState::Fresh) {
             all_ok = false;
             break;
