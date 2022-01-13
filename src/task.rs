@@ -8,6 +8,7 @@ use async_std::path::Path;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
 use notify::op::Op;
+use notify::DebouncedEvent;
 use notify::{RawEvent, RecommendedWatcher};
 use std::collections::BTreeMap;
 use std::collections::HashSet;
@@ -25,10 +26,10 @@ use std::time::Instant;
 extern crate notify;
 use crate::js::run_js_tpl;
 use anyhow::{anyhow, Result};
-use derivative::Derivative;
 use convert_case::{Case, Casing};
+use derivative::Derivative;
 
-use notify::{raw_watcher, RecursiveMode, Watcher};
+use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 
 #[derive(Debug)]
@@ -302,7 +303,7 @@ fn create_template_options(
     template: &str,
     task_options: &Option<BTreeMap<String, toml::value::Value>>,
     default_options: &BTreeMap<String, BTreeMap<String, toml::value::Value>>,
-    convert_case: bool
+    convert_case: bool,
 ) -> BTreeMap<String, toml::value::Value> {
     let mut options = BTreeMap::new();
     if let Some(task_options) = task_options {
@@ -365,7 +366,7 @@ impl<'a> Runner<'a> {
                     &template,
                     &task.template_options,
                     &chompfile.template_options,
-                    true
+                    true,
                 ))
             } else {
                 None
@@ -446,7 +447,7 @@ impl<'a> Runner<'a> {
                         &template,
                         &template_task.template_options,
                         &chompfile.template_options,
-                        false
+                        false,
                     ));
                 }
                 task_queue.push_front(template_task);
@@ -470,7 +471,7 @@ impl<'a> Runner<'a> {
         if let Some(ref name) = task.name {
             if interpolate.is_none() {
                 if self.task_jobs.contains_key(name) {
-                    // 
+                    //
                 }
                 self.task_jobs.insert(name.to_string(), num);
             }
@@ -526,6 +527,7 @@ impl<'a> Runner<'a> {
         })
     }
 
+    #[inline]
     fn get_job(&self, num: usize) -> Option<&Job> {
         match self.nodes[num] {
             Node::Job(ref job) => Some(job),
@@ -533,6 +535,7 @@ impl<'a> Runner<'a> {
         }
     }
 
+    #[inline]
     fn get_job_mut(&mut self, num: usize) -> Option<&mut Job> {
         match self.nodes[num] {
             Node::Job(ref mut job) => Some(job),
@@ -540,6 +543,7 @@ impl<'a> Runner<'a> {
         }
     }
 
+    #[inline]
     fn get_file_mut(&mut self, num: usize) -> Option<&mut File> {
         match self.nodes[num] {
             Node::File(ref mut file) => Some(file),
@@ -1303,18 +1307,37 @@ impl<'a> Runner<'a> {
         parent_task: usize,
     ) -> Result<usize> {
         let watch = self.watch;
+        let task = &self.tasks[parent_task];
+        let targets = task.targets.clone();
 
+        let interpolate_target = targets
+            .iter()
+            .find(|&t| t.contains('#'))
+            .unwrap()
+            .replace('#', interpolate);
+
+        // Already expanded
+        if let Some(&existing) = self.file_nodes.get(&interpolate_target) {
+            return Ok(existing);
+        }
         let job_num = self.add_job(parent_task, Some(String::from(interpolate)))?;
 
-        let file_num = self.add_file(input.to_string())?;
-        let file = self.get_file_mut(file_num).unwrap();
-        file.init(if watch { Some(watcher) } else { None });
+        let dep_num = if let Some(&existing) = self.file_nodes.get(input) {
+            match self.nodes[existing] {
+                Node::File(ref mut file) => file.parents.push(job_num),
+                Node::Job(ref mut job) => job.parents.push(job_num),
+            }
+            existing
+        } else {
+            let dep_num = self.add_file(input.to_string())?;
+            let file = self.get_file_mut(dep_num).unwrap();
+            file.parents.push(job_num);
+            file.init(if watch { Some(watcher) } else { None });
+            dep_num
+        };
 
-        let task = &self.tasks[parent_task];
-
-        let targets = task.targets.clone();
         let job = self.get_job_mut(job_num).unwrap();
-        job.deps.push(file_num);
+        job.deps.push(dep_num);
         job.init();
 
         for parent_target in targets {
@@ -1342,7 +1365,9 @@ impl<'a> Runner<'a> {
         let mut queued = QueuedStateTransitions::new();
 
         if self.chompfile.debug {
+            dbg!(&self.file_nodes);
             dbg!(&self.task_jobs);
+            dbg!(&self.interpolate_nodes);
             dbg!(&self.tasks);
             dbg!(&self.nodes);
         }
@@ -1380,7 +1405,7 @@ impl<'a> Runner<'a> {
 
     async fn check_watcher(
         &mut self,
-        rx: &Receiver<RawEvent>,
+        rx: &Receiver<DebouncedEvent>,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>,
         queued: &mut QueuedStateTransitions,
         blocking: bool,
@@ -1399,32 +1424,23 @@ impl<'a> Runner<'a> {
                 Err(TryRecvError::Disconnected) => panic!("Watcher disconnected"),
             }
         };
-        if let Some(path) = evt.path {
-            match evt.op {
-                Ok(Op::REMOVE) | Ok(Op::WRITE) | Ok(Op::CREATE) | Ok(Op::CLOSE_WRITE)
-                | Ok(Op::RENAME) => self.invalidate(path, futures, queued),
-                Err(e) => {
-                    eprintln!("Watch error: {:?}", e);
-                    Ok(false)
-                }
-                _ => Ok(false),
-            }
-        } else {
-            match evt.op {
-                Ok(Op::RESCAN) => {
-                    panic!("TODO: Watcher rescan");
-                }
-                Err(e) => {
-                    eprintln!("Watch error: {:?}", e);
-                    Ok(false)
-                }
-                _ => Ok(false),
+        match evt {
+            DebouncedEvent::NoticeWrite(_)
+            | DebouncedEvent::NoticeRemove(_)
+            | DebouncedEvent::Chmod(_) => Ok(false),
+            DebouncedEvent::Remove(path)
+            | DebouncedEvent::Create(path)
+            | DebouncedEvent::Write(path)
+            | DebouncedEvent::Rename(_, path) => self.invalidate(path, futures, queued),
+            DebouncedEvent::Rescan => panic!("TODO: Watcher rescan"),
+            DebouncedEvent::Error(err, maybe_path) => {
+                panic!("WATCHER ERROR {:?} {:?}", err, maybe_path)
             }
         }
     }
 }
 
-async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<RawEvent>) -> Result<()> {
+async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent>) -> Result<()> {
     loop {
         let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>> =
             Vec::new();
@@ -1453,7 +1469,7 @@ async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<RawEvent>) -> 
 pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool> {
     let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd, opts.watch)?;
     let (tx, rx) = channel();
-    let mut watcher = raw_watcher(tx).unwrap();
+    let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
 
     for target in &opts.targets {
         runner.expand_target(&mut watcher, target, None).await?;
