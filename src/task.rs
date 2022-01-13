@@ -70,6 +70,7 @@ struct Job {
     deps: Vec<usize>,
     serial: bool,
     parents: Vec<usize>,
+    live: bool,
     state: JobState,
     mtime: Option<Duration>,
     mtime_future: Option<Shared<Pin<Box<dyn Future<Output = Option<Duration>> + Send>>>>,
@@ -152,6 +153,7 @@ impl<'a> Job {
             task,
             deps: Vec::new(),
             serial,
+            live: false,
             parents: Vec::new(),
             state: JobState::Uninitialized,
             targets: Vec::new(),
@@ -184,10 +186,6 @@ impl<'a> Job {
                 }
             }
         }
-    }
-
-    fn init(&mut self) {
-        self.state = JobState::Initialized;
     }
 }
 
@@ -818,6 +816,9 @@ impl<'a> Runner<'a> {
                         job.parents.push(parent);
                     }
                 }
+                if !job.live {
+                    return Ok(JobOrFileState::Job(job.state))
+                }
                 if invalidation {
                     match job.state {
                         JobState::Failed | JobState::Fresh => {
@@ -1186,13 +1187,13 @@ impl<'a> Runner<'a> {
 
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
-                if matches!(job.state, JobState::Pending) {
+                job.live = true;
+                if !matches!(job.state, JobState::Uninitialized) {
                     if let Some(parent) = parent {
                         job.parents.push(parent);
                     }
                     return Ok(());
                 }
-
                 let mut is_interpolate = false;
                 let mut is_wildcard = false;
 
@@ -1215,8 +1216,7 @@ impl<'a> Runner<'a> {
                     job.targets = job_targets;
                 }
 
-                // this must come after setting target above
-                job.init();
+                job.state = JobState::Initialized;
 
                 if is_wildcard {
                     panic!("TODO: wildcard targets");
@@ -1338,7 +1338,8 @@ impl<'a> Runner<'a> {
 
         let job = self.get_job_mut(job_num).unwrap();
         job.deps.push(dep_num);
-        job.init();
+        // just because an interpolate is expanded, does not mean it is live
+        job.state = JobState::Initialized;
 
         for parent_target in targets {
             job.targets.push(parent_target.replace("#", interpolate));
@@ -1349,7 +1350,7 @@ impl<'a> Runner<'a> {
         // non-interpolation parent interpolation template deps are child deps
         let parent_task_deps = self.tasks[parent_task].deps.clone();
         for dep in parent_task_deps {
-            if !dep.contains("#") {
+            if !dep.contains('#') {
                 let dep_job = self.lookup_target(watcher, &dep, true).await?;
                 self.expand_job(watcher, dep_job, Some(job_num)).await?;
             }
@@ -1365,6 +1366,7 @@ impl<'a> Runner<'a> {
         let mut queued = QueuedStateTransitions::new();
 
         if self.chompfile.debug {
+            dbg!(targets);
             dbg!(&self.file_nodes);
             dbg!(&self.task_jobs);
             dbg!(&self.interpolate_nodes);
@@ -1471,11 +1473,18 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
 
-    for target in &opts.targets {
-        runner.expand_target(&mut watcher, target, None).await?;
+    let normalized_targets: Vec<String> = opts.targets.iter().map(|t| {
+        let normalized = t.replace('\\', "/");
+        if normalized.starts_with("./") {
+            normalized[2..].to_string()
+        } else { normalized }
+    }).collect();
+
+    for target in normalized_targets.clone() {
+        runner.expand_target(&mut watcher, &target, None).await?;
     }
 
-    runner.drive_targets(&opts.targets).await?;
+    runner.drive_targets(&normalized_targets).await?;
 
     // block on watcher if watching
     if opts.watch {
@@ -1485,10 +1494,10 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
 
     // if all targets completed successfully, exit code is 0, otherwise its an error
     let mut all_ok = true;
-    for target in &opts.targets {
-        let job_num = runner.lookup_target(&mut watcher, target, true).await?;
-        let task = runner.get_job(job_num).unwrap();
-        if !matches!(task.state, JobState::Fresh) {
+    for target in normalized_targets {
+        let job_num = runner.lookup_target(&mut watcher, &target, true).await?;
+        let job = runner.get_job(job_num).unwrap();
+        if !matches!(job.state, JobState::Fresh) {
             all_ok = false;
             break;
         }

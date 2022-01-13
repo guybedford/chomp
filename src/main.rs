@@ -144,5 +144,9 @@ async fn main() -> Result<()> {
         cfg_file,
     }).await?;
 
+    if !ok {
+        eprintln!("Unable to complete all tasks.");
+    }
+
     std::process::exit(if ok { 0 } else { 1 });
 }
