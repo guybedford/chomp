@@ -1340,6 +1340,7 @@ impl<'a> Runner<'a> {
         job.deps.push(dep_num);
         // just because an interpolate is expanded, does not mean it is live
         job.state = JobState::Initialized;
+        job.live = true;
 
         for parent_target in targets {
             job.targets.push(parent_target.replace("#", interpolate));
