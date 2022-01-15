@@ -549,11 +549,11 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn mark_complete(&mut self, job_num: usize, updated: bool, failed: bool) -> Result<()> {
+    fn mark_complete(&mut self, job_num: usize, mtime: Option<Duration>, failed: bool) -> Result<()> {
         {
             let job = self.get_job_mut(job_num).unwrap();
-            if updated {
-                job.mtime = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
+            if let Some(mtime) = mtime {
+                job.mtime = Some(mtime);
             }
             job.end_time = Some(Instant::now());
             job.state = if failed {
@@ -662,7 +662,7 @@ impl<'a> Runner<'a> {
         let task = &self.tasks[job.task];
         // CMD Exec
         if task.run.is_none() {
-            self.mark_complete(job_num, false, false)?;
+            self.mark_complete(job_num, None, false)?;
             return Ok(None);
         }
         // the interpolation template itself is not run
@@ -674,7 +674,7 @@ impl<'a> Runner<'a> {
                 }
             }
             if has_interpolation {
-                self.mark_complete(job_num, false, false)?;
+                self.mark_complete(job_num, None, false)?;
                 return Ok(None);
             }
         }
@@ -725,7 +725,7 @@ impl<'a> Runner<'a> {
                     }
                 }
                 if all_fresh {
-                    self.mark_complete(job_num, false, false)?;
+                    self.mark_complete(job_num, None, false)?;
                     return Ok(None);
                 }
             }
@@ -885,7 +885,7 @@ impl<'a> Runner<'a> {
                                 | JobOrFileState::File(FileState::NotFound) => {
                                     // Serial propagates any dep error to parent
                                     if serial {
-                                        self.mark_complete(job_num, false, true)?;
+                                        self.mark_complete(job_num, None, true)?;
                                         self.drive_completion(
                                             StateTransition::from_job(job_num, JobState::Running),
                                             invalidation,
@@ -1047,7 +1047,8 @@ impl<'a> Runner<'a> {
                 if let Some(ref run_future) = job.run_future {
                     let (status, mtime) = run_future.peek().unwrap();
                     let success = status.success() && mtime.is_some();
-                    self.mark_complete(job_num, true, !success)?;
+                    let mtime_value = mtime.unwrap();
+                    self.mark_complete(job_num, Some(mtime_value), !success)?;
                 }
                 let job = self.get_job(job_num).unwrap();
                 if matches!(job.state, JobState::Fresh | JobState::Failed) {
