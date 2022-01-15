@@ -197,12 +197,20 @@ definition = """({ name, targets, deps, env, templateOptions: { svelteConfig = n
 [[template]]
 name = "swc"
 definition = """({ name, targets, deps, env, templateOptions: { configFile = null, swcRc, sourceMaps = true, config = {}, autoInstall } }) => {
-  config['jsc.parser.importAssertions'] = true;
-  config['jsc.parser.topLevelAwait'] = true;
-  config['jsc.parser.importMeta'] = true;
-  config['jsc.parser.privateMethod'] = true;
-  config['jsc.parser.dynamicImport'] = true;
-  config['jsc.experimental.keepImportAssertions'] = true;
+  function setDefaultConfig (defaultCfg) {
+    for (const prop of Object.keys(defaultCfg)) {
+      if (Object.hasOwnProperty(config, prop)) continue;
+      config[prop] = defaultCfg[prop];
+    }
+  }
+  setDefaultConfig({
+    'jsc.parser.importAssertions': true,
+    'jsc.parser.topLevelAwait': true,
+    'jsc.parser.importMeta': true,
+    'jsc.parser.privateMethod': true,
+    'jsc.parser.dynamicImport': true,
+    'jsc.experimental.keepImportAssertions': true
+  });
   return [{
     name,
     targets,
