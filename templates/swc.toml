@@ -11,10 +11,10 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
         importMeta: true,
         privateMethod: true,
         dynamicImport: true
-      },
+      }/*,
       experimental: {
         keepImportAssertions: true
-      }
+      }*/ // TODO: reenable when supported
     }
   };
   function setDefaultConfig (config, defaultConfig, base = '') {
@@ -23,7 +23,7 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       if (typeof val === 'object') {
         setDefaultConfig(config, defaultConfig[prop], base + prop + '.');
       }
-      else if (!Object.hasOwnProperty(config, prop)) {
+      else if (!((base + prop) in config)) {
         config[base + prop] = defaultConfig[prop];
       }
     }
