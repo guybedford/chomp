@@ -78,7 +78,6 @@ async fn main() -> Result<()> {
             Arg::with_name("target")
                 .value_name("TARGET")
                 .help("Generate a target or list of targets")
-                .default_value("build")
                 .multiple(true)
         )
         // .arg(
@@ -94,8 +93,13 @@ async fn main() -> Result<()> {
     // ui.create_box()?;
 
     let mut targets: Vec<String> = Vec::new();
-    for item in matches.values_of("target").unwrap() {
-        targets.push(String::from(item));
+    match matches.values_of("target") {
+        Some(target) => {
+            for item in target {
+                targets.push(String::from(item));
+            }
+        },
+        None => {}
     }
 
     let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
@@ -110,7 +114,6 @@ async fn main() -> Result<()> {
         for task in default_chompfile.task.drain(..) {
             chompfile.task.push(task);
         }
-
         if chompfile.version != 0.1 {
             return Err(anyhow!(
                 "Invalid chompfile version {}, only 0.1 is supported",

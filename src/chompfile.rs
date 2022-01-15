@@ -20,6 +20,7 @@ pub struct Chompfile {
     pub version: f32,
     #[serde(default, skip_serializing_if = "is_default")]
     pub debug: bool,
+    pub default_task: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub env: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "is_default")]

@@ -1510,12 +1510,19 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
 
-    let normalized_targets: Vec<String> = opts.targets.iter().map(|t| {
-        let normalized = t.replace('\\', "/");
-        if normalized.starts_with("./") {
-            normalized[2..].to_string()
-        } else { normalized }
-    }).collect();
+    let normalized_targets: Vec<String> = if opts.targets.len() == 0 {
+        match &chompfile.default_task {
+            Some(default_task) => vec![default_task.clone()],
+            None => return Err(anyhow!("No default task provided. Set:\n\n  default-task = \"[taskname]\"\n\nin the chompfile.toml to configure a default build task.")),
+        }
+    } else {
+        opts.targets.iter().map(|t| {
+            let normalized = t.replace('\\', "/");
+            if normalized.starts_with("./") {
+                normalized[2..].to_string()
+            } else { normalized }
+        }).collect()
+    };
 
     for target in normalized_targets.clone() {
         runner.expand_target(&mut watcher, &target, None).await?;
