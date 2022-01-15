@@ -1,4 +1,4 @@
-﻿version = 0.1
+version = 0.1
 [[template]]
 name = "babel"
 definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }) => {
@@ -40,7 +40,6 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
 name = "cargo"
 definition = """({ deps, env, templateOptions: { bin, install } }, globalEnv) => {
   const sep = globalEnv.PATH.match(/\\\\|\\//)[0];
-  const isWin = sep !== '/';
   return [{
     name: `cargo:${bin}`,
     targets: [globalEnv.PATH.split(';').find(p => p.endsWith(`.cargo${sep}bin`)) + sep + bin + (sep === '/' ? '' : '.exe')],
@@ -275,7 +274,7 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.swcrc\\x1b[0m (set \\x1b[1m"no-swc-rc = true"\\x1b[0m SWC template option to skip)\n'
       ${isWin // SWC does not like a BOM... Powershell hacks...
         ? `$encoder = new-object System.Text.UTF8Encoding ; Set-Content -Value $encoder.Getbytes('${JSON.stringify(defaultConfig, null, 2)}') -Encoding Byte -Path $TARGET`
-        : `echo 'JSON.stringify(${defaultConfig})' > $TARGET`
+        : `echo '${JSON.stringify(defaultConfig)}' > $TARGET`
       }
     `
   }, {
