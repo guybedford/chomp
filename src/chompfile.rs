@@ -69,8 +69,8 @@ pub struct ChompTaskMaybeTemplated {
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
     pub target_check: Option<TargetCheck>,
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub deps: Vec<String>,
+    pub dep: Option<String>,
+    pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub env: BTreeMap<String, String>,
@@ -92,6 +92,17 @@ impl ChompTaskMaybeTemplated {
             vec![]
         }
     }
+    pub fn deps_vec (&self) -> Vec<String> {
+        if let Some(ref dep) = self.dep {
+            vec![dep.to_string()]
+        }
+        else if let Some(ref deps) = self.deps {
+            deps.clone()
+        }
+        else {
+            vec![]
+        }
+    }
 }
 
 fn is_default<T: Default + PartialEq>(t: &T) -> bool {
@@ -106,6 +117,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
     pub target_check: Option<TargetCheck>,
+    pub dep: Option<String>,
     pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub env: Option<BTreeMap<String, String>>,

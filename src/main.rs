@@ -69,6 +69,12 @@ async fn main() -> Result<()> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("force")
+                .short("f")
+                .long("force")
+                .help("Force rebuild targets"),
+        )
+        .arg(
             Arg::with_name("target")
                 .value_name("TARGET")
                 .help("Generate a target or list of targets")
@@ -138,6 +144,7 @@ async fn main() -> Result<()> {
 
     let ok = task::run(&chompfile, task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),
+        force: matches.is_present("force"),
         ui: &ui,
         cwd: env::current_dir()?,
         targets,

@@ -1,25 +1,33 @@
 [[template]]
 name = "swc"
-definition = """({ name, targets, deps, env, templateOptions: { configFile = null, swcRc, sourceMaps = true, config = {}, autoInstall } }) => [{
-  name,
-  targets,
-  deps: [...deps, 'node_modules/@swc/core', 'node_modules/@swc/cli'],
-  env,
-  run: `swc $DEP -o $TARGET${
-      !swcRc ? ' --no-swcrc' : ''
-    }${
-      configFile ? ` --config-file=${configFile}` : ''
-    }${
-      sourceMaps ? ' --source-maps' : ''
-    }${
-      Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
-    }`
-}, {
-  template: 'npm',
-  templateOptions: {
-    autoInstall,
-    packages: ['@swc/core@1', '@swc/cli@0.1'],
-    dev: true
-  }
-}]
+definition = """({ name, targets, deps, env, templateOptions: { configFile = null, swcRc, sourceMaps = true, config = {}, autoInstall } }) => {
+  config['jsc.parser.importAssertions'] = true;
+  config['jsc.parser.topLevelAwait'] = true;
+  config['jsc.parser.importMeta'] = true;
+  config['jsc.parser.privateMethod'] = true;
+  config['jsc.parser.dynamicImport'] = true;
+  config['jsc.experimental.keepImportAssertions'] = true;
+  return [{
+    name,
+    targets,
+    deps: [...deps, 'node_modules/@swc/core', 'node_modules/@swc/cli'],
+    env,
+    run: `swc $DEP -o $TARGET${
+        !swcRc ? ' --no-swcrc' : ''
+      }${
+        configFile ? ` --config-file=${configFile}` : ''
+      }${
+        sourceMaps ? ' --source-maps' : ''
+      }${
+        Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
+      }`
+  }, {
+    template: 'npm',
+    templateOptions: {
+      autoInstall,
+      packages: ['@swc/core@1', '@swc/cli@0.1'],
+      dev: true
+    }
+  }]
+}
 """

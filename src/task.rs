@@ -50,6 +50,7 @@ pub struct RunOptions<'a> {
     pub cfg_file: PathBuf,
     pub targets: Vec<String>,
     pub watch: bool,
+    pub force: bool,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
@@ -375,7 +376,8 @@ impl<'a> Runner<'a> {
                 target: None,
                 targets: Some(task.targets_vec()),
                 target_check: task.target_check.clone(),
-                deps: Some(task.deps.clone()),
+                dep: None,
+                deps: Some(task.deps_vec()),
                 serial: task.serial,
                 env: Some(task.env.clone()),
                 run: task.run.clone(),
@@ -639,7 +641,7 @@ impl<'a> Runner<'a> {
                     file.mtime = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
                     let parents = file.parents.clone();
                     for parent in parents {
-                        self.drive_all(parent, true, futures, queued, None)?;
+                        self.drive_all(parent, true, false, futures, queued, None)?;
                     }
                     Ok(true)
                 }
@@ -651,6 +653,7 @@ impl<'a> Runner<'a> {
     fn run_job(
         &mut self,
         job_num: usize,
+        force: bool,
     ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>> {
         let job = match &self.nodes[job_num] {
             Node::Job(job) => job,
@@ -679,7 +682,7 @@ impl<'a> Runner<'a> {
             }
         }
         // If we have an mtime, check if we need to do work
-        if job.targets.len() > 0 {
+        if job.targets.len() > 0 && !force {
             if let Some(mtime) = job.mtime {
                 let mut all_fresh = true;
                 for &dep in job.deps.iter() {
@@ -805,6 +808,7 @@ impl<'a> Runner<'a> {
         &mut self,
         job_num: usize,
         invalidation: bool,
+        force: bool,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>,
         queued: &mut QueuedStateTransitions,
         parent: Option<usize>,
@@ -836,22 +840,33 @@ impl<'a> Runner<'a> {
                     }
                     JobState::Initialized => {
                         job.start_time_deps = Some(Instant::now());
-                        let targets = job.targets.clone();
-                        let mtime_future = check_target_mtimes(targets).boxed().shared();
-                        job.mtime_future = Some(mtime_future.clone());
-                        job.state = JobState::Checking;
-                        let transition = queued
-                            .insert_job(job_num, JobState::Checking)
-                            .expect("Expected first job check");
-                        futures.push(
-                            async move {
-                                mtime_future.await;
-                                transition
-                            }
-                            .boxed()
-                            .shared(),
-                        );
-                        Ok(JobOrFileState::Job(JobState::Checking))
+                        if force {
+                            job.state = JobState::Pending;
+                            job.mtime = if job.targets.len() > 0 {
+                                Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap())
+                            } else {
+                                None
+                            };
+                            self.drive_all(job_num, invalidation, force, futures, queued, parent)
+                        }
+                        else {
+                            let targets = job.targets.clone();
+                            let mtime_future = check_target_mtimes(targets).boxed().shared();
+                            job.mtime_future = Some(mtime_future.clone());
+                            job.state = JobState::Checking;
+                            let transition = queued
+                                .insert_job(job_num, JobState::Checking)
+                                .expect("Expected first job check");
+                            futures.push(
+                                async move {
+                                    mtime_future.await;
+                                    transition
+                                }
+                                .boxed()
+                                .shared(),
+                            );
+                            Ok(JobOrFileState::Job(JobState::Checking))
+                        }
                     }
                     JobState::Checking => {
                         let job = self.get_job(job_num).unwrap();
@@ -877,7 +892,7 @@ impl<'a> Runner<'a> {
                         // TODO: Use a driver counter for deps
                         for dep in deps {
                             let dep_state =
-                                self.drive_all(dep, false, futures, queued, Some(job_num))?;
+                                self.drive_all(dep, false, force, futures, queued, Some(job_num))?;
                             match dep_state {
                                 JobOrFileState::Job(JobState::Fresh)
                                 | JobOrFileState::File(FileState::Found) => {}
@@ -889,6 +904,7 @@ impl<'a> Runner<'a> {
                                         self.drive_completion(
                                             StateTransition::from_job(job_num, JobState::Running),
                                             invalidation,
+                                            force,
                                             futures,
                                             queued,
                                         )?;
@@ -913,7 +929,7 @@ impl<'a> Runner<'a> {
 
                         // deps all completed -> execute this job
                         if all_completed {
-                            return match self.run_job(job_num)? {
+                            return match self.run_job(job_num, force)? {
                                 Some(future) => {
                                     match queued.insert_job(job_num, JobState::Running) {
                                         Some(_) => futures.push(future),
@@ -925,6 +941,7 @@ impl<'a> Runner<'a> {
                                     self.drive_completion(
                                         StateTransition::from_job(job_num, JobState::Running),
                                         invalidation,
+                                        force,
                                         futures,
                                         queued,
                                     )?;
@@ -1009,7 +1026,7 @@ impl<'a> Runner<'a> {
                     FileState::Found => Ok(JobOrFileState::File(FileState::Found)),
                     FileState::NotFound => {
                         if !self.watch {
-                            return Err(anyhow!("Task {} not found", file.name));
+                            return Err(anyhow!("File {} not found", file.name));
                         } else {
                             // dbg!(file);
                             panic!("TODO: NON-EXISTING FILE WATCH");
@@ -1025,6 +1042,7 @@ impl<'a> Runner<'a> {
         &mut self,
         transition: StateTransition,
         invalidation: bool,
+        force: bool,
         futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>,
         queued: &mut QueuedStateTransitions,
     ) -> Result<()> {
@@ -1038,7 +1056,7 @@ impl<'a> Runner<'a> {
                 let mtime = mtime_future.peek().unwrap();
                 job.mtime = mtime.clone();
                 job.mtime_future = None;
-                self.drive_all(job_num, invalidation, futures, queued, None)?;
+                self.drive_all(job_num, invalidation, force, futures, queued, None)?;
                 Ok(())
             }
             JobOrFileState::Job(JobState::Running) => {
@@ -1046,14 +1064,14 @@ impl<'a> Runner<'a> {
                 let job = self.get_job(job_num).unwrap();
                 if let Some(ref run_future) = job.run_future {
                     let (status, mtime) = run_future.peek().unwrap();
+                    let cloned_mtime = mtime.clone();
                     let success = status.success() && mtime.is_some();
-                    let mtime_value = mtime.unwrap();
-                    self.mark_complete(job_num, Some(mtime_value), !success)?;
+                    self.mark_complete(job_num, cloned_mtime, !success)?;
                 }
                 let job = self.get_job(job_num).unwrap();
                 if matches!(job.state, JobState::Fresh | JobState::Failed) {
                     for parent in job.parents.clone() {
-                        self.drive_all(parent, invalidation, futures, queued, None)?;
+                        self.drive_all(parent, invalidation, force, futures, queued, None)?;
                     }
                 }
                 Ok(())
@@ -1072,7 +1090,7 @@ impl<'a> Runner<'a> {
                     None => FileState::NotFound,
                 };
                 for parent in file.parents.clone() {
-                    self.drive_all(parent, invalidation, futures, queued, None)?;
+                    self.drive_all(parent, invalidation, force, futures, queued, None)?;
                 }
                 Ok(())
             }
@@ -1361,7 +1379,7 @@ impl<'a> Runner<'a> {
     }
 
     // find the job for the target, and drive its completion
-    async fn drive_targets(&mut self, targets: &Vec<String>) -> Result<()> {
+    async fn drive_targets(&mut self, targets: &Vec<String>, force: bool) -> Result<()> {
         let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>> =
             Vec::new();
 
@@ -1395,13 +1413,13 @@ impl<'a> Runner<'a> {
                 },
             };
 
-            self.drive_all(job_num, false, &mut futures, &mut queued, None)?;
+            self.drive_all(job_num, false, force, &mut futures, &mut queued, None)?;
         }
 
         while futures.len() > 0 {
             let (transition, _idx, new_futures) = select_all(futures).await;
             futures = new_futures;
-            self.drive_completion(transition, false, &mut futures, &mut queued)?;
+            self.drive_completion(transition, false, force, &mut futures, &mut queued)?;
         }
 
         Ok(())
@@ -1463,7 +1481,7 @@ async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent
                 }
                 let (transition, _idx, new_futures) = select_all(futures).await;
                 futures = new_futures;
-                runner.drive_completion(transition, true, &mut futures, &mut queued)?;
+                runner.drive_completion(transition, true, false, &mut futures, &mut queued)?;
             }
             // println!("Watching...");
         }
@@ -1486,7 +1504,7 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
         runner.expand_target(&mut watcher, &target, None).await?;
     }
 
-    runner.drive_targets(&normalized_targets).await?;
+    runner.drive_targets(&normalized_targets, opts.force).await?;
 
     // block on watcher if watching
     if opts.watch {
