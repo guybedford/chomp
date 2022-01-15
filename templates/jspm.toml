@@ -11,6 +11,7 @@ definition = """({ name, targets, deps, env, templateOptions: {
 } }) => [{
   name,
   targets,
+  targetCheck: 'always-rebuild',
   deps: [...deps, 'node_modules/@jspm/generator', 'node_modules/mkdirp'],
   env,
   engine: 'node',
@@ -21,8 +22,10 @@ definition = """({ name, targets, deps, env, templateOptions: {
     import mkdirp from 'mkdirp';
     import { dirname, relative, resolve } from 'path';
 
+    const importMapTarget = process.env.TARGET.endsWith('.importmap');
+
     const opts = ${JSON.stringify(generateOpts)};
-    const htmlUrl = pathToFileURL(process.env.TARGET);
+    const htmlUrl = importMapTarget ? null : pathToFileURL(process.env.TARGET);
 
     if (opts.resolutions) {
       const newResolutions = {};
@@ -41,18 +44,34 @@ definition = """({ name, targets, deps, env, templateOptions: {
     }
 
     const generator = new Generator({
-      mapUrl: htmlUrl,
+      mapUrl: htmlUrl || import.meta.url,
       env: ${JSON.stringify(generatorEnv)},
       ...opts
     });
 
-    const htmlSource = await readFile(process.env.DEP, 'utf-8');
-    const htmlOpts = ${JSON.stringify({ preload, integrity, whitespace, esModuleShims })};
-    htmlOpts.htmlUrl = htmlUrl;
-    const outHtml = await generator.htmlGenerate(htmlSource, htmlOpts);
+    if (importMapTarget) {
+      let deps = [];
+      let i = 0;
+      while (++i) {
+        const dep = process.env['DEP' + i];
+        if (dep === 'node_modules/@jspm/generator' || dep === 'node_modules/mkdirp')
+          continue;
+        if (dep === undefined)
+          break;
+        deps.push(dep);
+      }
+      await Promise.all(deps.map(dep => generator.traceInstall('./' + dep)));
+      await writeFile(process.env.TARGET, JSON.stringify(generator.getMap(), null, 2));
+    }
+    else {
+      const htmlSource = await readFile(process.env.DEP, 'utf-8');
+      const htmlOpts = ${JSON.stringify({ preload, integrity, whitespace, esModuleShims })};
+      htmlOpts.htmlUrl = htmlUrl;
+      const outHtml = await generator.htmlGenerate(htmlSource, htmlOpts);
 
-    mkdirp.sync(dirname(process.env.TARGET));
-    await writeFile(process.env.TARGET, outHtml);
+      mkdirp.sync(dirname(process.env.TARGET));
+      await writeFile(process.env.TARGET, outHtml);
+    }
   `
 }, {
   template: 'npm',

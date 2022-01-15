@@ -54,6 +54,7 @@ impl Default for ServerOptions {
 pub enum FileCheck {
     Mtime,
     Exists,
+    AlwaysRebuild,
 }
 
 impl Default for FileCheck {

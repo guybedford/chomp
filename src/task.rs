@@ -695,57 +695,60 @@ impl<'a> Runner<'a> {
         // If we have an mtime, check if we need to do work
         if job.targets.len() > 0 {
             if let Some(mtime) = job.mtime {
-                if matches!(task.target_check, FileCheck::Exists) {
-                    self.mark_complete(job_num, Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap()), false)?;
-                    return Ok(None);
-                }
-                let mut all_fresh = true;
-                for &dep in job.deps.iter() {
-                    let dep_change = match &self.nodes[dep] {
-                        Node::Job(dep) => {
-                            let invalidated = match dep.mtime {
-                                Some(dep_mtime) => match task.dep_check {
-                                    FileCheck::Exists => false,
-                                    FileCheck::Mtime => match &self.tasks[dep.task].target_check {
-                                        FileCheck::Exists => false,
-                                        FileCheck::Mtime => dep_mtime > mtime || force,
-                                    },
-                                },
-                                None => true,
+                let can_skip = match task.target_check {
+                    FileCheck::Exists => true,
+                    FileCheck::AlwaysRebuild => false,
+                    FileCheck::Mtime => {
+                        let mut dep_change = false;
+                        for &dep in job.deps.iter() {
+                            dep_change = match &self.nodes[dep] {
+                                Node::Job(dep) => {
+                                    let invalidated = match dep.mtime {
+                                        // dep_check: 'always-rebuild' doesn't make sense -> should throw rather
+                                        Some(dep_mtime) => match task.dep_check {
+                                            FileCheck::Exists => false,
+                                            FileCheck::AlwaysRebuild | FileCheck::Mtime => match &self.tasks[dep.task].target_check {
+                                                FileCheck::Exists => false,
+                                                FileCheck::AlwaysRebuild | FileCheck::Mtime => dep_mtime > mtime || force,
+                                            },
+                                        },
+                                        None => true,
+                                    };
+                                    if invalidated && !force {
+                                        println!(
+                                            "  {} invalidated by {}.",
+                                            job.display_name(self),
+                                            dep.display_name(self)
+                                        );
+                                    }
+                                    invalidated
+                                }
+                                Node::File(dep) => {
+                                    let invalidated = match dep.mtime {
+                                        Some(dep_mtime) => match task.dep_check {
+                                            FileCheck::Exists => false,
+                                            FileCheck::AlwaysRebuild | FileCheck::Mtime => dep_mtime > mtime || force,
+                                        },
+                                        None => true,
+                                    };
+                                    if invalidated && !force {
+                                        println!(
+                                            "  {} invalidated by {}",
+                                            job.display_name(self),
+                                            dep.name
+                                        );
+                                    }
+                                    invalidated
+                                }
                             };
-                            if invalidated && !force {
-                                println!(
-                                    "  {} invalidated by {}.",
-                                    job.display_name(self),
-                                    dep.display_name(self)
-                                );
+                            if dep_change {
+                                break;
                             }
-                            invalidated
                         }
-                        Node::File(dep) => {
-                            let invalidated = match dep.mtime {
-                                Some(dep_mtime) => match task.dep_check {
-                                    FileCheck::Exists => false,
-                                    FileCheck::Mtime => dep_mtime > mtime || force,
-                                },
-                                None => true,
-                            };
-                            if invalidated && !force {
-                                println!(
-                                    "  {} invalidated by {}",
-                                    job.display_name(self),
-                                    dep.name
-                                );
-                            }
-                            invalidated
-                        }
-                    };
-                    if dep_change {
-                        all_fresh = false;
-                        break;
+                        !dep_change
                     }
-                }
-                if all_fresh {
+                };
+                if can_skip {
                     self.mark_complete(job_num, None, false)?;
                     return Ok(None);
                 }
@@ -758,19 +761,26 @@ impl<'a> Runner<'a> {
         if let Some(interpolate) = &job.interpolate {
             env.insert("MATCH".to_string(), interpolate.to_string());
         }
-        let mut target_index = 0;
-        for target in task.targets.iter() {
+        let target_index = if job.interpolate.is_some() {
+            task.deps
+                .iter()
+                .enumerate()
+                .find(|(_, d)| d.contains('#'))
+                .unwrap()
+                .0
+        } else {
+            0
+        };
+        for (num, target) in task.targets.iter().enumerate() {
             let target_str = if let Some(interpolate) = &job.interpolate {
                 target.replace("#", &interpolate)
             } else {
                 target.to_string()
             };
-            if target_index == 0 {
-                env.insert("TARGET".to_string(), target_str);
-            } else {
-                env.insert(format!("TARGET{}", target_index), target_str);
+            if num == target_index {
+                env.insert("TARGET".to_string(), target_str.clone());
             }
-            target_index += 1;
+            env.insert(format!("TARGET{}", num + 1), target_str);
         }
         let dep_index = if job.interpolate.is_some() {
             task.deps
@@ -783,15 +793,15 @@ impl<'a> Runner<'a> {
             0
         };
         for (num, dep) in task.deps.iter().enumerate() {
+            let dep_str = if let Some(interpolate) = &job.interpolate {
+                dep.replace("#", &interpolate)
+            } else {
+                dep.to_string()
+            };
             if num == dep_index {
-                let dep_str = if let Some(interpolate) = &job.interpolate {
-                    dep.replace("#", &interpolate)
-                } else {
-                    dep.to_string()
-                };
-                env.insert("DEP".to_string(), dep_str);
+                env.insert("DEP".to_string(), dep_str.clone());
             }
-            env.insert(format!("DEP{}", num), dep.to_string());
+            env.insert(format!("DEP{}", num + 1), dep_str);
         }
 
         let job_future = self
