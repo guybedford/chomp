@@ -1,30 +1,55 @@
 ﻿version = 0.1
 [[template]]
 name = "babel"
-definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, babelRc = true, configFile = null, autoInstall } }) => [{
-  name,
-  targets,
-  deps: [...deps, ...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
-  env,
-  run: `babel $DEP -o $TARGET${
-      sourceMap ? ' --source-maps' : ''
-    }${
-      plugins.length ? ` --plugins=${plugins.join(',')}` : ''
-    }${
-      presets.length ? ` --presets=${presets.join(',')}` : ''
-    }${
-      !babelRc ? ' --no-babelrc' : ''
-    }${
-      configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
-    }`
-}, {
-  template: 'npm',
-  templateOptions: {
-    packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
-    dev: true,
-    autoInstall
-  }
-}];
+definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }) => {
+  const defaultConfig = {};
+  return [{
+    name,
+    targets,
+    deps: [...deps, ...noBabelRc ? [] : ['.babelrc'], ...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
+    env,
+    run: `babel $DEP -o $TARGET${
+        sourceMap ? ' --source-maps' : ''
+      }${
+        plugins.length ? ` --plugins=${plugins.join(',')}` : ''
+      }${
+        presets.length ? ` --presets=${presets.join(',')}` : ''
+      }${
+        noBabelRc ? ' --no-babelrc' : ''
+      }${
+        configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
+      }`
+  }, {
+    target: '.babelrc',
+    targetCheck: 'exists',
+    run: `
+      echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.babelrc\\x1b[0m (set \\x1b[1m"no-babel-rc = true"\\x1b[0m Babel template option to skip)\n'
+      echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
+    `
+  }, {
+    template: 'npm',
+    templateOptions: {
+      packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
+      dev: true,
+      autoInstall
+    }
+  }];
+}
+"""
+[[template]]
+name = "cargo"
+definition = """({ deps, env, templateOptions: { bin, install } }, globalEnv) => {
+  const sep = globalEnv.PATH.match(/\\\\|\\//)[0];
+  const isWin = sep !== '/';
+  return [{
+    name: `cargo:${bin}`,
+    targets: [globalEnv.PATH.split(';').find(p => p.endsWith(`.cargo${sep}bin`)) + sep + bin + (sep === '/' ? '' : '.exe')],
+    targetCheck: 'exists',
+    deps,
+    env,
+    run: `cargo install ${install}`
+  }];
+}
 """
 [[template]]
 name = "jspm"
@@ -112,11 +137,13 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
 }), {
   name: 'npm:init',
   target: 'package.json',
+  targetCheck: 'exists',
   env,
   run: `${packageManager} init -y`
 }] : [{
   name,
   env,
+  targetCheck: 'exists',
   targets: packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
     return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
@@ -196,28 +223,44 @@ definition = """({ name, targets, deps, env, templateOptions: { svelteConfig = n
 """
 [[template]]
 name = "swc"
-definition = """({ name, targets, deps, env, templateOptions: { configFile = null, swcRc, sourceMaps = true, config = {}, autoInstall } }) => {
-  function setDefaultConfig (defaultCfg) {
-    for (const prop of Object.keys(defaultCfg)) {
-      if (Object.hasOwnProperty(config, prop)) continue;
-      config[prop] = defaultCfg[prop];
+definition = """({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, globalEnv) => {
+  const isWin = globalEnv.PATH.match(/\\\\|\\//)[0] !== '/';
+  const defaultConfig = {
+    jsc: {
+      parser: {
+        syntax: 'typescript',
+        importAssertions: true,
+        topLevelAwait: true,
+        importMeta: true,
+        privateMethod: true,
+        dynamicImport: true
+      },
+      experimental: {
+        keepImportAssertions: true
+      }
+    }
+  };
+  function setDefaultConfig (config, defaultConfig, base = '') {
+    for (const prop of Object.keys(defaultConfig)) {
+      const val = defaultConfig[prop];
+      if (typeof val === 'object') {
+        setDefaultConfig(config, defaultConfig[prop], base + prop + '.');
+      }
+      else if (!Object.hasOwnProperty(config, prop)) {
+        config[base + prop] = defaultConfig[prop];
+      }
     }
   }
-  setDefaultConfig({
-    'jsc.parser.importAssertions': true,
-    'jsc.parser.topLevelAwait': true,
-    'jsc.parser.importMeta': true,
-    'jsc.parser.privateMethod': true,
-    'jsc.parser.dynamicImport': true,
-    'jsc.experimental.keepImportAssertions': true
-  });
+  if (noSwcRc) {
+    setDefaultConfig(config, defaultConfig);
+  }
   return [{
     name,
     targets,
-    deps: [...deps, 'node_modules/@swc/core', 'node_modules/@swc/cli'],
+    deps: [...deps, ...noSwcRc ? [] : ['.swcrc'], 'node_modules/@swc/core', 'node_modules/@swc/cli'],
     env,
-    run: `swc $DEP -o $TARGET${
-        !swcRc ? ' --no-swcrc' : ''
+    run: `node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET${
+        noSwcRc ? ' --no-swcrc' : ''
       }${
         configFile ? ` --config-file=${configFile}` : ''
       }${
@@ -226,12 +269,22 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
         Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
       }`
   }, {
+    target: '.swcrc',
+    targetCheck: 'exists',
+    run: `
+      echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.swcrc\\x1b[0m (set \\x1b[1m"no-swc-rc = true"\\x1b[0m SWC template option to skip)\n'
+      ${isWin // SWC does not like a BOM... Powershell hacks...
+        ? `$encoder = new-object System.Text.UTF8Encoding ; Set-Content -Value $encoder.Getbytes('${JSON.stringify(defaultConfig, null, 2)}') -Encoding Byte -Path $TARGET`
+        : `echo 'JSON.stringify(${defaultConfig})' > $TARGET`
+      }
+    `
+  }, {
     template: 'npm',
     templateOptions: {
       autoInstall,
       packages: ['@swc/core@1', '@swc/cli@0.1'],
       dev: true
     }
-  }]
+  }];
 }
 """

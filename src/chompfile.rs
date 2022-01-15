@@ -51,14 +51,14 @@ impl Default for ServerOptions {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "kebab-case")]
-pub enum TargetCheck {
+pub enum FileCheck {
     Mtime,
     Exists,
 }
 
-impl Default for TargetCheck {
+impl Default for FileCheck {
     fn default () -> Self {
-        TargetCheck::Mtime
+        FileCheck::Mtime
     }
 }
 
@@ -68,7 +68,8 @@ pub struct ChompTaskMaybeTemplated {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
-    pub target_check: Option<TargetCheck>,
+    pub target_check: Option<FileCheck>,
+    pub dep_check: Option<FileCheck>,
     pub dep: Option<String>,
     pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,
@@ -116,7 +117,8 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
-    pub target_check: Option<TargetCheck>,
+    pub target_check: Option<FileCheck>,
+    pub dep_check: Option<FileCheck>,
     pub dep: Option<String>,
     pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,

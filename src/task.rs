@@ -1,5 +1,5 @@
 use crate::chompfile::{
-    ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, TargetCheck,
+    ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, FileCheck,
 };
 use crate::engines::CmdPool;
 use crate::js::init_js_platform;
@@ -28,6 +28,7 @@ use crate::js::run_js_tpl;
 use anyhow::{anyhow, Result};
 use convert_case::{Case, Casing};
 use derivative::Derivative;
+use std::env;
 
 use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
@@ -36,7 +37,8 @@ use std::sync::mpsc::channel;
 pub struct Task {
     name: Option<String>,
     targets: Vec<String>,
-    target_check: TargetCheck,
+    target_check: FileCheck,
+    dep_check: FileCheck,
     deps: Vec<String>,
     serial: bool,
     env: BTreeMap<String, String>,
@@ -139,6 +141,7 @@ struct Runner<'a> {
     chompfile: &'a Chompfile,
     watch: bool,
     tasks: Vec<Task>,
+    global_env: BTreeMap<String, String>,
 
     nodes: Vec<Node>,
 
@@ -346,7 +349,12 @@ impl<'a> Runner<'a> {
             task_jobs: BTreeMap::new(),
             file_nodes: BTreeMap::new(),
             interpolate_nodes: Vec::new(),
+            global_env: BTreeMap::new(),
         };
+
+        for (key, value) in env::vars() {
+            runner.global_env.insert(key.to_uppercase(), value);
+        }
 
         let mut templates: BTreeMap<&String, &ChompTemplate> = BTreeMap::new();
         for template in &chompfile.template {
@@ -376,6 +384,7 @@ impl<'a> Runner<'a> {
                 target: None,
                 targets: Some(task.targets_vec()),
                 target_check: task.target_check.clone(),
+                dep_check: task.dep_check.clone(),
                 dep: None,
                 deps: Some(task.deps_vec()),
                 serial: task.serial,
@@ -408,6 +417,7 @@ impl<'a> Runner<'a> {
                     run: task.run.clone(),
                     targets,
                     target_check: task.target_check.unwrap_or_default(),
+                    dep_check: task.dep_check.unwrap_or_default(),
                 };
 
                 runner.tasks.push(task);
@@ -419,9 +429,10 @@ impl<'a> Runner<'a> {
             if task.engine.is_some()
                 || task.run.is_some()
                 || task.target_check.is_some()
+                || task.dep_check.is_some()
                 || task.serial.is_some()
             {
-                return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial' or 'target_check' fields."));
+                return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial', 'target_check' or 'dep_check' fields."));
             }
 
             let template = match templates.get(template) {
@@ -432,7 +443,7 @@ impl<'a> Runner<'a> {
                 task.deps = Some(Default::default());
             }
             let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-                run_js_tpl(&template.definition, &template.name, &task)?;
+                run_js_tpl(&template.definition, &template.name, &task, &runner.global_env)?;
             // template functions output a list of tasks
             for mut template_task in template_tasks.drain(..) {
                 if template_task.target.is_some() {
@@ -682,20 +693,27 @@ impl<'a> Runner<'a> {
             }
         }
         // If we have an mtime, check if we need to do work
-        if job.targets.len() > 0 && !force {
+        if job.targets.len() > 0 {
             if let Some(mtime) = job.mtime {
+                if matches!(task.target_check, FileCheck::Exists) {
+                    self.mark_complete(job_num, Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap()), false)?;
+                    return Ok(None);
+                }
                 let mut all_fresh = true;
                 for &dep in job.deps.iter() {
                     let dep_change = match &self.nodes[dep] {
                         Node::Job(dep) => {
                             let invalidated = match dep.mtime {
-                                Some(dep_mtime) => match task.target_check {
-                                    TargetCheck::Exists => false,
-                                    TargetCheck::Mtime => dep_mtime > mtime,
+                                Some(dep_mtime) => match task.dep_check {
+                                    FileCheck::Exists => false,
+                                    FileCheck::Mtime => match &self.tasks[dep.task].target_check {
+                                        FileCheck::Exists => false,
+                                        FileCheck::Mtime => dep_mtime > mtime || force,
+                                    },
                                 },
                                 None => true,
                             };
-                            if invalidated {
+                            if invalidated && !force {
                                 println!(
                                     "  {} invalidated by {}.",
                                     job.display_name(self),
@@ -706,13 +724,13 @@ impl<'a> Runner<'a> {
                         }
                         Node::File(dep) => {
                             let invalidated = match dep.mtime {
-                                Some(dep_mtime) => match task.target_check {
-                                    TargetCheck::Exists => false,
-                                    TargetCheck::Mtime => dep_mtime > mtime,
+                                Some(dep_mtime) => match task.dep_check {
+                                    FileCheck::Exists => false,
+                                    FileCheck::Mtime => dep_mtime > mtime || force,
                                 },
                                 None => true,
                             };
-                            if invalidated {
+                            if invalidated && !force {
                                 println!(
                                     "  {} invalidated by {}",
                                     job.display_name(self),
@@ -840,33 +858,22 @@ impl<'a> Runner<'a> {
                     }
                     JobState::Initialized => {
                         job.start_time_deps = Some(Instant::now());
-                        if force {
-                            job.state = JobState::Pending;
-                            job.mtime = if job.targets.len() > 0 {
-                                Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap())
-                            } else {
-                                None
-                            };
-                            self.drive_all(job_num, invalidation, force, futures, queued, parent)
-                        }
-                        else {
-                            let targets = job.targets.clone();
-                            let mtime_future = check_target_mtimes(targets).boxed().shared();
-                            job.mtime_future = Some(mtime_future.clone());
-                            job.state = JobState::Checking;
-                            let transition = queued
-                                .insert_job(job_num, JobState::Checking)
-                                .expect("Expected first job check");
-                            futures.push(
-                                async move {
-                                    mtime_future.await;
-                                    transition
-                                }
-                                .boxed()
-                                .shared(),
-                            );
-                            Ok(JobOrFileState::Job(JobState::Checking))
-                        }
+                        let targets = job.targets.clone();
+                        let mtime_future = check_target_mtimes(targets).boxed().shared();
+                        job.mtime_future = Some(mtime_future.clone());
+                        job.state = JobState::Checking;
+                        let transition = queued
+                            .insert_job(job_num, JobState::Checking)
+                            .expect("Expected first job check");
+                        futures.push(
+                            async move {
+                                mtime_future.await;
+                                transition
+                            }
+                            .boxed()
+                            .shared(),
+                        );
+                        Ok(JobOrFileState::Job(JobState::Checking))
                     }
                     JobState::Checking => {
                         let job = self.get_job(job_num).unwrap();

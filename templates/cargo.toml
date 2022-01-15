@@ -1,0 +1,15 @@
+[[template]]
+name = "cargo"
+definition = """({ deps, env, templateOptions: { bin, install } }, globalEnv) => {
+  const sep = globalEnv.PATH.match(/\\\\|\\//)[0];
+  const isWin = sep !== '/';
+  return [{
+    name: `cargo:${bin}`,
+    targets: [globalEnv.PATH.split(';').find(p => p.endsWith(`.cargo${sep}bin`)) + sep + bin + (sep === '/' ? '' : '.exe')],
+    targetCheck: 'exists',
+    deps,
+    env,
+    run: `cargo install ${install}`
+  }];
+}
+"""

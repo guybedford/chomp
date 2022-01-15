@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use crate::chompfile::ChompTaskMaybeTemplatedNoDefault;
 use anyhow::{anyhow, Error, Result};
 use serde_v8::from_v8;
@@ -14,6 +15,7 @@ pub fn run_js_tpl<'a>(
   js_fn: &str,
   name: &str,
   task: &ChompTaskMaybeTemplatedNoDefault,
+  global_env: &BTreeMap<String, String>,
 ) -> Result<Vec<ChompTaskMaybeTemplatedNoDefault>> {
   let isolate = &mut v8::Isolate::new(Default::default());
   let handle_scope = &mut v8::HandleScope::new(isolate);
@@ -42,9 +44,14 @@ pub fn run_js_tpl<'a>(
         panic!("Expected a function");
       }
       let cb = v8::Local::<v8::Function>::try_from(function).unwrap();
+      let len_key = v8::String::new(tc_scope, "length").unwrap().into();
+      let len: v8::Local<v8::Number> = cb.get(tc_scope, len_key).unwrap().try_into().unwrap();
       let this = v8::undefined(tc_scope).into();
-      let args: Vec<v8::Local<v8::Value>> =
-        vec![to_v8(tc_scope, task).expect("Unable to serialize template params")];
+      let args: Vec<v8::Local<v8::Value>> = if len.uint32_value(tc_scope).unwrap() == 2 {
+        vec![to_v8(tc_scope, task).expect("Unable to serialize template params"), to_v8(tc_scope, global_env).expect("Unable to serialize global env")]
+      } else {
+        vec![to_v8(tc_scope, task).expect("Unable to serialize template params")]
+      };
       let result = match cb.call(tc_scope, this, args.as_slice()) {
         Some(result) => result,
         None => return Err(v8_exception(tc_scope)),

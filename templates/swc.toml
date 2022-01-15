@@ -1,27 +1,43 @@
 [[template]]
 name = "swc"
-definition = """({ name, targets, deps, env, templateOptions: { configFile = null, swcRc, sourceMaps = true, config = {}, autoInstall } }) => {
-  function setDefaultConfig (defaultCfg) {
-    for (const prop of Object.keys(defaultCfg)) {
-      if (Object.hasOwnProperty(config, prop)) continue;
-      config[prop] = defaultCfg[prop];
+definition = """({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, globalEnv) => {
+  const isWin = globalEnv.PATH.match(/\\\\|\\//)[0] !== '/';
+  const defaultConfig = {
+    jsc: {
+      parser: {
+        syntax: 'typescript',
+        importAssertions: true,
+        topLevelAwait: true,
+        importMeta: true,
+        privateMethod: true,
+        dynamicImport: true
+      },
+      experimental: {
+        keepImportAssertions: true
+      }
+    }
+  };
+  function setDefaultConfig (config, defaultConfig, base = '') {
+    for (const prop of Object.keys(defaultConfig)) {
+      const val = defaultConfig[prop];
+      if (typeof val === 'object') {
+        setDefaultConfig(config, defaultConfig[prop], base + prop + '.');
+      }
+      else if (!Object.hasOwnProperty(config, prop)) {
+        config[base + prop] = defaultConfig[prop];
+      }
     }
   }
-  setDefaultConfig({
-    'jsc.parser.importAssertions': true,
-    'jsc.parser.topLevelAwait': true,
-    'jsc.parser.importMeta': true,
-    'jsc.parser.privateMethod': true,
-    'jsc.parser.dynamicImport': true,
-    'jsc.experimental.keepImportAssertions': true
-  });
+  if (noSwcRc) {
+    setDefaultConfig(config, defaultConfig);
+  }
   return [{
     name,
     targets,
-    deps: [...deps, '.swcrc', 'node_modules/@swc/core', 'node_modules/@swc/cli'],
+    deps: [...deps, ...noSwcRc ? [] : ['.swcrc'], 'node_modules/@swc/core', 'node_modules/@swc/cli'],
     env,
-    run: `swc $DEP -o $TARGET${
-        !swcRc ? ' --no-swcrc' : ''
+    run: `node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET${
+        noSwcRc ? ' --no-swcrc' : ''
       }${
         configFile ? ` --config-file=${configFile}` : ''
       }${
@@ -31,6 +47,14 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       }`
   }, {
     target: '.swcrc',
+    targetCheck: 'exists',
+    run: `
+      echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.swcrc\\x1b[0m (set \\x1b[1m"no-swc-rc = true"\\x1b[0m SWC template option to skip)\n'
+      ${isWin // SWC does not like a BOM... Powershell hacks...
+        ? `$encoder = new-object System.Text.UTF8Encoding ; Set-Content -Value $encoder.Getbytes('${JSON.stringify(defaultConfig, null, 2)}') -Encoding Byte -Path $TARGET`
+        : `echo 'JSON.stringify(${defaultConfig})' > $TARGET`
+      }
+    `
   }, {
     template: 'npm',
     templateOptions: {
@@ -38,6 +62,6 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       packages: ['@swc/core@1', '@swc/cli@0.1'],
       dev: true
     }
-  }]
+  }];
 }
 """

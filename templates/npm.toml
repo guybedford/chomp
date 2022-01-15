@@ -19,11 +19,13 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
 }), {
   name: 'npm:init',
   target: 'package.json',
+  targetCheck: 'exists',
   env,
   run: `${packageManager} init -y`
 }] : [{
   name,
   env,
+  targetCheck: 'exists',
   targets: packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
     return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
