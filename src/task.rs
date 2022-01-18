@@ -803,7 +803,7 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        env.insert("TARGET".to_string(), task.targets[target_index].clone());
+        env.insert("TARGET".to_string(), if task.targets.len() == 0 { "".to_string() } else { task.targets[target_index].clone() });
         env.insert("TARGETS".to_string(), task.targets.join(","));
         let dep_index = if job.interpolate.is_some() {
             task.deps
@@ -815,7 +815,7 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        env.insert("DEP".to_string(), task.deps[dep_index].clone());
+        env.insert("DEP".to_string(), if task.deps.len() == 0 { "".to_string() } else { task.deps[dep_index].clone() });
         env.insert("DEPS".to_string(), task.deps.join(","));
 
         let job_future = self
