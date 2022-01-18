@@ -142,7 +142,7 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug: bool) -> Result<Child> {
+pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug: bool) -> Child {
     if debug {
         println!("RUN: {}", run);
     }
