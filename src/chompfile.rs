@@ -31,6 +31,8 @@ pub struct Chompfile {
     pub template: Vec<ChompTemplate>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub template_options: BTreeMap<String, BTreeMap<String, toml::value::Value>>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub batcher: Vec<Batcher>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
@@ -64,6 +66,10 @@ impl Default for InvalidationCheck {
     }
 }
 
+fn default_as_true() -> bool {
+    true
+}
+
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct ChompTaskMaybeTemplated {
@@ -74,6 +80,8 @@ pub struct ChompTaskMaybeTemplated {
     pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
+    #[serde(default = "default_as_true", skip_serializing_if = "is_default")]
+    pub display: bool,
     #[serde(default, skip_serializing_if = "is_default")]
     pub env: BTreeMap<String, String>,
     pub engine: Option<ChompEngine>,
@@ -122,6 +130,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
+    pub display: Option<bool>,
     pub env: Option<BTreeMap<String, String>>,
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
@@ -133,4 +142,10 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
 pub struct ChompTemplate {
     pub name: String,
     pub definition: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
+pub struct Batcher {
+    pub name: String,
+    pub batch: String,
 }

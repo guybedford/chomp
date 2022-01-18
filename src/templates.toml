@@ -21,6 +21,7 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
       }`
   }, ...CHOMP_EJECT ? [] : [{
     target: '.babelrc',
+    display: false,
     invalidation: 'not-found',
     run: `
       echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.babelrc\\x1b[0m (set \\x1b[1m"no-babel-rc = true"\\x1b[0m Babel template option to skip)\n'
@@ -44,6 +45,7 @@ definition = """({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP
     name: `cargo:${bin}`,
     targets: [PATH.split(';').find(p => p.endsWith(`.cargo${sep}bin`)) + sep + bin + (sep === '/' ? '' : '.exe')],
     invalidation: 'not-found',
+    display: false,
     deps,
     env,
     run: `cargo install ${install}`
@@ -76,6 +78,7 @@ definition = """({ name, targets, deps, env, templateOptions: {
     import { readFile, writeFile } from 'fs/promises';
     import { pathToFileURL } from 'url';
     import mkdirp from 'mkdirp';
+    import { dirname } from 'path';
 
     const generator = new Generator({
       mapUrl: ${isImportMapTarget ? 'import.meta.url' : 'pathToFileURL(process.env.TARGET)'}${
@@ -84,11 +87,15 @@ definition = """({ name, targets, deps, env, templateOptions: {
         Object.keys(generateOpts).length ? ',\\n      ' + JSON.stringify(generateOpts, null, 2).slice(4, -2).replace(/\\n/g, `\\n    `) : ''
       }
     });
+
 ${isImportMapTarget ? `
     await Promise.all(process.env.DEPS.split(',')${CHOMP_EJECT ? '' : '.filter(dep => dep !== "node_modules/@jspm/generator" && dep !== "node_modules/mkdirp")'}.map(dep => generator.traceInstall('./' + dep)));
+
+    mkdirp.sync(dirname(process.env.TARGET));
     await writeFile(process.env.TARGET, JSON.stringify(generator.getMap(), null, 2));`
 : `
     const htmlSource = await readFile(process.env.DEP, 'utf-8');
+
     mkdirp.sync(dirname(process.env.TARGET));
     await writeFile(process.env.TARGET, await generator.htmlGenerate(htmlSource, {
       htmlUrl: pathToFileURL(process.env.TARGET)${noHtmlOpts ? '' : ',      ' + JSON.stringify({ preload, integrity, whitespace, esModuleShims })}
@@ -106,8 +113,6 @@ ${isImportMapTarget ? `
 """
 [[template]]
 name = "npm"
-# TODO: validate = "(templateOptions) => true / false / 'error message'"
-# TODO: max-jobs = 1
 definition = """({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }, { CHOMP_EJECT }) => CHOMP_EJECT ? [] : autoInstall ? [{
   name,
   deps: [...deps, ...packages.map(pkg => {
@@ -120,6 +125,7 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
   return {
     target: `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`,
     invalidation: 'not-found',
+    display: false,
     deps: ['npm:init'],
     env,
     run: `${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
@@ -128,12 +134,14 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
   name: 'npm:init',
   target: 'package.json',
   invalidation: 'not-found',
+  display: false,
   env,
   run: `${packageManager} init -y`
 }] : [{
   name,
   env,
   invalidation: 'not-found',
+  display: false,
   targets: packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
     return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
@@ -141,50 +149,52 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
   run: `echo "\n\\x1b[93mChomp\\x1b[0m: Some packages are missing. Please run \\x1b[1m${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}\\x1b[0m\n"`
 }];
 """
-reduction = """(execs) => {
-  let init;
-  const initIndex = execs.findIndex(({ env }) => env.TARGET === 'package.json');
-  const initReplaces = [];
-  if (initIndex !== -1) {
-    const initExec = execs[initIndex];
-    init = { run: initExec.run, engine: initExec.engine, env: initExec.env, replaces: initReplaces };
+
+[[batcher]]
+name = "npm"
+batch = """({ run, engine, env }, queue, batch, running) => {
+  if (engine !== 'cmd' || !run.startsWith('npm ')) return;
+  const args = run.slice(4).split(' ');
+  if (args[0] === 'init' && args[1] === '-y' && args.length === 2) {
+    const existingNpm = [...queue, ...running].findIndex(({ run }) => run.startsWith('npm ');
+    if (existingNpm !== -1) return { queue, batch, completion: existingNpm };
   }
-
-  let install, devInstall, verify, devVerify;
-  for (let i = 0; i < execs.length; i++) {
-    const exec = execs[i];
-    if (exec.env.TARGET === 'npm:init') {
-      initReplaces.push(i);
+  if (args[0] === 'install') {
+    const install = parseInstall(args.slice(1));
+    if (!install) return;
+    if (running.find({ cmd }) => cmd === 'npm') {
+      queue.push({ run, env });
+      return { queue, batch, completion: queue.length };
     }
-    else {
-      const { engine, run, env } = exec;
-      let { INSTALL_PKG, INSTALL_DEV } = env;
-
-      const isInstall = !run.startsWith('echo');
-      const isDev = !!INSTALL_DEV;
-
-      if (isInstall && !run.startsWith(initPackageManager))
-        return "Different package managers in use, please ensure to use one at a time!";
-
-      const existing = isInstall && !isDev ? install : isInstall && isDev ? devInstall : !isDev ? verify : devVerify;
-      if (existing) {
-        existing.env.INSTALL_PKG += " " + INSTALL_PKG;
-        existing.replaces.push(i);
+    const batchedInstallIndex = batch.findIndex(({ run, engine }) => {
+      if (engine !== 'cmd' || !run.startsWith('npm ')) return false;
+      const args = run.slice(4).split(' ');
+      if (args[0] !== 'install') return false;
+      const batchedInstall = parseInstall(args.slice(1));
+      return batchedInstall && batchedInstall.isDev === install.isDev;
+    }));
+    const batchedInstall = batch[batchedInstallIndex];
+    if (batchedInstall) {
+      for (const pkg of install.packages) {
+        if (!batchedInstall.packages.includes(pkg))
+          batchedInstall.packages.push(pkg);
       }
-      else {
-        const replacement = { engine, run, env, replaces: [i] };
-        if (isInstall && !isDev)
-          install = replacement;
-        else if (isInstall && isDev)
-          devInstall = replacement;
-        else if (!isDev)
-          verify = replacement;
-        else
-          devVerify = replacement;
+      for (const key of Object.keys(env)) {
+        if (!Object.hasOwnProperty(batchedInstall.env, key))
+          batchedInstall.env[key] = env[key];
       }
+      return { queue, batch, completion: queue.length + batchedInstallIndex };
     }
   }
-  return [...init ? [init] : [], install ? [install] : [], ...devInstall ? [devInstall] : [], ...verify ? [verify] : [], ...devVerify ? [devVerify] : []];
+  function parseInstall (args) {
+    const packages = args.filter(arg => !arg.startsWith('-') && arg.indexOf('"') === -1 && arg.indexOf("'") === -1);
+    const flags = args.filter(arg => arg.startsWith('-'));
+    if (flags.length > 1) return;
+    if (flags.length === 1 && flags[0] !== '-D') return;
+    if (packages.length + flags.length !== args.length) return;
+    const isDev = flags.length === 1;
+    return { packages, isDev };
+  }
 }
 """
 [[template]]
@@ -192,7 +202,7 @@ name = "prettier"
 definition = """({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall } }, { CHOMP_EJECT }) => [{
   name,
   targets,
-  deps: [...deps, ...CHOMP_EJECT ? []: ['node_modules/prettier']],
+  deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/prettier']],
   invalidation: 'always',
   env,
   run: `prettier ${files} ${
@@ -307,6 +317,7 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
   }, ...CHOMP_EJECT ? [] : [{
     target: '.swcrc',
     invalidation: 'not-found',
+    display: false,
     run: `
       echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.swcrc\\x1b[0m (set \\x1b[1m"no-swc-rc = true"\\x1b[0m SWC template option to skip)\n'
       ${isWin // SWC does not like a BOM... Powershell hacks...

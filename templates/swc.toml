@@ -48,6 +48,7 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
   }, ...CHOMP_EJECT ? [] : [{
     target: '.swcrc',
     invalidation: 'not-found',
+    display: false,
     run: `
       echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.swcrc\\x1b[0m (set \\x1b[1m"no-swc-rc = true"\\x1b[0m SWC template option to skip)\n'
       ${isWin // SWC does not like a BOM... Powershell hacks...

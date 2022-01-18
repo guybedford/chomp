@@ -1,3 +1,4 @@
+use crate::engines::CmdOp;
 use std::collections::BTreeMap;
 use crate::chompfile::ChompTaskMaybeTemplatedNoDefault;
 use anyhow::{anyhow, Error, Result};
@@ -9,6 +10,60 @@ pub fn init_js_platform() {
   let platform = v8::new_default_platform(0, false).make_shared();
   v8::V8::initialize_platform(platform);
   v8::V8::initialize();
+}
+
+pub fn run_js_batcher<'a>(
+  js_fn: &str,
+  name: &str,
+  queue: &Vec<CmdOp>,
+  batch: &Vec<CmdOp>,
+  running: &Vec<CmdOp>
+) -> Result<Option<(Vec<CmdOp>, Vec<CmdOp>, usize)>> {
+  let isolate = &mut v8::Isolate::new(Default::default());
+  let handle_scope = &mut v8::HandleScope::new(isolate);
+  let context = v8::Context::new(handle_scope);
+  let scope = &mut v8::ContextScope::new(handle_scope, context);
+  let code = v8::String::new(scope, js_fn).unwrap();
+  let tc_scope = &mut v8::TryCatch::new(scope);
+  let resource_name = v8::String::new(tc_scope, name).unwrap().into();
+  let source_map = v8::String::new(tc_scope, "").unwrap().into();
+  let origin = v8::ScriptOrigin::new(
+    tc_scope,
+    resource_name,
+    0,
+    0,
+    false,
+    123,
+    source_map,
+    true,
+    false,
+    false,
+  );
+  match v8::Script::compile(tc_scope, code, Some(&origin)) {
+    Some(script) => {
+      let function = script.run(tc_scope).unwrap();
+      if !function.is_function() {
+        panic!("Expected a function");
+      }
+      let cb = v8::Local::<v8::Function>::try_from(function).unwrap();
+      let len_key = v8::String::new(tc_scope, "length").unwrap().into();
+      let len: v8::Local<v8::Number> = cb.get(tc_scope, len_key).unwrap().try_into().unwrap();
+      let this = v8::undefined(tc_scope).into();
+      let args: Vec<v8::Local<v8::Value>> = vec![
+        to_v8(tc_scope, queue).expect("Unable to serialize batcher call"),
+        to_v8(tc_scope, batch).expect("Unable to serialize batcher call"),
+        to_v8(tc_scope, running).expect("Unable to serialize batcher call")
+      ];
+      let result = match cb.call(tc_scope, this, args.as_slice()) {
+        Some(result) => result,
+        None => return Err(v8_exception(tc_scope)),
+      };
+
+      let result: Option<(Vec<CmdOp>, Vec<CmdOp>, usize)> = from_v8(tc_scope, result).expect("Unable to deserialize batch due to invalid structure");
+      Ok(result)
+    }
+    None => Err(v8_exception(tc_scope)),
+  }
 }
 
 pub fn run_js_tpl<'a>(

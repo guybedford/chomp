@@ -1,7 +1,5 @@
 [[template]]
 name = "npm"
-# TODO: validate = "(templateOptions) => true / false / 'error message'"
-# TODO: max-jobs = 1
 definition = """({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }, { CHOMP_EJECT }) => CHOMP_EJECT ? [] : autoInstall ? [{
   name,
   deps: [...deps, ...packages.map(pkg => {
@@ -14,6 +12,7 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
   return {
     target: `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`,
     invalidation: 'not-found',
+    display: false,
     deps: ['npm:init'],
     env,
     run: `${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
@@ -22,12 +21,14 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
   name: 'npm:init',
   target: 'package.json',
   invalidation: 'not-found',
+  display: false,
   env,
   run: `${packageManager} init -y`
 }] : [{
   name,
   env,
   invalidation: 'not-found',
+  display: false,
   targets: packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
     return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
@@ -35,49 +36,51 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
   run: `echo "\n\\x1b[93mChomp\\x1b[0m: Some packages are missing. Please run \\x1b[1m${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}\\x1b[0m\n"`
 }];
 """
-reduction = """(execs) => {
-  let init;
-  const initIndex = execs.findIndex(({ env }) => env.TARGET === 'package.json');
-  const initReplaces = [];
-  if (initIndex !== -1) {
-    const initExec = execs[initIndex];
-    init = { run: initExec.run, engine: initExec.engine, env: initExec.env, replaces: initReplaces };
+
+[[batcher]]
+name = "npm"
+batch = """({ run, engine, env }, queue, batch, running) => {
+  if (engine !== 'cmd' || !run.startsWith('npm ')) return;
+  const args = run.slice(4).split(' ');
+  if (args[0] === 'init' && args[1] === '-y' && args.length === 2) {
+    const existingNpm = [...queue, ...running].findIndex(({ run }) => run.startsWith('npm ');
+    if (existingNpm !== -1) return { queue, batch, completion: existingNpm };
   }
-
-  let install, devInstall, verify, devVerify;
-  for (let i = 0; i < execs.length; i++) {
-    const exec = execs[i];
-    if (exec.env.TARGET === 'npm:init') {
-      initReplaces.push(i);
+  if (args[0] === 'install') {
+    const install = parseInstall(args.slice(1));
+    if (!install) return;
+    if (running.find({ cmd }) => cmd === 'npm') {
+      queue.push({ run, env });
+      return { queue, batch, completion: queue.length };
     }
-    else {
-      const { engine, run, env } = exec;
-      let { INSTALL_PKG, INSTALL_DEV } = env;
-
-      const isInstall = !run.startsWith('echo');
-      const isDev = !!INSTALL_DEV;
-
-      if (isInstall && !run.startsWith(initPackageManager))
-        return "Different package managers in use, please ensure to use one at a time!";
-
-      const existing = isInstall && !isDev ? install : isInstall && isDev ? devInstall : !isDev ? verify : devVerify;
-      if (existing) {
-        existing.env.INSTALL_PKG += " " + INSTALL_PKG;
-        existing.replaces.push(i);
+    const batchedInstallIndex = batch.findIndex(({ run, engine }) => {
+      if (engine !== 'cmd' || !run.startsWith('npm ')) return false;
+      const args = run.slice(4).split(' ');
+      if (args[0] !== 'install') return false;
+      const batchedInstall = parseInstall(args.slice(1));
+      return batchedInstall && batchedInstall.isDev === install.isDev;
+    }));
+    const batchedInstall = batch[batchedInstallIndex];
+    if (batchedInstall) {
+      for (const pkg of install.packages) {
+        if (!batchedInstall.packages.includes(pkg))
+          batchedInstall.packages.push(pkg);
       }
-      else {
-        const replacement = { engine, run, env, replaces: [i] };
-        if (isInstall && !isDev)
-          install = replacement;
-        else if (isInstall && isDev)
-          devInstall = replacement;
-        else if (!isDev)
-          verify = replacement;
-        else
-          devVerify = replacement;
+      for (const key of Object.keys(env)) {
+        if (!Object.hasOwnProperty(batchedInstall.env, key))
+          batchedInstall.env[key] = env[key];
       }
+      return { queue, batch, completion: queue.length + batchedInstallIndex };
     }
   }
-  return [...init ? [init] : [], install ? [install] : [], ...devInstall ? [devInstall] : [], ...verify ? [verify] : [], ...devVerify ? [devVerify] : []];
+  function parseInstall (args) {
+    const packages = args.filter(arg => !arg.startsWith('-') && arg.indexOf('"') === -1 && arg.indexOf("'") === -1);
+    const flags = args.filter(arg => arg.startsWith('-'));
+    if (flags.length > 1) return;
+    if (flags.length === 1 && flags[0] !== '-D') return;
+    if (packages.length + flags.length !== args.length) return;
+    const isDev = flags.length === 1;
+    return { packages, isDev };
+  }
 }
 """

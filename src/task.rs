@@ -39,6 +39,7 @@ pub struct Task {
     invalidation: InvalidationCheck,
     deps: Vec<String>,
     serial: bool,
+    display: bool,
     env: BTreeMap<String, String>,
     run: Option<String>,
     engine: ChompEngine,
@@ -69,6 +70,7 @@ struct Job {
     interpolate: Option<String>,
     task: usize,
     deps: Vec<usize>,
+    display: bool,
     serial: bool,
     parents: Vec<usize>,
     live: bool,
@@ -149,12 +151,13 @@ struct Runner<'a> {
 }
 
 impl<'a> Job {
-    fn new(task: usize, serial: bool, interpolate: Option<String>) -> Job {
+    fn new(task: usize, serial: bool, display: bool, interpolate: Option<String>) -> Job {
         Job {
             interpolate,
             task,
             deps: Vec::new(),
             serial,
+            display,
             live: false,
             parents: Vec::new(),
             state: JobState::Uninitialized,
@@ -384,6 +387,7 @@ pub fn expand_template_tasks (chompfile: &Chompfile, global_env: &BTreeMap<Strin
             invalidation: Some(task.invalidation.clone().unwrap_or_default()),
             dep: None,
             deps: Some(task.deps_vec()),
+            display: Some(task.display),
             serial: task.serial,
             env: Some(task.env),
             run: task.run,
@@ -435,6 +439,7 @@ pub fn expand_template_tasks (chompfile: &Chompfile, global_env: &BTreeMap<Strin
                 name: template_task.name,
                 target,
                 targets,
+                display: template_task.display.unwrap_or(true),
                 invalidation: template_task.invalidation.take(),
                 dep,
                 deps,
@@ -458,7 +463,7 @@ impl<'a> Runner<'a> {
         cwd: &'a PathBuf,
         watch: bool,
     ) -> Result<Runner<'a>> {
-        let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
+        let cmd_pool = CmdPool::new(8, &chompfile.batcher, cwd.to_str().unwrap().to_string());
         let mut runner = Runner {
             watch,
             ui,
@@ -479,7 +484,8 @@ impl<'a> Runner<'a> {
         let mut tasks = expand_template_tasks(runner.chompfile, &runner.global_env)?;
 
         for task in tasks.drain(..) {
-            let targets = task.targets.unwrap_or_default();
+            let targets = task.targets_vec();
+            let deps = task.deps_vec();
             let mut env = BTreeMap::new();
             for (item, value) in &chompfile.env {
                 env.insert(item.to_uppercase(), value.to_string());
@@ -489,12 +495,13 @@ impl<'a> Runner<'a> {
             }
             let task = Task {
                 name: task.name,
-                deps: task.deps.unwrap_or_default(),
+                targets,
+                deps,
                 serial: task.serial.unwrap_or(false),
+                display: task.display,
                 engine: task.engine.unwrap_or_default(),
                 env,
                 run: task.run.clone(),
-                targets,
                 invalidation: task.invalidation.unwrap_or_default(),
             };
 
@@ -560,7 +567,7 @@ impl<'a> Runner<'a> {
         }
 
         self.nodes
-            .push(Node::Job(Job::new(task_num, task.serial, interpolate)));
+            .push(Node::Job(Job::new(task_num, task.serial, task.display, interpolate)));
         return Ok(num);
     }
 
@@ -617,50 +624,52 @@ impl<'a> Runner<'a> {
         }
         let job = self.get_job(job_num).unwrap();
         let end_time = job.end_time.unwrap();
-        if let Some(start_time_deps) = job.start_time_deps {
-            if let Some(start_time) = job.start_time {
-                if failed {
-                    println!(
-                        "x {} [{:?} {:?}]",
-                        job.display_name(self),
-                        end_time - start_time,
-                        end_time - start_time_deps
-                    );
+        if job.display || self.chompfile.debug {
+            if let Some(start_time_deps) = job.start_time_deps {
+                if let Some(start_time) = job.start_time {
+                    if failed {
+                        println!(
+                            "x {} [{:?} {:?}]",
+                            job.display_name(self),
+                            end_time - start_time,
+                            end_time - start_time_deps
+                        );
+                    } else {
+                        println!(
+                            "✓ {} [{:?} {:?}]",
+                            job.display_name(self),
+                            end_time - start_time,
+                            end_time - start_time_deps
+                        );
+                    }
                 } else {
-                    println!(
-                        "✓ {} [{:?} {:?}]",
-                        job.display_name(self),
-                        end_time - start_time,
-                        end_time - start_time_deps
-                    );
+                    if failed {
+                        println!(
+                            "x {} [- {:?}]",
+                            job.display_name(self),
+                            end_time - start_time_deps
+                        );
+                    } else {
+                        println!(
+                            "- {} [- {:?}]",
+                            job.display_name(self),
+                            end_time - start_time_deps
+                        );
+                    }
                 }
             } else {
-                if failed {
-                    println!(
-                        "x {} [- {:?}]",
-                        job.display_name(self),
-                        end_time - start_time_deps
-                    );
+                if let Some(start_time) = job.start_time {
+                    if failed {
+                        println!("x {} [{:?}]", job.display_name(self), end_time - start_time);
+                    } else {
+                        println!("√ {} [{:?}]", job.display_name(self), end_time - start_time);
+                    }
                 } else {
-                    println!(
-                        "- {} [- {:?}]",
-                        job.display_name(self),
-                        end_time - start_time_deps
-                    );
+                    if failed {
+                        return Err(anyhow!("Did not expect failed for cached"));
+                    }
+                    println!("● {} [cached]", job.display_name(self));
                 }
-            }
-        } else {
-            if let Some(start_time) = job.start_time {
-                if failed {
-                    println!("x {} [{:?}]", job.display_name(self), end_time - start_time);
-                } else {
-                    println!("√ {} [{:?}]", job.display_name(self), end_time - start_time);
-                }
-            } else {
-                if failed {
-                    return Err(anyhow!("Did not expect failed for cached"));
-                }
-                println!("● {} [cached]", job.display_name(self));
             }
         }
         {
@@ -749,7 +758,7 @@ impl<'a> Runner<'a> {
                                         },
                                         None => true,
                                     };
-                                    if invalidated && !force {
+                                    if invalidated && !force && (job.display || self.chompfile.debug) {
                                         println!(
                                             "  {} invalidated by {}.",
                                             job.display_name(self),
@@ -763,7 +772,7 @@ impl<'a> Runner<'a> {
                                         Some(dep_mtime) => dep_mtime > mtime || force,
                                         None => true,
                                     };
-                                    if invalidated && !force {
+                                    if invalidated && !force && (job.display || self.chompfile.debug) {
                                         println!(
                                             "  {} invalidated by {}",
                                             job.display_name(self),
@@ -786,7 +795,9 @@ impl<'a> Runner<'a> {
                 }
             }
         }
-        println!("🞂 {}", job.display_name(self));
+        if job.display || self.chompfile.debug {
+            println!("🞂 {}", job.display_name(self));
+        }
 
         let run: String = task.run.as_ref().unwrap().trim().to_string();
         let mut env = task.env.clone();
@@ -929,18 +940,15 @@ impl<'a> Runner<'a> {
                                 | JobOrFileState::File(FileState::Found) => {}
                                 JobOrFileState::Job(JobState::Failed)
                                 | JobOrFileState::File(FileState::NotFound) => {
-                                    // Serial propagates any dep error to parent
-                                    if serial {
-                                        self.mark_complete(job_num, None, true)?;
-                                        self.drive_completion(
-                                            StateTransition::from_job(job_num, JobState::Running),
-                                            invalidation,
-                                            force,
-                                            futures,
-                                            queued,
-                                        )?;
-                                        return Ok(JobOrFileState::Job(JobState::Failed));
-                                    }
+                                    self.mark_complete(job_num, None, true)?;
+                                    self.drive_completion(
+                                        StateTransition::from_job(job_num, JobState::Running),
+                                        invalidation,
+                                        force,
+                                        futures,
+                                        queued,
+                                    )?;
+                                    return Ok(JobOrFileState::Job(JobState::Failed));
                                 }
                                 _ => {
                                     // Serial only proceeds on a completion result
@@ -948,6 +956,7 @@ impl<'a> Runner<'a> {
                                         return Ok(JobOrFileState::Job(JobState::Pending));
                                     }
                                     all_completed = false;
+                                    break;
                                 }
                             }
                         }

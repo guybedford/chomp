@@ -28,7 +28,7 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
         static ref CMD: Regex = Regex::new("(?x)
             ^(?P<cmd>[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
              (?P<args>(?:\\ (?:
-                [^`~!\\#&*()\t\\{\\[|;'\"n<>?\\\\\\ ]+? |
+                [^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+? |
                 (?:\"[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?\") |
                 (?:'[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?') |
             )*?)*?)$
@@ -41,7 +41,7 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
     path.push_str(cwd);
     path += ".bin;";
     path.push_str(cwd);
-    path += "/node_modules/.bin";
+    path += "\\node_modules\\.bin";
     // fast path for direct commands to skip the shell entirely
     if let Some(capture) = CMD.captures(&run) {
         let mut cmd = String::from(&capture["cmd"]);
@@ -58,7 +58,11 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
             }
         }
         if do_spawn {
-            let mut command = Command::new(&cmd);
+            // If first attempt fails, try ".cmd" extension first
+            // Note: this only works on latest nightly builds!
+            let mut cmd_with_ext = cmd.to_owned();
+            cmd_with_ext.push_str(".cmd");
+            let mut command = Command::new(&cmd_with_ext);
             command.env("PATH", &path);
             for (name, value) in env {
                 command.env(name, value);
@@ -78,20 +82,20 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
                 Ok(child) => {
                     return child;
                 }
-                // If first attempt fails, try ".cmd" extension too
-                // Note: this only works on latest nightly builds!
-                Err(_) => {
-                    cmd.push_str(".cmd");
+                Err(e) => {
                     let mut command = Command::new(&cmd);
                     command.env("PATH", &path);
                     for (name, value) in env {
                         command.env(name, value);
                     }
-                    for arg in capture["args"].split(" ") {
-                        if env.len() > 0 {
-                            command.arg(replace_env_vars(arg, env));
-                        } else {
-                            command.arg(arg);
+                    let args = capture["args"].to_string();
+                    if args.len() > 1 {
+                        for arg in args[1..].split(" ") {
+                            if env.len() > 0 {
+                                command.arg(replace_env_vars(arg, env));
+                            } else {
+                                command.arg(arg);
+                            }
                         }
                     }
                     command.stdin(Stdio::null());
@@ -99,7 +103,9 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
                         Ok(child) => {
                             return child;
                         }
-                        Err(_) => {}
+                        Err(_) => {
+                            panic!("Unable to find executable {}", cmd);
+                        }
                     }
                 }
             };
