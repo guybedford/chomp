@@ -1,7 +1,7 @@
 [[template]]
 name = "swc"
-definition = """({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, globalEnv) => {
-  const isWin = globalEnv.PATH.match(/\\\\|\\//)[0] !== '/';
+definition = """({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, { PATH, CHOMP_EJECT }) => {
+  const isWin = PATH.match(/\\\\|\\//)[0] !== '/';
   const defaultConfig = {
     jsc: {
       parser: {
@@ -34,7 +34,7 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
   return [{
     name,
     targets,
-    deps: [...deps, ...noSwcRc ? [] : ['.swcrc'], 'node_modules/@swc/core', 'node_modules/@swc/cli'],
+    deps: [...deps, ...noSwcRc || CHOMP_EJECT ? [] : ['.swcrc'], ...CHOMP_EJECT ? [] : ['node_modules/@swc/core', 'node_modules/@swc/cli']],
     env,
     run: `node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET${
         noSwcRc ? ' --no-swcrc' : ''
@@ -45,9 +45,9 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       }${
         Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
       }`
-  }, {
+  }, ...CHOMP_EJECT ? [] : [{
     target: '.swcrc',
-    targetCheck: 'exists',
+    invalidation: 'not-found',
     run: `
       echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.swcrc\\x1b[0m (set \\x1b[1m"no-swc-rc = true"\\x1b[0m SWC template option to skip)\n'
       ${isWin // SWC does not like a BOM... Powershell hacks...
@@ -62,6 +62,6 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       packages: ['@swc/core@1', '@swc/cli@0.1'],
       dev: true
     }
-  }];
+  }]];
 }
 """

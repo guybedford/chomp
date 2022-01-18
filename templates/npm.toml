@@ -1,6 +1,8 @@
 [[template]]
 name = "npm"
-definition = """({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }) => autoInstall ? [{
+# TODO: validate = "(templateOptions) => true / false / 'error message'"
+# TODO: max-jobs = 1
+definition = """({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }, { CHOMP_EJECT }) => CHOMP_EJECT ? [] : autoInstall ? [{
   name,
   deps: [...deps, ...packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
@@ -11,7 +13,7 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
   const versionIndex = pkg.indexOf('@', 1);
   return {
     target: `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`,
-    targetCheck: 'exists',
+    invalidation: 'not-found',
     deps: ['npm:init'],
     env,
     run: `${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
@@ -19,17 +21,63 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
 }), {
   name: 'npm:init',
   target: 'package.json',
-  targetCheck: 'exists',
+  invalidation: 'not-found',
   env,
   run: `${packageManager} init -y`
 }] : [{
   name,
   env,
-  targetCheck: 'exists',
+  invalidation: 'not-found',
   targets: packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
     return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
   }),
   run: `echo "\n\\x1b[93mChomp\\x1b[0m: Some packages are missing. Please run \\x1b[1m${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}\\x1b[0m\n"`
 }];
+"""
+reduction = """(execs) => {
+  let init;
+  const initIndex = execs.findIndex(({ env }) => env.TARGET === 'package.json');
+  const initReplaces = [];
+  if (initIndex !== -1) {
+    const initExec = execs[initIndex];
+    init = { run: initExec.run, engine: initExec.engine, env: initExec.env, replaces: initReplaces };
+  }
+
+  let install, devInstall, verify, devVerify;
+  for (let i = 0; i < execs.length; i++) {
+    const exec = execs[i];
+    if (exec.env.TARGET === 'npm:init') {
+      initReplaces.push(i);
+    }
+    else {
+      const { engine, run, env } = exec;
+      let { INSTALL_PKG, INSTALL_DEV } = env;
+
+      const isInstall = !run.startsWith('echo');
+      const isDev = !!INSTALL_DEV;
+
+      if (isInstall && !run.startsWith(initPackageManager))
+        return "Different package managers in use, please ensure to use one at a time!";
+
+      const existing = isInstall && !isDev ? install : isInstall && isDev ? devInstall : !isDev ? verify : devVerify;
+      if (existing) {
+        existing.env.INSTALL_PKG += " " + INSTALL_PKG;
+        existing.replaces.push(i);
+      }
+      else {
+        const replacement = { engine, run, env, replaces: [i] };
+        if (isInstall && !isDev)
+          install = replacement;
+        else if (isInstall && isDev)
+          devInstall = replacement;
+        else if (!isDev)
+          verify = replacement;
+        else
+          devVerify = replacement;
+      }
+    }
+  }
+  return [...init ? [init] : [], install ? [install] : [], ...devInstall ? [devInstall] : [], ...verify ? [verify] : [], ...devVerify ? [devVerify] : []];
+}
 """

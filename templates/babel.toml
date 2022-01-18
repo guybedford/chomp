@@ -1,11 +1,11 @@
 [[template]]
 name = "babel"
-definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }) => {
+definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }, { CHOMP_EJECT }) => {
   const defaultConfig = {};
   return [{
     name,
     targets,
-    deps: [...deps, ...noBabelRc ? [] : ['.babelrc'], ...presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), 'node_modules/@babel/core', 'node_modules/@babel/cli'],
+    deps: [...deps, ...noBabelRc || CHOMP_EJECT ? [] : ['.babelrc'], ...CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
     env,
     run: `babel $DEP -o $TARGET${
         sourceMap ? ' --source-maps' : ''
@@ -18,9 +18,9 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
       }${
         configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
       }`
-  }, {
+  }, ...CHOMP_EJECT ? [] : [{
     target: '.babelrc',
-    targetCheck: 'exists',
+    invalidation: 'not-found',
     run: `
       echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.babelrc\\x1b[0m (set \\x1b[1m"no-babel-rc = true"\\x1b[0m Babel template option to skip)\n'
       echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
@@ -32,6 +32,6 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
       dev: true,
       autoInstall
     }
-  }];
+  }]];
 }
 """

@@ -1,13 +1,12 @@
 [[template]]
 name = "svelte"
-definition = """({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall } }) => [{
+definition = """({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall } }, { CHOMP_EJECT }) => [{
   name,
   targets,
-  deps: [...deps, 'node_modules/svelte', 'node_modules/mkdirp'],
+  deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
   env,
   engine: 'node',
-  run: `
-    import { readFile, writeFile } from 'fs/promises';
+  run: `    import { readFile, writeFile } from 'fs/promises';
     import { compile } from 'svelte/compiler';
     import mkdirp from 'mkdirp';
     import { dirname } from 'path';
@@ -34,12 +33,12 @@ definition = """({ name, targets, deps, env, templateOptions: { svelteConfig = n
       writeFile(cssFile + ".map", JSON.stringify(result.css.map))
     ];
   `
-}, {
+}, ...CHOMP_EJECT ? [] : [{
   template: 'npm',
   templateOptions: {
     autoInstall,
     packages: ['svelte@3', 'mkdirp'],
     dev: true
   }
-}]
+}]]
 """

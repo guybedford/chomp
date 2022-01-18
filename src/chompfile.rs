@@ -52,15 +52,15 @@ impl Default for ServerOptions {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "kebab-case")]
-pub enum FileCheck {
+pub enum InvalidationCheck {
+    NotFound,
     Mtime,
-    Exists,
-    AlwaysRebuild,
+    Always,
 }
 
-impl Default for FileCheck {
+impl Default for InvalidationCheck {
     fn default () -> Self {
-        FileCheck::Mtime
+        InvalidationCheck::Mtime
     }
 }
 
@@ -70,15 +70,14 @@ pub struct ChompTaskMaybeTemplated {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
-    pub target_check: Option<FileCheck>,
-    pub dep_check: Option<FileCheck>,
     pub dep: Option<String>,
     pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,
+    pub invalidation: Option<InvalidationCheck>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub env: BTreeMap<String, String>,
-    pub run: Option<String>,
     pub engine: Option<ChompEngine>,
+    pub run: Option<String>,
     pub template: Option<String>,
     pub template_options: Option<BTreeMap<String, toml::value::Value>>,
 }
@@ -119,14 +118,13 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
-    pub target_check: Option<FileCheck>,
-    pub dep_check: Option<FileCheck>,
     pub dep: Option<String>,
     pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,
+    pub invalidation: Option<InvalidationCheck>,
     pub env: Option<BTreeMap<String, String>>,
-    pub run: Option<String>,
     pub engine: Option<ChompEngine>,
+    pub run: Option<String>,
     pub template: Option<String>,
     pub template_options: Option<BTreeMap<String, toml::value::Value>>,
 }

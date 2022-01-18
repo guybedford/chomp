@@ -1,6 +1,6 @@
 # CHOMP
 
-> "JS Make"
+> 'JS Make'
 
 ## Install
 
@@ -21,11 +21,11 @@ chompfile.toml
 version = 0.1
 
 [[task]]
-  name = "hello:world"
-  target = "hello-world.txt"
-  run = """
-    echo "Hello World" > hello-world.txt
-  """
+name = 'hello:world'
+target = 'hello-world.txt'
+run = '''
+  echo "Hello World" > hello-world.txt
+'''
 ```
 
 with this file saved, running:
@@ -56,12 +56,12 @@ For example, to install an npm library, rather than manually writing an `npm ins
 version = 0.1
 
 [[task]]
-  name = "Install Mocha"
-  template = "npm"
-  [task.options]
-    auto-install = true
-    packages = ['mocha']
-    dev = true
+name = 'Install Mocha'
+template = 'npm'
+[task.options]
+  auto-install = true
+  packages = ['mocha']
+  dev = true
 ```
 
 The template includes conveniences to skip the install if the package is already present, and also ensure a package.json file is initialized if it does not exist.
@@ -74,13 +74,13 @@ To compile TypeScript with the SWC template:
 version = 0.1
 
 [[task]]
-  name = "typescript"
-  template = "swc"
-  target = "lib/#.js"
-  deps = ["src/#.ts]
-  # Installs SWC automatically if needed
-  [task.options]
-    auto-install = true
+name = 'typescript'
+template = 'swc'
+target = 'lib/#.js'
+deps = ['src/#.ts]
+# Installs SWC automatically if needed
+[task.options]
+  auto-install = true
 ```
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.

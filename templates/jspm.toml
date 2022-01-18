@@ -8,77 +8,47 @@ definition = """({ name, targets, deps, env, templateOptions: {
   whitespace,
   esModuleShims,
   ...generateOpts
-} }) => [{
-  name,
-  targets,
-  targetCheck: 'always-rebuild',
-  deps: [...deps, 'node_modules/@jspm/generator', 'node_modules/mkdirp'],
-  env,
-  engine: 'node',
-  run: `
-    import { Generator } from '@jspm/generator';
+} }, { CHOMP_EJECT }) => {
+  const mainTarget = targets.find(target => target.includes('#')) || targets[0];
+  const isImportMapTarget = mainTarget && mainTarget.endsWith('.importmap');
+  const { resolutions } = generateOpts.resolutions;
+  const noHtmlOpts = preload === undefined && integrity === undefined && whitespace === undefined && esModuleShims === undefined;
+  return [{
+    name,
+    targets,
+    invalidation: 'always',
+    deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/@jspm/generator', 'node_modules/mkdirp']],
+    env,
+    engine: 'node',
+    run: `    import { Generator } from '@jspm/generator';
     import { readFile, writeFile } from 'fs/promises';
     import { pathToFileURL } from 'url';
     import mkdirp from 'mkdirp';
-    import { dirname, relative, resolve } from 'path';
-
-    const importMapTarget = process.env.TARGET.endsWith('.importmap');
-
-    const opts = ${JSON.stringify(generateOpts)};
-    const htmlUrl = importMapTarget ? null : pathToFileURL(process.env.TARGET);
-
-    if (opts.resolutions) {
-      const newResolutions = {};
-      // renormalize relative resolutions relative to cwd
-      const cwd = process.cwd();
-      for (const key of Object.keys(opts.resolutions)) {
-        const target = opts.resolutions[key];
-        if (!target.startsWith('./') && !target.startsWith('../')) {
-          newResolutions[key] = target;
-          continue;
-        }
-        const normalizedTarget = relative(dirname(resolve(cwd, process.env.TARGET)), resolve(cwd, target)).replace(/\\\\\\\\/g, '/');
-        newResolutions[key] = normalizedTarget;
-      }
-      opts.resolutions = newResolutions;
-    }
 
     const generator = new Generator({
-      mapUrl: htmlUrl || import.meta.url,
-      env: ${JSON.stringify(generatorEnv)},
-      ...opts
-    });
-
-    if (importMapTarget) {
-      let deps = [];
-      let i = 0;
-      while (++i) {
-        const dep = process.env['DEP' + i];
-        if (dep === 'node_modules/@jspm/generator' || dep === 'node_modules/mkdirp')
-          continue;
-        if (dep === undefined)
-          break;
-        deps.push(dep);
+      mapUrl: ${isImportMapTarget ? 'import.meta.url' : 'pathToFileURL(process.env.TARGET)'}${
+        resolutions && !isImportMapTarget && Object.values(resolutions).some(v => v.startsWith('./') || v.startsWith('../')) ? ',\\n      baseUrl: import.meta.url,' : ''
+      },\n      env: ${JSON.stringify(generatorEnv).replace(/","/g, '", "')}${
+        Object.keys(generateOpts).length ? ',\\n      ' + JSON.stringify(generateOpts, null, 2).slice(4, -2).replace(/\\n/g, `\\n    `) : ''
       }
-      await Promise.all(deps.map(dep => generator.traceInstall('./' + dep)));
-      await writeFile(process.env.TARGET, JSON.stringify(generator.getMap(), null, 2));
+    });
+${isImportMapTarget ? `
+    await Promise.all(process.env.DEPS.split(',')${CHOMP_EJECT ? '' : '.filter(dep => dep !== "node_modules/@jspm/generator" && dep !== "node_modules/mkdirp")'}.map(dep => generator.traceInstall('./' + dep)));
+    await writeFile(process.env.TARGET, JSON.stringify(generator.getMap(), null, 2));`
+: `
+    const htmlSource = await readFile(process.env.DEP, 'utf-8');
+    mkdirp.sync(dirname(process.env.TARGET));
+    await writeFile(process.env.TARGET, await generator.htmlGenerate(htmlSource, {
+      htmlUrl: pathToFileURL(process.env.TARGET)${noHtmlOpts ? '' : ',      ' + JSON.stringify({ preload, integrity, whitespace, esModuleShims })}
+    }));`}
+`
+  }, ...CHOMP_EJECT ? [] : [{
+    template: 'npm',
+    templateOptions: {
+      autoInstall,
+      packages: ['@jspm/generator', 'mkdirp'],
+      dev: true
     }
-    else {
-      const htmlSource = await readFile(process.env.DEP, 'utf-8');
-      const htmlOpts = ${JSON.stringify({ preload, integrity, whitespace, esModuleShims })};
-      htmlOpts.htmlUrl = htmlUrl;
-      const outHtml = await generator.htmlGenerate(htmlSource, htmlOpts);
-
-      mkdirp.sync(dirname(process.env.TARGET));
-      await writeFile(process.env.TARGET, outHtml);
-    }
-  `
-}, {
-  template: 'npm',
-  templateOptions: {
-    autoInstall,
-    packages: ['@jspm/generator', 'mkdirp'],
-    dev: true
-  }
-}]
+  }]];
+}
 """

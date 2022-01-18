@@ -1,15 +1,14 @@
+use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::{
-    ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, FileCheck,
+    ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, InvalidationCheck,
 };
 use crate::engines::CmdPool;
-use crate::js::init_js_platform;
 use crate::ui::ChompUI;
 use async_std::path::Path;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
-use notify::op::Op;
 use notify::DebouncedEvent;
-use notify::{RawEvent, RecommendedWatcher};
+use notify::{RecommendedWatcher};
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -37,8 +36,7 @@ use std::sync::mpsc::channel;
 pub struct Task {
     name: Option<String>,
     targets: Vec<String>,
-    target_check: FileCheck,
-    dep_check: FileCheck,
+    invalidation: InvalidationCheck,
     deps: Vec<String>,
     serial: bool,
     env: BTreeMap<String, String>,
@@ -330,6 +328,115 @@ fn create_template_options(
     options
 }
 
+pub fn expand_template_tasks (chompfile: &Chompfile, global_env: &BTreeMap<String, String>) -> Result<Vec<ChompTaskMaybeTemplated>> {
+    let mut out_tasks = Vec::new();
+
+    let mut templates: BTreeMap<&String, &ChompTemplate> = BTreeMap::new();
+    for template in &chompfile.template {
+        // first template wins (and local overrides chomp included)
+        if templates.get(&template.name).is_none() {
+            templates.insert(&template.name, &template);
+        }
+    }
+
+    // expand tasks into initial job list
+    let mut task_queue: VecDeque<ChompTaskMaybeTemplated> = VecDeque::new();
+    for task in chompfile.task.iter() {
+        let mut cloned = task.clone();
+        if let Some(ref template) = task.template {
+            cloned.template_options = Some(create_template_options(
+                &template,
+                &task.template_options,
+                &chompfile.template_options,
+                true,
+            ))
+        };
+        task_queue.push_back(cloned);
+    }
+
+    while task_queue.len() > 0 {
+        let mut task = task_queue.pop_front().unwrap();
+        if task.template.is_none() {
+            out_tasks.push(task);
+            continue;
+        }
+        let template = task.template.as_ref().unwrap();
+        // evaluate templates into tasks
+        if task.engine.is_some()
+            || task.run.is_some()
+            || task.invalidation.is_some()
+            || task.serial.is_some()
+        {
+            return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial', 'invalidation' fields."));
+        }
+
+        let template = match templates.get(template) {
+            Some(template) => template,
+            None => return Err(anyhow!("Unable to find template {}", template)),
+        };
+        if task.deps.is_none() {
+            task.deps = Some(Default::default());
+        }
+        let js_task = ChompTaskMaybeTemplatedNoDefault {
+            name: task.name.clone(),
+            target: None,
+            targets: Some(task.targets_vec()),
+            invalidation: Some(task.invalidation.clone().unwrap_or_default()),
+            dep: None,
+            deps: Some(task.deps_vec()),
+            serial: task.serial,
+            env: Some(task.env),
+            run: task.run,
+            engine: task.engine,
+            template: task.template,
+            template_options: task.template_options,
+        };
+        let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
+            run_js_tpl(&template.definition, &template.name, &js_task, global_env)?;
+        // template functions output a list of tasks
+        for mut template_task in template_tasks.drain(..) {
+            let targets = if template_task.target.is_some() {
+                Some(vec![template_task.target.take().unwrap()])
+            } else if template_task.targets.is_some() {
+                Some(template_task.targets.take().unwrap())
+            } else {
+                None
+            };
+            let deps = if template_task.dep.is_some() {
+                Some(vec![template_task.dep.take().unwrap()])
+            } else if template_task.deps.is_some() {
+                Some(template_task.deps.take().unwrap())
+            } else {
+                None
+            };
+            let template_options = if let Some(ref template) = template_task.template {
+                Some(create_template_options(
+                    &template,
+                    &template_task.template_options,
+                    &chompfile.template_options,
+                    false,
+                ))
+            } else { None };
+            task_queue.push_front(ChompTaskMaybeTemplated {
+                name: template_task.name,
+                target: None,
+                targets,
+                invalidation: template_task.invalidation.take(),
+                dep: None,
+                deps,
+                serial: template_task.serial,
+                env: template_task.env.unwrap_or_default(),
+                run: template_task.run,
+                engine: template_task.engine,
+                template: template_task.template,
+                template_options: template_options,
+            });
+        }
+    };
+
+    Ok(out_tasks)
+}
+
 impl<'a> Runner<'a> {
     fn new(
         ui: &'a ChompUI,
@@ -338,7 +445,6 @@ impl<'a> Runner<'a> {
         watch: bool,
     ) -> Result<Runner<'a>> {
         let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
-        init_js_platform();
         let mut runner = Runner {
             watch,
             ui,
@@ -356,114 +462,33 @@ impl<'a> Runner<'a> {
             runner.global_env.insert(key.to_uppercase(), value);
         }
 
-        let mut templates: BTreeMap<&String, &ChompTemplate> = BTreeMap::new();
-        for template in &chompfile.template {
-            // first template wins (and local overrides chomp included)
-            if templates.get(&template.name).is_none() {
-                templates.insert(&template.name, &template);
+        let mut tasks = expand_template_tasks(runner.chompfile, &runner.global_env)?;
+
+        for task in tasks.drain(..) {
+            let targets = task.targets.unwrap_or_default();
+            let mut env = BTreeMap::new();
+            for (item, value) in &chompfile.env {
+                env.insert(item.to_uppercase(), value.to_string());
             }
-        }
-
-        // expand tasks into initial job list
-        let mut task_queue: VecDeque<ChompTaskMaybeTemplatedNoDefault> = VecDeque::new();
-        for task in runner.chompfile.task.iter() {
-            let template = task.template.clone();
-            let template_options = if let Some(ref template) = template {
-                Some(create_template_options(
-                    &template,
-                    &task.template_options,
-                    &chompfile.template_options,
-                    true,
-                ))
-            } else {
-                None
-            };
-
-            task_queue.push_back(ChompTaskMaybeTemplatedNoDefault {
-                name: task.name.clone(),
-                target: None,
-                targets: Some(task.targets_vec()),
-                target_check: task.target_check.clone(),
-                dep_check: task.dep_check.clone(),
-                dep: None,
-                deps: Some(task.deps_vec()),
-                serial: task.serial,
-                env: Some(task.env.clone()),
+            for (item, value) in task.env {
+                env.insert(item.to_uppercase(), value.to_string());
+            }
+            let task = Task {
+                name: task.name,
+                deps: task.deps.unwrap_or_default(),
+                serial: task.serial.unwrap_or(false),
+                engine: task.engine.unwrap_or_default(),
+                env,
                 run: task.run.clone(),
-                engine: task.engine,
-                template,
-                template_options,
-            });
-        }
-        while task_queue.len() > 0 {
-            let mut task = task_queue.pop_front().unwrap();
-            if task.template.is_none() {
-                let targets = task.targets.unwrap();
-                let mut env = BTreeMap::new();
-                for (item, value) in &chompfile.env {
-                    env.insert(item.to_uppercase(), value.to_string());
-                }
-                if let Some(task_env) = task.env {
-                    for (item, value) in task_env {
-                        env.insert(item.to_uppercase(), value.to_string());
-                    }
-                }
-                let task = Task {
-                    name: task.name,
-                    deps: task.deps.unwrap_or_default(),
-                    serial: task.serial.unwrap_or(false),
-                    engine: task.engine.unwrap_or_default(),
-                    env,
-                    run: task.run.clone(),
-                    targets,
-                    target_check: task.target_check.unwrap_or_default(),
-                    dep_check: task.dep_check.unwrap_or_default(),
-                };
-
-                runner.tasks.push(task);
-                runner.add_job(runner.tasks.len() - 1, None)?;
-                continue;
-            }
-            let template = task.template.as_ref().unwrap();
-            // evaluate templates into tasks
-            if task.engine.is_some()
-                || task.run.is_some()
-                || task.target_check.is_some()
-                || task.dep_check.is_some()
-                || task.serial.is_some()
-            {
-                return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial', 'target_check' or 'dep_check' fields."));
-            }
-
-            let template = match templates.get(template) {
-                Some(template) => template,
-                None => return Err(anyhow!("Unable to find template {}", template)),
+                targets,
+                invalidation: task.invalidation.unwrap_or_default(),
             };
-            if task.deps.is_none() {
-                task.deps = Some(Default::default());
-            }
-            let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-                run_js_tpl(&template.definition, &template.name, &task, &runner.global_env)?;
-            // template functions output a list of tasks
-            for mut template_task in template_tasks.drain(..) {
-                if template_task.target.is_some() {
-                    let target = template_task.target.clone().unwrap();
-                    template_task.target = None;
-                    template_task.targets = Some(vec![target]);
-                } else if template_task.targets.is_none() {
-                    template_task.targets = Some(vec![]);
-                }
-                if let Some(ref template) = template_task.template {
-                    template_task.template_options = Some(create_template_options(
-                        &template,
-                        &template_task.template_options,
-                        &chompfile.template_options,
-                        false,
-                    ));
-                }
-                task_queue.push_front(template_task);
-            }
+
+            runner.tasks.push(task);
+            runner.add_job(runner.tasks.len() - 1, None)?;
+            continue;
         }
+
         Ok(runner)
     }
 
@@ -695,22 +720,18 @@ impl<'a> Runner<'a> {
         // If we have an mtime, check if we need to do work
         if job.targets.len() > 0 {
             if let Some(mtime) = job.mtime {
-                let can_skip = match task.target_check {
-                    FileCheck::Exists => true,
-                    FileCheck::AlwaysRebuild => false,
-                    FileCheck::Mtime => {
+                let can_skip = match task.invalidation {
+                    InvalidationCheck::NotFound => true,
+                    InvalidationCheck::Always => false,
+                    InvalidationCheck::Mtime => {
                         let mut dep_change = false;
                         for &dep in job.deps.iter() {
                             dep_change = match &self.nodes[dep] {
                                 Node::Job(dep) => {
                                     let invalidated = match dep.mtime {
-                                        // dep_check: 'always-rebuild' doesn't make sense -> should throw rather
-                                        Some(dep_mtime) => match task.dep_check {
-                                            FileCheck::Exists => false,
-                                            FileCheck::AlwaysRebuild | FileCheck::Mtime => match &self.tasks[dep.task].target_check {
-                                                FileCheck::Exists => false,
-                                                FileCheck::AlwaysRebuild | FileCheck::Mtime => dep_mtime > mtime || force,
-                                            },
+                                        Some(dep_mtime) => match &self.tasks[dep.task].invalidation {
+                                            InvalidationCheck::NotFound => false,
+                                            InvalidationCheck::Always | InvalidationCheck::Mtime => dep_mtime > mtime || force,
                                         },
                                         None => true,
                                     };
@@ -725,10 +746,7 @@ impl<'a> Runner<'a> {
                                 }
                                 Node::File(dep) => {
                                     let invalidated = match dep.mtime {
-                                        Some(dep_mtime) => match task.dep_check {
-                                            FileCheck::Exists => false,
-                                            FileCheck::AlwaysRebuild | FileCheck::Mtime => dep_mtime > mtime || force,
-                                        },
+                                        Some(dep_mtime) => dep_mtime > mtime || force,
                                         None => true,
                                     };
                                     if invalidated && !force {
@@ -771,17 +789,8 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        for (num, target) in task.targets.iter().enumerate() {
-            let target_str = if let Some(interpolate) = &job.interpolate {
-                target.replace("#", &interpolate)
-            } else {
-                target.to_string()
-            };
-            if num == target_index {
-                env.insert("TARGET".to_string(), target_str.clone());
-            }
-            env.insert(format!("TARGET{}", num + 1), target_str);
-        }
+        env.insert("TARGET".to_string(), task.targets[target_index].clone());
+        env.insert("TARGETS".to_string(), task.targets.join(","));
         let dep_index = if job.interpolate.is_some() {
             task.deps
                 .iter()
@@ -792,17 +801,8 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        for (num, dep) in task.deps.iter().enumerate() {
-            let dep_str = if let Some(interpolate) = &job.interpolate {
-                dep.replace("#", &interpolate)
-            } else {
-                dep.to_string()
-            };
-            if num == dep_index {
-                env.insert("DEP".to_string(), dep_str.clone());
-            }
-            env.insert(format!("DEP{}", num + 1), dep_str);
-        }
+        env.insert("DEP".to_string(), task.deps[dep_index].clone());
+        env.insert("DEPS".to_string(), task.deps.join(","));
 
         let job_future = self
             .cmd_pool
