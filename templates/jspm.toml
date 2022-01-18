@@ -11,7 +11,7 @@ definition = """({ name, targets, deps, env, templateOptions: {
 } }, { CHOMP_EJECT }) => {
   const mainTarget = targets.find(target => target.includes('#')) || targets[0];
   const isImportMapTarget = mainTarget && mainTarget.endsWith('.importmap');
-  const { resolutions } = generateOpts.resolutions;
+  const { resolutions } = generateOpts;
   const noHtmlOpts = preload === undefined && integrity === undefined && whitespace === undefined && esModuleShims === undefined;
   return [{
     name,
