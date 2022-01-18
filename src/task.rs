@@ -395,19 +395,33 @@ pub fn expand_template_tasks (chompfile: &Chompfile, global_env: &BTreeMap<Strin
             run_js_tpl(&template.definition, &template.name, &js_task, global_env)?;
         // template functions output a list of tasks
         for mut template_task in template_tasks.drain(..) {
-            let targets = if template_task.target.is_some() {
-                Some(vec![template_task.target.take().unwrap()])
+            let (target, targets) = if template_task.target.is_some() {
+                (Some(template_task.target.take().unwrap()), None)
             } else if template_task.targets.is_some() {
-                Some(template_task.targets.take().unwrap())
+                let mut targets = template_task.targets.take().unwrap();
+                if targets.len() == 1 {
+                    (Some(targets.remove(0)), None)
+                } else if targets.len() == 0 {
+                    (None, None)
+                } else {
+                    (None, Some(targets))
+                }
             } else {
-                None
+                (None, None)
             };
-            let deps = if template_task.dep.is_some() {
-                Some(vec![template_task.dep.take().unwrap()])
+            let (dep, deps) = if template_task.dep.is_some() {
+                (Some(template_task.dep.take().unwrap()), None)
             } else if template_task.deps.is_some() {
-                Some(template_task.deps.take().unwrap())
+                let mut deps = template_task.deps.take().unwrap();
+                if deps.len() == 1 {
+                    (Some(deps.remove(0)), None)
+                } else if deps.len() == 0 {
+                    (None, None)
+                } else {
+                    (None, Some(deps))
+                }
             } else {
-                None
+                (None, None)
             };
             let template_options = if let Some(ref template) = template_task.template {
                 Some(create_template_options(
@@ -419,10 +433,10 @@ pub fn expand_template_tasks (chompfile: &Chompfile, global_env: &BTreeMap<Strin
             } else { None };
             task_queue.push_front(ChompTaskMaybeTemplated {
                 name: template_task.name,
-                target: None,
+                target,
                 targets,
                 invalidation: template_task.invalidation.take(),
-                dep: None,
+                dep,
                 deps,
                 serial: template_task.serial,
                 env: template_task.env.unwrap_or_default(),
