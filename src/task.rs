@@ -8,7 +8,7 @@ use async_std::path::Path;
 use async_std::process::ExitStatus;
 use futures::future::{select_all, Future, FutureExt, Shared};
 use notify::DebouncedEvent;
-use notify::{RecommendedWatcher};
+use notify::RecommendedWatcher;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -331,7 +331,10 @@ fn create_template_options(
     options
 }
 
-pub fn expand_template_tasks (chompfile: &Chompfile, global_env: &BTreeMap<String, String>) -> Result<Vec<ChompTaskMaybeTemplated>> {
+pub fn expand_template_tasks(
+    chompfile: &Chompfile,
+    global_env: &BTreeMap<String, String>,
+) -> Result<Vec<ChompTaskMaybeTemplated>> {
     let mut out_tasks = Vec::new();
 
     let mut templates: BTreeMap<&String, &ChompTemplate> = BTreeMap::new();
@@ -434,7 +437,9 @@ pub fn expand_template_tasks (chompfile: &Chompfile, global_env: &BTreeMap<Strin
                     &chompfile.template_options,
                     false,
                 ))
-            } else { None };
+            } else {
+                None
+            };
             task_queue.push_front(ChompTaskMaybeTemplated {
                 name: template_task.name,
                 target,
@@ -451,7 +456,7 @@ pub fn expand_template_tasks (chompfile: &Chompfile, global_env: &BTreeMap<Strin
                 template_options: template_options,
             });
         }
-    };
+    }
 
     Ok(out_tasks)
 }
@@ -566,8 +571,12 @@ impl<'a> Runner<'a> {
             }
         }
 
-        self.nodes
-            .push(Node::Job(Job::new(task_num, task.serial, task.display, interpolate)));
+        self.nodes.push(Node::Job(Job::new(
+            task_num,
+            task.serial,
+            task.display,
+            interpolate,
+        )));
         return Ok(num);
     }
 
@@ -608,7 +617,12 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn mark_complete(&mut self, job_num: usize, mtime: Option<Duration>, failed: bool) -> Result<()> {
+    fn mark_complete(
+        &mut self,
+        job_num: usize,
+        mtime: Option<Duration>,
+        failed: bool,
+    ) -> Result<()> {
         {
             let job = self.get_job_mut(job_num).unwrap();
             if let Some(mtime) = mtime {
@@ -752,13 +766,20 @@ impl<'a> Runner<'a> {
                             dep_change = match &self.nodes[dep] {
                                 Node::Job(dep) => {
                                     let invalidated = match dep.mtime {
-                                        Some(dep_mtime) => match &self.tasks[dep.task].invalidation {
+                                        Some(dep_mtime) => match &self.tasks[dep.task].invalidation
+                                        {
                                             InvalidationCheck::NotFound => false,
-                                            InvalidationCheck::Always | InvalidationCheck::Mtime => dep_mtime > mtime || force,
+                                            InvalidationCheck::Always
+                                            | InvalidationCheck::Mtime => {
+                                                dep_mtime > mtime || force
+                                            }
                                         },
                                         None => true,
                                     };
-                                    if invalidated && !force && (job.display || self.chompfile.debug) {
+                                    if invalidated
+                                        && !force
+                                        && (job.display || self.chompfile.debug)
+                                    {
                                         println!(
                                             "  {} invalidated by {}.",
                                             job.display_name(self),
@@ -772,7 +793,10 @@ impl<'a> Runner<'a> {
                                         Some(dep_mtime) => dep_mtime > mtime || force,
                                         None => true,
                                     };
-                                    if invalidated && !force && (job.display || self.chompfile.debug) {
+                                    if invalidated
+                                        && !force
+                                        && (job.display || self.chompfile.debug)
+                                    {
                                         println!(
                                             "  {} invalidated by {}",
                                             job.display_name(self),
@@ -814,8 +838,25 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        env.insert("TARGET".to_string(), if task.targets.len() == 0 { "".to_string() } else { task.targets[target_index].clone() });
-        env.insert("TARGETS".to_string(), task.targets.join(","));
+        let target = if task.targets.len() == 0 {
+            "".to_string()
+        } else if let Some(interpolate) = &job.interpolate {
+            task.targets[target_index].replace('#', interpolate)
+        } else {
+            task.targets[target_index].clone()
+        };
+        let mut targets = String::new();
+        for (idx, t) in task.targets.iter().enumerate() {
+            if idx > 0 {
+                targets.push_str(",");
+            }
+            if idx == target_index {
+                targets.push_str(&target);
+            } else {
+                targets.push_str(t);
+            }
+        }
+
         let dep_index = if job.interpolate.is_some() {
             task.deps
                 .iter()
@@ -826,8 +867,29 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        env.insert("DEP".to_string(), if task.deps.len() == 0 { "".to_string() } else { task.deps[dep_index].clone() });
-        env.insert("DEPS".to_string(), task.deps.join(","));
+        let dep = if task.deps.len() == 0 {
+            "".to_string()
+        } else if let Some(interpolate) = &job.interpolate {
+            task.deps[dep_index].replace('#', interpolate)
+        } else {
+            task.deps[dep_index].clone()
+        };
+        let mut deps = String::new();
+        for (idx, t) in task.deps.iter().enumerate() {
+            if idx > 0 {
+                deps.push_str(",");
+            }
+            if idx == dep_index {
+                deps.push_str(&dep);
+            } else {
+                deps.push_str(t);
+            }
+        }
+
+        env.insert("TARGET".to_string(), target);
+        env.insert("TARGETS".to_string(), targets);
+        env.insert("DEP".to_string(), dep);
+        env.insert("DEPS".to_string(), deps);
 
         let job_future = self
             .cmd_pool
@@ -874,7 +936,7 @@ impl<'a> Runner<'a> {
                     }
                 }
                 if !job.live {
-                    return Ok(JobOrFileState::Job(job.state))
+                    return Ok(JobOrFileState::Job(job.state));
                 }
                 if invalidation {
                     match job.state {
@@ -1539,19 +1601,26 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
             None => return Err(anyhow!("No default task provided. Set:\n\n  default-task = \"[taskname]\"\n\nin the chompfile.toml to configure a default build task.")),
         }
     } else {
-        opts.targets.iter().map(|t| {
-            let normalized = t.replace('\\', "/");
-            if normalized.starts_with("./") {
-                normalized[2..].to_string()
-            } else { normalized }
-        }).collect()
+        opts.targets
+            .iter()
+            .map(|t| {
+                let normalized = t.replace('\\', "/");
+                if normalized.starts_with("./") {
+                    normalized[2..].to_string()
+                } else {
+                    normalized
+                }
+            })
+            .collect()
     };
 
     for target in normalized_targets.clone() {
         runner.expand_target(&mut watcher, &target, None).await?;
     }
 
-    runner.drive_targets(&normalized_targets, opts.force).await?;
+    runner
+        .drive_targets(&normalized_targets, opts.force)
+        .await?;
 
     // block on watcher if watching
     if opts.watch {
@@ -1565,7 +1634,7 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
         let job_num = runner.lookup_target(&mut watcher, &target, true).await?;
         let job = match runner.get_job(job_num) {
             Some(job) => job,
-            None => return Err(anyhow!("Unable to build target {}", &target))
+            None => return Err(anyhow!("Unable to build target {}", &target)),
         };
         if !matches!(job.state, JobState::Fresh) {
             all_ok = false;

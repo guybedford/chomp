@@ -58,8 +58,8 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
             }
         }
         if do_spawn {
-            // If first attempt fails, try ".cmd" extension first
-            // Note: this only works on latest nightly builds!
+            // Try ".cmd" extension first
+            // Note: this requires latest Rust version
             let mut cmd_with_ext = cmd.to_owned();
             cmd_with_ext.push_str(".cmd");
             let mut command = Command::new(&cmd_with_ext);
@@ -79,9 +79,7 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
             }
             command.stdin(Stdio::null());
             match command.spawn() {
-                Ok(child) => {
-                    return child;
-                }
+                Ok(child) => child,
                 Err(e) => {
                     let mut command = Command::new(&cmd);
                     command.env("PATH", &path);
@@ -100,12 +98,8 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
                     }
                     command.stdin(Stdio::null());
                     match command.spawn() {
-                        Ok(child) => {
-                            return child;
-                        }
-                        Err(_) => {
-                            panic!("Unable to find executable {}", cmd);
-                        }
+                        Ok(child) => child,
+                        Err(e) => panic!("Unable to locate executable {}", cmd),
                     }
                 }
             };
@@ -148,7 +142,7 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug: bool) -> Child {
+pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug: bool) -> Result<Child> {
     if debug {
         println!("RUN: {}", run);
     }
@@ -168,7 +162,7 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
     command.arg("-c");
     command.arg(run);
     command.stdin(Stdio::null());
-    command.spawn().unwrap()
+    command.spawn()?
 }
 
 // #[cfg(unix)]
