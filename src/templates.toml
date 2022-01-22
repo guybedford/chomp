@@ -149,6 +149,12 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
 }];
 """
 
+# Batcher for npm executions handles the following:
+# 1. Ensuring only one npm operation runs at a time
+# 2. If two npm init operations are batched, only one is run. If npm init
+#    is already running, ties additional invocations to the existing one.
+# 3. When multiple npm install operations are running at the same time,
+#    combine them into a single install operation.
 [[batcher]]
 name = "npm"
 batch = """(batch, running) => {
@@ -167,7 +173,7 @@ batch = """(batch, running) => {
     if (args[0] === 'install') {
       const install = parseInstall(args.slice(1));
       if (!install) return;
-      if (running.find(({ run }) => run.startsWith(' npm')) ||
+      if (running.find(({ run }) => run.startsWith('npm ')) ||
           batchInstall && batchInstall.isDev !== install.isDev) {
         queued.push(id);
         continue;
