@@ -4,19 +4,18 @@ extern crate lazy_static;
 use crate::task::expand_template_tasks;
 use crate::chompfile::Chompfile;
 use clap::{App, Arg};
-use std::io::stdout;
 use anyhow::{Result, anyhow};
 use async_std::fs;
 use std::collections::HashMap;
 use crate::js::init_js_platform;
 extern crate num_cpus;
 
-use crossterm::tty::IsTty;
+// use crossterm::tty::IsTty;
 
 mod task;
 mod chompfile;
 mod engines;
-mod ui;
+// mod ui;
 mod serve;
 mod js;
 
@@ -104,7 +103,7 @@ async fn main() -> Result<()> {
         // )
         .get_matches();
 
-    let ui = ui::ChompUI::new(stdout().is_tty());
+    // let ui = ui::ChompUI::new(stdout().is_tty());
     // ui.create_box()?;
 
     let mut targets: Vec<String> = Vec::new();
@@ -192,7 +191,7 @@ async fn main() -> Result<()> {
     let ok = task::run(&chompfile, task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),
         force: matches.is_present("force"),
-        ui: &ui,
+        // ui: &ui,
         pool_size,
         cwd: env::current_dir()?,
         targets,

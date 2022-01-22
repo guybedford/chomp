@@ -158,8 +158,66 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
 #[cfg(not(target_os = "windows"))]
 pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
     if debug {
-        println!("RUN: {}", &batch_cmd.run);
+        println!("RUN: {}", batch_cmd.run);
     }
+    lazy_static! {
+        static ref CMD: Regex = Regex::new("(?x)
+            ^(?P<cmd>[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
+             (?P<args>(?:\\ (?:
+                [^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+ |
+                (?:\"[^\"\\n\\\\]*?\") |
+                (?:'[^'\"\\n\\\\]*?')
+            )*?)*?)$
+        ").unwrap();
+        
+        static ref ARGS: Regex = Regex::new("(?x)
+            \\ (?:[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+ |
+                (?:\"[^\"\\n\\\\]*?\") |
+                (?:'[^'\"\\n\\\\]*?'))
+        ").unwrap();
+    }
+    let mut path: String = env::var("PATH").unwrap_or_default();
+    if path.len() > 0 {
+        path += ";";
+    }
+    path.push_str(cwd);
+    path += ".bin;";
+    path.push_str(cwd);
+    path += "\\node_modules\\.bin";
+    // fast path for direct commands to skip the shell entirely
+    if let Some(capture) = CMD.captures(&batch_cmd.run) {
+        let mut cmd = String::from(&capture["cmd"]);
+        // Path-like must be exact
+        if cmd.contains("/") {
+            let canonical = fs::canonicalize(PathBuf::from(cmd.clone())).unwrap();
+            cmd = String::from(&canonical.to_str().unwrap()[4..]);
+        }
+        let mut command = Command::new(&cmd);
+        command.env("PATH", &path);
+        for (name, value) in &batch_cmd.env {
+            command.env(name, value);
+        }
+        for arg in ARGS.captures_iter(&capture["args"]) {
+            let arg = arg.get(0).unwrap().as_str();
+            let first_char = arg.as_bytes()[1];
+            let arg_str = if first_char == b'\'' || first_char == b'"' {
+                &arg[2..arg.len() - 1]
+            } else {
+                &arg[1..arg.len()]
+            };
+            if batch_cmd.env.len() > 0 {
+                command.arg(replace_env_vars(arg_str, &batch_cmd.env));
+            } else {
+                command.arg(arg_str);
+            }
+        }
+        command.stdin(Stdio::null());
+        match command.spawn() {
+            Ok(child) => return child,
+            Err(_) => {}, // fallback to shell
+        }
+    }
+
     let mut command = Command::new("sh");
     let mut path = env::var("PATH").unwrap_or_default();
     if path.len() > 0 {

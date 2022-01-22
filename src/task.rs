@@ -5,7 +5,7 @@ use crate::chompfile::{
     ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, InvalidationCheck,
 };
 use crate::engines::CmdPool;
-use crate::ui::ChompUI;
+// use crate::ui::ChompUI;
 use async_std::path::Path;
 use futures::future::{select_all, Future, FutureExt};
 use notify::DebouncedEvent;
@@ -45,8 +45,8 @@ pub struct Task {
     engine: ChompEngine,
 }
 
-pub struct RunOptions<'a> {
-    pub ui: &'a ChompUI,
+pub struct RunOptions {
+    // pub ui: &'a ChompUI,
     pub cwd: PathBuf,
     pub cfg_file: PathBuf,
     pub pool_size: usize,
@@ -135,7 +135,7 @@ impl File {
 }
 
 struct Runner<'a> {
-    ui: &'a ChompUI,
+    // ui: &'a ChompUI,
     cmd_pool: CmdPool,
     chompfile: &'a Chompfile,
     watch: bool,
@@ -459,7 +459,7 @@ pub fn expand_template_tasks(
 
 impl<'a> Runner<'a> {
     fn new(
-        ui: &'a ChompUI,
+        // ui: &'a ChompUI,
         chompfile: &'a Chompfile,
         pool_size: usize,
         cwd: &'a PathBuf,
@@ -469,7 +469,7 @@ impl<'a> Runner<'a> {
             CmdPool::new(pool_size, &chompfile.batcher, cwd.to_str().unwrap().to_string(), chompfile.debug);
         let mut runner = Runner {
             watch,
-            ui,
+            // ui,
             cmd_pool,
             chompfile,
             nodes: Vec::new(),
@@ -1538,8 +1538,8 @@ async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent
     }
 }
 
-pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool> {
-    let mut runner = Runner::new(opts.ui, &chompfile, opts.pool_size, &opts.cwd, opts.watch)?;
+pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions) -> Result<bool> {
+    let mut runner = Runner::new(&chompfile, opts.pool_size, &opts.cwd, opts.watch)?;
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
 

@@ -1,4 +1,4 @@
-﻿version = 0.1
+version = 0.1
 [[template]]
 name = "babel"
 definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }, { CHOMP_EJECT }) => {
@@ -35,6 +35,28 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
       autoInstall
     }
   }]];
+}
+"""
+
+# Batcher to ensure Babelrc log only appears once
+[[batcher]]
+name = "babel"
+batch = """(batch, running) => {
+  const run_completions = {};
+  let existingBabelRcInit = null;
+  for (const { id, run, engine, env } of batch) {
+    if (engine !== 'cmd' || !run.trimLeft().startsWith('echo ')) continue;
+    if (run.indexOf('Creating \\x1b[1m.babelrc\\x1b[0m') !== -1) {
+      if (existingBabelRcInit !== null) {
+        run_completions[id] = existingBabelRcInit;  
+      }
+      else {
+        existingBabelRcInit = id;
+      }
+      continue;
+    }
+  }
+  return [[], [], run_completions];
 }
 """
 [[template]]
@@ -349,5 +371,27 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       dev: true
     }
   }]];
+}
+"""
+
+# Batcher to ensure swcrc log only appears once
+[[batcher]]
+name = "swc"
+batch = """(batch, running) => {
+  const run_completions = {};
+  let existingSwcRcInit = null;
+  for (const { id, run, engine, env } of batch) {
+    if (engine !== 'cmd' || !run.trimLeft().startsWith('echo ')) continue;
+    if (run.indexOf('Creating \\x1b[1m.swcrc\\x1b[0m') !== -1) {
+      if (existingSwcRcInit !== null) {
+        run_completions[id] = existingSwcRcInit;
+      }
+      else {
+        existingSwcRcInit = id;
+      }
+      continue;
+    }
+  }
+  return [[], [], run_completions];
 }
 """

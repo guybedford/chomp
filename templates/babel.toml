@@ -36,3 +36,25 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
   }]];
 }
 """
+
+# Batcher to ensure Babelrc log only appears once
+[[batcher]]
+name = "babel"
+batch = """(batch, running) => {
+  const run_completions = {};
+  let existingBabelRcInit = null;
+  for (const { id, run, engine, env } of batch) {
+    if (engine !== 'cmd' || !run.trimLeft().startsWith('echo ')) continue;
+    if (run.indexOf('Creating \\x1b[1m.babelrc\\x1b[0m') !== -1) {
+      if (existingBabelRcInit !== null) {
+        run_completions[id] = existingBabelRcInit;  
+      }
+      else {
+        existingBabelRcInit = id;
+      }
+      continue;
+    }
+  }
+  return [[], [], run_completions];
+}
+"""

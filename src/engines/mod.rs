@@ -56,9 +56,16 @@ pub struct BatchCmd {
     pub ids: Vec<usize>,
 }
 
+enum ExecState {
+    Executing,
+    Completed,
+    Failed,
+}
+
 struct Exec {
     cmd: BatchCmd,
     child: Child,
+    state: ExecState,
     future: Shared<Pin<Box<dyn Future<Output = (ExitStatus, Option<Duration>, Duration)>>>>
 }
 
@@ -87,7 +94,6 @@ impl CmdPool {
         let pool = self as *mut CmdPool;
         async move {
             let this = unsafe { &mut *pool };
-
             loop {
                 if let Some(exec_num) = this.cmd_execs.get(&cmd_num) {
                     let exec = &this.execs[&exec_num];
@@ -119,7 +125,7 @@ impl CmdPool {
                     .iter()
                     .map(|cmd_num| &cmds[cmd_num])
                     .collect();
-                let running: HashSet<&BatchCmd> = this.execs.values().map(|exec| &exec.cmd).collect();
+                let running: HashSet<&BatchCmd> = this.execs.values().filter(|exec| matches!(&exec.state, ExecState::Executing)).map(|exec| &exec.cmd).collect();
                 let mut global_completion_map: Vec<(usize, usize)> = Vec::new();
                 let mut batched: Vec<BatchCmd> = Vec::new();
                 for batcher in &this.batchers {
@@ -165,6 +171,9 @@ impl CmdPool {
                         ids: vec![cmd.id],
                     });
                 }
+                for &cmd in this.batching.iter() {
+                    dbg!(cmd);
+                }
                 this.batch_future = None;
                 Ok(())
             }.boxed_local().shared(),
@@ -200,8 +209,9 @@ impl CmdPool {
                 let child = create_cmd(&self.cwd, &cmd, debug);
                 let future = async move {
                     let this = unsafe { &mut *pool };
-                    let child = &mut this.execs.get_mut(&exec_num).unwrap().child;
-                    let status = child.status().await.expect("Child process error");
+                    let mut exec = &mut this.execs.get_mut(&exec_num).unwrap();
+                    let status = exec.child.status().await.expect("Child process error");
+                    exec.state = if status.success() { ExecState::Completed } else { ExecState::Failed };
                     let end_time = Instant::now();
                     this.exec_cnt = this.exec_cnt - 1;
                     // finally we verify that the targets exist
@@ -214,7 +224,7 @@ impl CmdPool {
             ChompEngine::Node => node_runner(self, &mut cmd, targets, debug),
         };
 
-        self.execs.insert(exec_num, Exec { cmd, child, future });
+        self.execs.insert(exec_num, Exec { cmd, child, future, state: ExecState::Executing });
         self.exec_num = self.exec_num + 1;
     }
 

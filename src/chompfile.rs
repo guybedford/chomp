@@ -66,10 +66,6 @@ impl Default for InvalidationCheck {
     }
 }
 
-fn default_as_true() -> bool {
-    true
-}
-
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct ChompTaskMaybeTemplated {
