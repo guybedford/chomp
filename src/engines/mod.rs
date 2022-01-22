@@ -171,10 +171,6 @@ impl CmdPool {
                         ids: vec![cmd.id],
                     });
                 }
-                for &cmd in this.batching.iter() {
-                    let cmd = &this.cmds[&cmd];
-                    dbg!(cmd);
-                }
                 this.batch_future = None;
                 Ok(())
             }.boxed_local().shared(),
@@ -199,14 +195,13 @@ impl CmdPool {
             }
         }
 
-        self.exec_cnt = self.exec_cnt + 1;
-
         let pool = self as *mut CmdPool;
 
         // let pool = self as *mut CmdPool;
         let (child, future) = match cmd.engine {
             ChompEngine::Cmd => {
                 let start_time = Instant::now();
+                self.exec_cnt = self.exec_cnt + 1;
                 let child = create_cmd(&self.cwd, &cmd, debug);
                 let future = async move {
                     let this = unsafe { &mut *pool };

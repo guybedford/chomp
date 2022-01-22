@@ -35,11 +35,15 @@ pub fn node_runner(
   let write_future = fs::write(tmp_file, batch_cmd.run.to_string());
   batch_cmd.run = NODE_CMD.to_string();
   batch_cmd.engine = ChompEngine::Cmd;
+  cmd_pool.exec_cnt = cmd_pool.exec_cnt + 1;
+  let pool = cmd_pool as *mut CmdPool;
   let mut child = create_cmd(&cmd_pool.cwd, batch_cmd, debug);
   let status = child.status();
   let future = async move {
+    let cmd_pool = unsafe { &mut *pool };
     write_future.await.expect("unable to write temporary file");
     let status = status.await.expect("Child process error");
+    cmd_pool.exec_cnt = cmd_pool.exec_cnt - 1;
     fs::remove_file(&tmp_file2).await.expect("unable to cleanup tmp file");
     let end_time = Instant::now();
     // finally we verify that the targets exist
