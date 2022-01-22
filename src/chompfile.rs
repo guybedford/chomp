@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChompEngine {
     Cmd,
@@ -22,7 +22,7 @@ pub struct Chompfile {
     pub debug: bool,
     pub default_task: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub env: BTreeMap<String, String>,
+    pub env: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub server: ServerOptions,
     #[serde(default, skip_serializing_if = "is_default")]
@@ -30,7 +30,7 @@ pub struct Chompfile {
     #[serde(default, skip_serializing_if = "is_default")]
     pub template: Vec<ChompTemplate>,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub template_options: BTreeMap<String, BTreeMap<String, toml::value::Value>>,
+    pub template_options: HashMap<String, HashMap<String, toml::value::Value>>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub batcher: Vec<Batcher>,
 }
@@ -80,14 +80,13 @@ pub struct ChompTaskMaybeTemplated {
     pub deps: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
-    #[serde(default = "default_as_true", skip_serializing_if = "is_default")]
-    pub display: bool,
+    pub display: Option<bool>,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub env: BTreeMap<String, String>,
+    pub env: HashMap<String, String>,
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
     pub template: Option<String>,
-    pub template_options: Option<BTreeMap<String, toml::value::Value>>,
+    pub template_options: Option<HashMap<String, toml::value::Value>>,
 }
 
 impl ChompTaskMaybeTemplated {
@@ -131,11 +130,11 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
     pub display: Option<bool>,
-    pub env: Option<BTreeMap<String, String>>,
+    pub env: Option<HashMap<String, String>>,
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
     pub template: Option<String>,
-    pub template_options: Option<BTreeMap<String, toml::value::Value>>,
+    pub template_options: Option<HashMap<String, toml::value::Value>>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize)]

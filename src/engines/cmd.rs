@@ -1,3 +1,4 @@
+use crate::engines::BatchCmd;
 use async_std::process::Stdio;
 use async_std::process::{Child, Command};
 use regex::Regex;
@@ -19,19 +20,24 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug: bool) -> Child {
+pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
     if debug {
-        println!("RUN: {}", run);
+        println!("RUN: {}", batch_cmd.run);
     }
     lazy_static! {
-        // Currently does not support spaces in arg quotes, to make arg splitting simpler
         static ref CMD: Regex = Regex::new("(?x)
             ^(?P<cmd>[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
              (?P<args>(?:\\ (?:
-                [^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+? |
-                (?:\"[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?\") |
-                (?:'[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]*?') |
+                [^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+ |
+                (?:\"[^\"\\n\\\\]*?\") |
+                (?:'[^'\"\\n\\\\]*?')
             )*?)*?)$
+        ").unwrap();
+        
+        static ref ARGS: Regex = Regex::new("(?x)
+            \\ (?:[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+ |
+                (?:\"[^\"\\n\\\\]*?\") |
+                (?:'[^'\"\\n\\\\]*?'))
         ").unwrap();
     }
     let mut path: String = env::var("PATH").unwrap_or_default();
@@ -43,7 +49,7 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
     path.push_str(cwd);
     path += "\\node_modules\\.bin";
     // fast path for direct commands to skip the shell entirely
-    if let Some(capture) = CMD.captures(&run) {
+    if let Some(capture) = CMD.captures(&batch_cmd.run) {
         let mut cmd = String::from(&capture["cmd"]);
         let mut do_spawn = true;
         // Path-like must be exact
@@ -64,42 +70,50 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
             cmd_with_ext.push_str(".cmd");
             let mut command = Command::new(&cmd_with_ext);
             command.env("PATH", &path);
-            for (name, value) in env {
+            for (name, value) in &batch_cmd.env {
                 command.env(name, value);
             }
-            let args = capture["args"].to_string();
-            if args.len() > 1 {
-                for arg in args[1..].split(" ") {
-                    if env.len() > 0 {
-                        command.arg(replace_env_vars(arg, env));
-                    } else {
-                        command.arg(arg);
-                    }
+            for arg in ARGS.captures_iter(&capture["args"]) {
+                let arg = arg.get(0).unwrap().as_str();
+                let first_char = arg.as_bytes()[1];
+                let arg_str = if first_char == b'\'' || first_char == b'"' {
+                    &arg[2..arg.len() - 1]
+                } else {
+                    &arg[1..arg.len()]
+                };
+                if batch_cmd.env.len() > 0 {
+                    command.arg(replace_env_vars(arg_str, &batch_cmd.env));
+                } else {
+                    command.arg(arg_str);
                 }
             }
             command.stdin(Stdio::null());
             match command.spawn() {
-                Ok(child) => child,
-                Err(e) => {
+                Ok(child) => return child,
+                Err(_) => {
                     let mut command = Command::new(&cmd);
                     command.env("PATH", &path);
-                    for (name, value) in env {
+                    for (name, value) in &batch_cmd.env {
                         command.env(name, value);
                     }
-                    let args = capture["args"].to_string();
-                    if args.len() > 1 {
-                        for arg in args[1..].split(" ") {
-                            if env.len() > 0 {
-                                command.arg(replace_env_vars(arg, env));
-                            } else {
-                                command.arg(arg);
-                            }
+                    for arg in ARGS.captures_iter(&capture["args"]) {
+                        let arg = arg.get(0).unwrap().as_str();
+                        let first_char = arg.as_bytes()[1];
+                        let arg_str = if first_char == b'\'' || first_char == b'"' {
+                            &arg[2..arg.len() - 1]
+                        } else {
+                            &arg[1..arg.len()]
+                        };
+                        if batch_cmd.env.len() > 0 {
+                            command.arg(replace_env_vars(arg_str, &batch_cmd.env));
+                        } else {
+                            command.arg(arg_str);
                         }
                     }
                     command.stdin(Stdio::null());
                     match command.spawn() {
-                        Ok(child) => child,
-                        Err(e) => panic!("Unable to locate executable {}", cmd),
+                        Ok(child) => return child,
+                        Err(_) => {}, // fallback to shell
                     }
                 }
             };
@@ -121,20 +135,20 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
         // ensure file operations use UTF8
         let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';");
         // we also set _custom_ variables as local variables for easy substitution
-        for (name, value) in env {
+        for (name, value) in &batch_cmd.env {
             run_str.push_str(&format!("${}=\"{}\";", name, value));
         }
         run_str.push('\n');
-        run_str.push_str(&run);
+        run_str.push_str(&batch_cmd.run);
         command.arg(run_str);
     } else {
         command.arg("/d");
         // command.arg("/s");
         command.arg("/c");
-        command.arg(run);
+        command.arg(&batch_cmd.run);
     }
     command.env("PATH", path);
-    for (name, value) in env {
+    for (name, value) in &batch_cmd.env {
         command.env(name, value);
     }
     command.stdin(Stdio::null());
@@ -142,9 +156,9 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug: bool) -> Child {
+pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
     if debug {
-        println!("RUN: {}", run);
+        println!("RUN: {}", &batch_cmd.run);
     }
     let mut command = Command::new("sh");
     let mut path = env::var("PATH").unwrap_or_default();
@@ -156,50 +170,11 @@ pub fn create_cmd(cwd: &str, run: String, env: &BTreeMap<String, String>, debug:
     path.push_str(cwd);
     path += "/node_modules/.bin";
     command.env("PATH", path);
-    for (name, value) in env {
+    for (name, value) in &batch_cmd.env {
         command.env(name, value);
     }
     command.arg("-c");
-    command.arg(run);
+    command.arg(&batch_cmd.run);
     command.stdin(Stdio::null());
     command.spawn()?
 }
-
-// #[cfg(unix)]
-// mod test {
-
-//     #[test]
-//     fn test_into_inner() {
-//         futures_lite::future::block_on(async {
-//             use crate::Command;
-
-//             use std::io::Result;
-//             use std::process::Stdio;
-//             use std::str::from_utf8;
-
-//             use futures_lite::AsyncReadExt;
-
-//             let mut ls_child = Command::new("cat")
-//                 .arg("Cargo.toml")
-//                 .stdout(Stdio::piped())
-//                 .spawn()?;
-
-//             let stdio: Stdio = ls_child.stdout.take().unwrap().into_stdio().await?;
-
-//             let mut echo_child = Command::new("grep")
-//                 .arg("async")
-//                 .stdin(stdio)
-//                 .stdout(Stdio::piped())
-//                 .spawn()?;
-
-//             let mut buf = vec![];
-//             let mut stdout = echo_child.stdout.take().unwrap();
-
-//             stdout.read_to_end(&mut buf).await?;
-//             dbg!(from_utf8(&buf).unwrap_or(""));
-
-//             Result::Ok(())
-//         })
-//         .unwrap();
-//     }
-// }

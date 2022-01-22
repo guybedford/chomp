@@ -151,40 +151,51 @@ definition = """({ name, deps, env, templateOptions: { packages, dev, packageMan
 
 [[batcher]]
 name = "npm"
-batch = """({ run, engine, env }, queue, batch, running) => {
-  if (engine !== 'cmd' || !run.startsWith('npm ')) return;
-  const args = run.slice(4).split(' ');
-  if (args[0] === 'init' && args[1] === '-y' && args.length === 2) {
-    const existingNpm = [...queue, ...running].findIndex(({ run }) => run.startsWith('npm ');
-    if (existingNpm !== -1) return { queue, batch, completion: existingNpm };
-  }
-  if (args[0] === 'install') {
-    const install = parseInstall(args.slice(1));
-    if (!install) return;
-    if (running.find({ cmd }) => cmd === 'npm') {
-      queue.push({ run, env });
-      return { queue, batch, completion: queue.length };
-    }
-    const batchedInstallIndex = batch.findIndex(({ run, engine }) => {
-      if (engine !== 'cmd' || !run.startsWith('npm ')) return false;
-      const args = run.slice(4).split(' ');
-      if (args[0] !== 'install') return false;
-      const batchedInstall = parseInstall(args.slice(1));
-      return batchedInstall && batchedInstall.isDev === install.isDev;
-    }));
-    const batchedInstall = batch[batchedInstallIndex];
-    if (batchedInstall) {
-      for (const pkg of install.packages) {
-        if (!batchedInstall.packages.includes(pkg))
-          batchedInstall.packages.push(pkg);
+batch = """(batch, running) => {
+  const queued = [], run_completions = {};
+  let batchInstall = null;
+  for (const { id, run, engine, env } of batch) {
+    if (engine !== 'cmd' || !run.startsWith('npm ')) continue;
+    const args = run.slice(4).split(' ');
+    if (args[0] === 'init' && args[1] === '-y' && args.length === 2) {
+      const existingNpm = running.find(({ run }) => run.startsWith('npm '));
+      if (existingNpm) {
+        run_completions[id] = existingNpm.id;
+        continue;
       }
-      for (const key of Object.keys(env)) {
-        if (!Object.hasOwnProperty(batchedInstall.env, key))
-          batchedInstall.env[key] = env[key];
+    }
+    if (args[0] === 'install') {
+      const install = parseInstall(args.slice(1));
+      if (!install) return;
+      if (running.find(({ run }) => run.startsWith(' npm')) ||
+          batchInstall && batchInstall.isDev !== install.isDev) {
+        queued.push(id);
+        continue;
       }
-      return { queue, batch, completion: queue.length + batchedInstallIndex };
+      if (!batchInstall) {
+        batchInstall = { isDev: install.isDev, env, engine, ids: [id], packages: install.packages };
+      }
+      else {
+        for (const key of Object.keys(env)) {
+          if (!Object.hasOwnProperty.call(batchInstall.env, key))
+            batchInstall.env[key] = env[key];
+        }
+        batchInstall.ids.push(id);
+        for (const pkg of install.packages) {
+          if (!batchInstall.packages.includes(pkg))
+            batchInstall.packages.push(pkg);
+        }
+      }
     }
   }
+  const run = batchInstall ? [{
+    run: `npm install${batchInstall.isDev ? ' -D' : ''} ${batchInstall.packages.join(' ')}`,
+    env: batchInstall.env,
+    engine: batchInstall.engine,
+    ids: batchInstall.ids,
+  }] : [];
+  return [queued, run, run_completions];
+
   function parseInstall (args) {
     const packages = args.filter(arg => !arg.startsWith('-') && arg.indexOf('"') === -1 && arg.indexOf("'") === -1);
     const flags = args.filter(arg => arg.startsWith('-'));

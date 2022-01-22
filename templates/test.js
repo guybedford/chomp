@@ -1,48 +1,8 @@
-[[template]]
-name = "npm"
-definition = """({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }, { CHOMP_EJECT }) => CHOMP_EJECT ? [] : autoInstall ? [{
-  name,
-  deps: [...deps, ...packages.map(pkg => {
-    const versionIndex = pkg.indexOf('@', 1);
-    return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-  })],
-  serial: true
-}, ...packages.map(pkg => {
-  const versionIndex = pkg.indexOf('@', 1);
-  return {
-    target: `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`,
-    invalidation: 'not-found',
-    display: false,
-    deps: ['npm:init'],
-    env,
-    run: `${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
-  };
-}), {
-  name: 'npm:init',
-  target: 'package.json',
-  invalidation: 'not-found',
-  display: false,
-  env,
-  run: `${packageManager} init -y`
-}] : [{
-  name,
-  env,
-  invalidation: 'not-found',
-  display: false,
-  targets: packages.map(pkg => {
-    const versionIndex = pkg.indexOf('@', 1);
-    return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-  }),
-  run: `echo "\n\\x1b[93mChomp\\x1b[0m: Some packages are missing. Please run \\x1b[1m${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}\\x1b[0m\n"`
-}];
-"""
-
-[[batcher]]
-name = "npm"
-batch = """(batch, running) => {
+(batch, running) => {
   const queued = [], run_completions = {};
   let batchInstall = null;
-  for (const { id, run, engine, env } of batch) {
+  for (const id of batch) {
+    const { run, engine, env } = execs[id];
     if (engine !== 'cmd' || !run.startsWith('npm ')) continue;
     const args = run.slice(4).split(' ');
     if (args[0] === 'init' && args[1] === '-y' && args.length === 2) {
@@ -55,7 +15,7 @@ batch = """(batch, running) => {
     if (args[0] === 'install') {
       const install = parseInstall(args.slice(1));
       if (!install) return;
-      if (running.find(({ run }) => run.startsWith(' npm')) ||
+      if (running.find(({ cmd }) => cmd === 'npm') ||
           batchInstall && batchInstall.isDev !== install.isDev) {
         queued.push(id);
         continue;
@@ -65,7 +25,7 @@ batch = """(batch, running) => {
       }
       else {
         for (const key of Object.keys(env)) {
-          if (!Object.hasOwnProperty.call(batchInstall.env, key))
+          if (!Object.hasOwnProperty(batchInstall.env, key))
             batchInstall.env[key] = env[key];
         }
         batchInstall.ids.push(id);
@@ -82,7 +42,7 @@ batch = """(batch, running) => {
     engine: batchInstall.engine,
     ids: batchInstall.ids,
   }] : [];
-  return [queued, run, run_completions];
+  return { queued, run, run_completions };
 
   function parseInstall (args) {
     const packages = args.filter(arg => !arg.startsWith('-') && arg.indexOf('"') === -1 && arg.indexOf("'") === -1);
@@ -93,5 +53,4 @@ batch = """(batch, running) => {
     const isDev = flags.length === 1;
     return { packages, isDev };
   }
-}
-"""
+};

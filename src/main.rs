@@ -7,7 +7,7 @@ use clap::{App, Arg};
 use std::io::stdout;
 use anyhow::{Result, anyhow};
 use async_std::fs;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use crate::js::init_js_platform;
 
 use crossterm::tty::IsTty;
@@ -121,10 +121,14 @@ async fn main() -> Result<()> {
     let chompfile_source = fs::read_to_string(&cfg_file).await?;
     let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
     let original_template_len = chompfile.template.len();
+    let original_batcher_len = chompfile.batcher.len();
     {
         let mut default_chompfile: Chompfile = toml::from_str(include_str!("templates.toml")).unwrap();
         for template in default_chompfile.template.drain(..) {
             chompfile.template.push(template);
+        }
+        for batcher in default_chompfile.batcher.drain(..) {
+            chompfile.batcher.push(batcher);
         }
         if chompfile.version != 0.1 {
             return Err(anyhow!(
@@ -161,13 +165,14 @@ async fn main() -> Result<()> {
     if matches.is_present("format") || matches.is_present("eject_templates") {
         init_js_platform();
         initialized_js = true;
-        let mut global_env = BTreeMap::new();
+        let mut global_env = HashMap::new();
         for (key, value) in env::vars() {
             global_env.insert(key.to_uppercase(), value);
         }
         global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
         chompfile.task = expand_template_tasks(&chompfile, &global_env)?;
         chompfile.template.truncate(original_template_len);
+        chompfile.batcher.truncate(original_batcher_len);
         fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
         if targets.len() == 0 {
             return Ok(());
