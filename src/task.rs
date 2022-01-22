@@ -16,7 +16,6 @@ use std::collections::VecDeque;
 use std::io::ErrorKind::NotFound;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-extern crate num_cpus;
 use async_recursion::async_recursion;
 use async_std::fs;
 use capturing_glob::glob;
@@ -50,6 +49,7 @@ pub struct RunOptions<'a> {
     pub ui: &'a ChompUI,
     pub cwd: PathBuf,
     pub cfg_file: PathBuf,
+    pub pool_size: usize,
     pub targets: Vec<String>,
     pub watch: bool,
     pub force: bool,
@@ -461,11 +461,12 @@ impl<'a> Runner<'a> {
     fn new(
         ui: &'a ChompUI,
         chompfile: &'a Chompfile,
+        pool_size: usize,
         cwd: &'a PathBuf,
         watch: bool,
     ) -> Result<Runner<'a>> {
         let cmd_pool: CmdPool =
-            CmdPool::new(8, &chompfile.batcher, cwd.to_str().unwrap().to_string(), chompfile.debug);
+            CmdPool::new(pool_size, &chompfile.batcher, cwd.to_str().unwrap().to_string(), chompfile.debug);
         let mut runner = Runner {
             watch,
             ui,
@@ -638,7 +639,7 @@ impl<'a> Runner<'a> {
             } else {
                 if failed {
                     println!("x {}", name);
-                } else if (mtime.is_some()) {
+                } else if mtime.is_some() {
                     println!("● {} [cached]", name);
                 } else {
                     println!("✓ {}", name);
@@ -1538,7 +1539,7 @@ async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent
 }
 
 pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool> {
-    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd, opts.watch)?;
+    let mut runner = Runner::new(opts.ui, &chompfile, opts.pool_size, &opts.cwd, opts.watch)?;
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
 

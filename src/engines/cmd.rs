@@ -176,5 +176,5 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
     command.arg("-c");
     command.arg(&batch_cmd.run);
     command.stdin(Stdio::null());
-    command.spawn()?
+    command.spawn().unwrap()
 }

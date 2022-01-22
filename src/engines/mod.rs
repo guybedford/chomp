@@ -27,6 +27,7 @@ pub struct CmdPool {
     cmds: BTreeMap<usize, CmdOp>,
     exec_num: usize,
     execs: BTreeMap<usize, Exec>,
+    exec_cnt: usize,
     batching: BTreeSet<usize>,
     cmd_execs: BTreeMap<usize, usize>,
     cwd: String,
@@ -67,6 +68,7 @@ impl CmdPool {
             cmd_num: 0,
             cmds: BTreeMap::new(),
             exec_num: 0,
+            exec_cnt: 0,
             execs: BTreeMap::new(),
             pool_size,
             cwd,
@@ -91,10 +93,10 @@ impl CmdPool {
                     let exec = &this.execs[&exec_num];
                     return Ok(exec.future.clone().await);
                 }
-                match &this.batch_future {
-                    Some(batch_future) => batch_future.clone().await?,
-                    None => panic!("Internal error: Batch loop"),
-                };
+                if this.batch_future.is_none() {
+                    this.create_batch_future();
+                }
+                this.batch_future.as_ref().unwrap().clone().await?;
             }
         }.boxed_local()
     }
@@ -151,6 +153,9 @@ impl CmdPool {
                 }
                 // any leftover unbatched just get batched
                 for cmd in batch {
+                    if this.exec_cnt + 1 == this.pool_size {
+                        break;
+                    }
                     this.batching.remove(&cmd.id);
                     this.new_exec(BatchCmd {
                         id: None,
@@ -159,10 +164,6 @@ impl CmdPool {
                         env: cmd.env.clone(),
                         ids: vec![cmd.id],
                     });
-                }
-                // if there are things unbatched, add to completion batch list
-                if this.batching.len() > 0 {
-                    panic!("TODO: Unbatched requeue");
                 }
                 this.batch_future = None;
                 Ok(())
@@ -188,6 +189,8 @@ impl CmdPool {
             }
         }
 
+        self.exec_cnt = self.exec_cnt + 1;
+
         let pool = self as *mut CmdPool;
 
         // let pool = self as *mut CmdPool;
@@ -200,6 +203,7 @@ impl CmdPool {
                     let child = &mut this.execs.get_mut(&exec_num).unwrap().child;
                     let status = child.status().await.expect("Child process error");
                     let end_time = Instant::now();
+                    this.exec_cnt = this.exec_cnt - 1;
                     // finally we verify that the targets exist
                     let mtime = check_target_mtimes(targets).await;
                     (status, mtime, end_time - start_time)

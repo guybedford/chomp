@@ -9,6 +9,7 @@ use anyhow::{Result, anyhow};
 use async_std::fs;
 use std::collections::HashMap;
 use crate::js::init_js_platform;
+extern crate num_cpus;
 
 use crossterm::tty::IsTty;
 
@@ -54,14 +55,14 @@ async fn main() -> Result<()> {
                 .help("Custom port to serve")
                 .takes_value(true),
         )
-        // .arg(
-        //     Arg::with_name("j")
-        //         .short("j")
-        //         .long("jobs")
-        //         .value_name("N")
-        //         .help("Maximum number of jobs to run in parallel")
-        //         .takes_value(true),
-        // )
+        .arg(
+            Arg::with_name("jobs")
+                .short("j")
+                .long("jobs")
+                .value_name("N")
+                .help("Maximum number of jobs to run in parallel")
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("config")
                 .short("c")
@@ -140,7 +141,7 @@ async fn main() -> Result<()> {
 
     let mut serve_options = chompfile.server.clone();
     {
-        if let Some(root) = matches.value_of("serve-root") {
+        if let Some(root) = matches.value_of("server-root") {
             serve_options.root = root.to_string();
         }
         if let Some(port) = matches.value_of("port") {
@@ -183,10 +184,16 @@ async fn main() -> Result<()> {
         init_js_platform();
     }
 
+    let pool_size = match matches.value_of("jobs") {
+        Some(jobs) => jobs.parse()?,
+        None => num_cpus::get(),
+    };
+
     let ok = task::run(&chompfile, task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),
         force: matches.is_present("force"),
         ui: &ui,
+        pool_size,
         cwd: env::current_dir()?,
         targets,
         cfg_file,
