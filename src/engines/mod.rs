@@ -37,7 +37,7 @@ pub struct CmdPool {
     debug: bool,
 }
 
-#[derive(Hash, Serialize, PartialEq, Eq)]
+#[derive(Hash, Serialize, PartialEq, Eq, Debug)]
 pub struct CmdOp {
     pub name: Option<String>,
     pub id: usize,
@@ -172,6 +172,7 @@ impl CmdPool {
                     });
                 }
                 for &cmd in this.batching.iter() {
+                    let cmd = &this.cmds[&cmd];
                     dbg!(cmd);
                 }
                 this.batch_future = None;
