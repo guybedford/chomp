@@ -1,34 +1,33 @@
+use futures::future::Shared;
+use std::collections::BTreeMap;
+use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::{
-    ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, FileCheck,
+    ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, InvalidationCheck,
 };
 use crate::engines::CmdPool;
-use crate::js::init_js_platform;
-use crate::ui::ChompUI;
+// use crate::ui::ChompUI;
 use async_std::path::Path;
-use async_std::process::ExitStatus;
-use futures::future::{select_all, Future, FutureExt, Shared};
-use notify::op::Op;
+use futures::future::{select_all, Future, FutureExt};
 use notify::DebouncedEvent;
-use notify::{RawEvent, RecommendedWatcher};
-use std::collections::BTreeMap;
+use notify::RecommendedWatcher;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::io::ErrorKind::NotFound;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-extern crate num_cpus;
 use async_recursion::async_recursion;
 use async_std::fs;
 use capturing_glob::glob;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::time::Instant;
 extern crate notify;
 use crate::js::run_js_tpl;
 use anyhow::{anyhow, Result};
 use convert_case::{Case, Casing};
-use derivative::Derivative;
 use std::env;
+use derivative::Derivative;
+use futures::executor;
 
 use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
@@ -37,19 +36,20 @@ use std::sync::mpsc::channel;
 pub struct Task {
     name: Option<String>,
     targets: Vec<String>,
-    target_check: FileCheck,
-    dep_check: FileCheck,
+    invalidation: InvalidationCheck,
     deps: Vec<String>,
     serial: bool,
+    display: bool,
     env: BTreeMap<String, String>,
     run: Option<String>,
     engine: ChompEngine,
 }
 
-pub struct RunOptions<'a> {
-    pub ui: &'a ChompUI,
+pub struct RunOptions {
+    // pub ui: &'a ChompUI,
     pub cwd: PathBuf,
     pub cfg_file: PathBuf,
+    pub pool_size: usize,
     pub targets: Vec<String>,
     pub watch: bool,
     pub force: bool,
@@ -66,24 +66,22 @@ enum JobState {
     Failed,
 }
 
-#[derive(Debug, Derivative)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 struct Job {
     interpolate: Option<String>,
     task: usize,
     deps: Vec<usize>,
+    display: bool,
     serial: bool,
     parents: Vec<usize>,
     live: bool,
     state: JobState,
     mtime: Option<Duration>,
-    mtime_future: Option<Shared<Pin<Box<dyn Future<Output = Option<Duration>> + Send>>>>,
+    #[derivative(Debug="ignore")]
+    mtime_future: Option<Shared<Pin<Box<dyn Future<Output = Option<Duration>>>>>>,
     targets: Vec<String>,
-    start_time_deps: Option<Instant>,
-    start_time: Option<Instant>,
-    end_time: Option<Instant>,
-    #[derivative(Debug = "ignore")]
-    run_future:
-        Option<Shared<Pin<Box<dyn Future<Output = (ExitStatus, Option<Duration>)> + Send>>>>,
+    cmd_num: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -101,14 +99,15 @@ enum FileState {
     NotFound,
 }
 
-#[derive(Debug, Derivative)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 struct File {
     name: String,
     parents: Vec<usize>,
     state: FileState,
     mtime: Option<Duration>,
-    #[derivative(Debug = "ignore")]
-    mtime_future: Option<Shared<Pin<Box<dyn Future<Output = Option<Duration>> + Send>>>>,
+    #[derivative(Debug="ignore")]
+    mtime_future: Option<Shared<Pin<Box<dyn Future<Output = Option<Duration>>>>>>,
 }
 
 impl File {
@@ -136,36 +135,34 @@ impl File {
 }
 
 struct Runner<'a> {
-    ui: &'a ChompUI,
+    // ui: &'a ChompUI,
     cmd_pool: CmdPool,
     chompfile: &'a Chompfile,
     watch: bool,
     tasks: Vec<Task>,
-    global_env: BTreeMap<String, String>,
+    global_env: HashMap<String, String>,
 
     nodes: Vec<Node>,
 
-    task_jobs: BTreeMap<String, usize>,
-    file_nodes: BTreeMap<String, usize>,
+    task_jobs: HashMap<String, usize>,
+    file_nodes: HashMap<String, usize>,
     interpolate_nodes: Vec<(String, usize)>,
 }
 
 impl<'a> Job {
-    fn new(task: usize, serial: bool, interpolate: Option<String>) -> Job {
+    fn new(task: usize, serial: bool, display: bool, interpolate: Option<String>) -> Job {
         Job {
             interpolate,
             task,
             deps: Vec::new(),
             serial,
+            display,
             live: false,
             parents: Vec::new(),
             state: JobState::Uninitialized,
             targets: Vec::new(),
             mtime: None,
-            start_time_deps: None,
-            start_time: None,
-            end_time: None,
-            run_future: None,
+            cmd_num: None,
             mtime_future: None,
         }
     }
@@ -283,7 +280,7 @@ pub async fn check_target_mtimes(targets: Vec<String>) -> Option<Duration> {
                     },
                 }
             }
-            .boxed(),
+            .boxed_local(),
         );
     }
     let mut has_missing = false;
@@ -303,11 +300,11 @@ pub async fn check_target_mtimes(targets: Vec<String>) -> Option<Duration> {
 
 fn create_template_options(
     template: &str,
-    task_options: &Option<BTreeMap<String, toml::value::Value>>,
-    default_options: &BTreeMap<String, BTreeMap<String, toml::value::Value>>,
+    task_options: &Option<HashMap<String, toml::value::Value>>,
+    default_options: &HashMap<String, HashMap<String, toml::value::Value>>,
     convert_case: bool,
-) -> BTreeMap<String, toml::value::Value> {
-    let mut options = BTreeMap::new();
+) -> HashMap<String, toml::value::Value> {
+    let mut options = HashMap::new();
     if let Some(task_options) = task_options {
         for (key, value) in task_options {
             let converted_key = if convert_case {
@@ -330,140 +327,192 @@ fn create_template_options(
     options
 }
 
+pub fn expand_template_tasks(
+    chompfile: &Chompfile,
+    global_env: &HashMap<String, String>,
+) -> Result<Vec<ChompTaskMaybeTemplated>> {
+    let mut out_tasks = Vec::new();
+
+    let mut templates: HashMap<&String, &ChompTemplate> = HashMap::new();
+    for template in &chompfile.template {
+        // first template wins (and local overrides chomp included)
+        if templates.get(&template.name).is_none() {
+            templates.insert(&template.name, &template);
+        }
+    }
+
+    // expand tasks into initial job list
+    let mut task_queue: VecDeque<ChompTaskMaybeTemplated> = VecDeque::new();
+    for task in chompfile.task.iter() {
+        let mut cloned = task.clone();
+        if let Some(ref template) = task.template {
+            cloned.template_options = Some(create_template_options(
+                &template,
+                &task.template_options,
+                &chompfile.template_options,
+                true,
+            ))
+        };
+        task_queue.push_back(cloned);
+    }
+
+    while task_queue.len() > 0 {
+        let mut task = task_queue.pop_front().unwrap();
+        if task.template.is_none() {
+            out_tasks.push(task);
+            continue;
+        }
+        let template = task.template.as_ref().unwrap();
+        // evaluate templates into tasks
+        if task.engine.is_some()
+            || task.run.is_some()
+            || task.invalidation.is_some()
+            || task.serial.is_some()
+        {
+            return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial', 'invalidation' fields."));
+        }
+
+        let template = match templates.get(template) {
+            Some(template) => template,
+            None => return Err(anyhow!("Unable to find template {}", template)),
+        };
+        if task.deps.is_none() {
+            task.deps = Some(Default::default());
+        }
+        let js_task = ChompTaskMaybeTemplatedNoDefault {
+            name: task.name.clone(),
+            target: None,
+            targets: Some(task.targets_vec()),
+            invalidation: Some(task.invalidation.clone().unwrap_or_default()),
+            dep: None,
+            deps: Some(task.deps_vec()),
+            display: Some(task.display.unwrap_or(true)),
+            serial: task.serial,
+            env: Some(task.env),
+            run: task.run,
+            engine: task.engine,
+            template: task.template,
+            template_options: task.template_options,
+        };
+        let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
+            run_js_tpl(&template.definition, &template.name, &js_task, global_env)?;
+        // template functions output a list of tasks
+        for mut template_task in template_tasks.drain(..) {
+            let (target, targets) = if template_task.target.is_some() {
+                (Some(template_task.target.take().unwrap()), None)
+            } else if template_task.targets.is_some() {
+                let mut targets = template_task.targets.take().unwrap();
+                if targets.len() == 1 {
+                    (Some(targets.remove(0)), None)
+                } else if targets.len() == 0 {
+                    (None, None)
+                } else {
+                    (None, Some(targets))
+                }
+            } else {
+                (None, None)
+            };
+            let (dep, deps) = if template_task.dep.is_some() {
+                (Some(template_task.dep.take().unwrap()), None)
+            } else if template_task.deps.is_some() {
+                let mut deps = template_task.deps.take().unwrap();
+                if deps.len() == 1 {
+                    (Some(deps.remove(0)), None)
+                } else if deps.len() == 0 {
+                    (None, None)
+                } else {
+                    (None, Some(deps))
+                }
+            } else {
+                (None, None)
+            };
+            let template_options = if let Some(ref template) = template_task.template {
+                Some(create_template_options(
+                    &template,
+                    &template_task.template_options,
+                    &chompfile.template_options,
+                    false,
+                ))
+            } else {
+                None
+            };
+            task_queue.push_front(ChompTaskMaybeTemplated {
+                name: template_task.name,
+                target,
+                targets,
+                display: template_task.display,
+                invalidation: template_task.invalidation.take(),
+                dep,
+                deps,
+                serial: template_task.serial,
+                env: template_task.env.unwrap_or_default(),
+                run: template_task.run,
+                engine: template_task.engine,
+                template: template_task.template,
+                template_options: template_options,
+            });
+        }
+    }
+
+    Ok(out_tasks)
+}
+
 impl<'a> Runner<'a> {
     fn new(
-        ui: &'a ChompUI,
+        // ui: &'a ChompUI,
         chompfile: &'a Chompfile,
+        pool_size: usize,
         cwd: &'a PathBuf,
         watch: bool,
     ) -> Result<Runner<'a>> {
-        let cmd_pool = CmdPool::new(8, cwd.to_str().unwrap().to_string());
-        init_js_platform();
+        let cmd_pool: CmdPool =
+            CmdPool::new(pool_size, &chompfile.batcher, cwd.to_str().unwrap().to_string(), chompfile.debug);
         let mut runner = Runner {
             watch,
-            ui,
+            // ui,
             cmd_pool,
             chompfile,
             nodes: Vec::new(),
             tasks: Vec::new(),
-            task_jobs: BTreeMap::new(),
-            file_nodes: BTreeMap::new(),
+            task_jobs: HashMap::new(),
+            file_nodes: HashMap::new(),
             interpolate_nodes: Vec::new(),
-            global_env: BTreeMap::new(),
+            global_env: HashMap::new(),
         };
 
         for (key, value) in env::vars() {
             runner.global_env.insert(key.to_uppercase(), value);
         }
 
-        let mut templates: BTreeMap<&String, &ChompTemplate> = BTreeMap::new();
-        for template in &chompfile.template {
-            // first template wins (and local overrides chomp included)
-            if templates.get(&template.name).is_none() {
-                templates.insert(&template.name, &template);
+        let mut tasks = expand_template_tasks(runner.chompfile, &runner.global_env)?;
+
+        for task in tasks.drain(..) {
+            let targets = task.targets_vec();
+            let deps = task.deps_vec();
+            let mut env = BTreeMap::new();
+            for (item, value) in &chompfile.env {
+                env.insert(item.to_uppercase(), value.to_string());
             }
-        }
-
-        // expand tasks into initial job list
-        let mut task_queue: VecDeque<ChompTaskMaybeTemplatedNoDefault> = VecDeque::new();
-        for task in runner.chompfile.task.iter() {
-            let template = task.template.clone();
-            let template_options = if let Some(ref template) = template {
-                Some(create_template_options(
-                    &template,
-                    &task.template_options,
-                    &chompfile.template_options,
-                    true,
-                ))
-            } else {
-                None
-            };
-
-            task_queue.push_back(ChompTaskMaybeTemplatedNoDefault {
-                name: task.name.clone(),
-                target: None,
-                targets: Some(task.targets_vec()),
-                target_check: task.target_check.clone(),
-                dep_check: task.dep_check.clone(),
-                dep: None,
-                deps: Some(task.deps_vec()),
-                serial: task.serial,
-                env: Some(task.env.clone()),
+            for (item, value) in task.env {
+                env.insert(item.to_uppercase(), value.to_string());
+            }
+            let task = Task {
+                name: task.name,
+                targets,
+                deps,
+                serial: task.serial.unwrap_or(false),
+                display: task.display.unwrap_or(true),
+                engine: task.engine.unwrap_or_default(),
+                env,
                 run: task.run.clone(),
-                engine: task.engine,
-                template,
-                template_options,
-            });
-        }
-        while task_queue.len() > 0 {
-            let mut task = task_queue.pop_front().unwrap();
-            if task.template.is_none() {
-                let targets = task.targets.unwrap();
-                let mut env = BTreeMap::new();
-                for (item, value) in &chompfile.env {
-                    env.insert(item.to_uppercase(), value.to_string());
-                }
-                if let Some(task_env) = task.env {
-                    for (item, value) in task_env {
-                        env.insert(item.to_uppercase(), value.to_string());
-                    }
-                }
-                let task = Task {
-                    name: task.name,
-                    deps: task.deps.unwrap_or_default(),
-                    serial: task.serial.unwrap_or(false),
-                    engine: task.engine.unwrap_or_default(),
-                    env,
-                    run: task.run.clone(),
-                    targets,
-                    target_check: task.target_check.unwrap_or_default(),
-                    dep_check: task.dep_check.unwrap_or_default(),
-                };
-
-                runner.tasks.push(task);
-                runner.add_job(runner.tasks.len() - 1, None)?;
-                continue;
-            }
-            let template = task.template.as_ref().unwrap();
-            // evaluate templates into tasks
-            if task.engine.is_some()
-                || task.run.is_some()
-                || task.target_check.is_some()
-                || task.dep_check.is_some()
-                || task.serial.is_some()
-            {
-                return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial', 'target_check' or 'dep_check' fields."));
-            }
-
-            let template = match templates.get(template) {
-                Some(template) => template,
-                None => return Err(anyhow!("Unable to find template {}", template)),
+                invalidation: task.invalidation.unwrap_or_default(),
             };
-            if task.deps.is_none() {
-                task.deps = Some(Default::default());
-            }
-            let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-                run_js_tpl(&template.definition, &template.name, &task, &runner.global_env)?;
-            // template functions output a list of tasks
-            for mut template_task in template_tasks.drain(..) {
-                if template_task.target.is_some() {
-                    let target = template_task.target.clone().unwrap();
-                    template_task.target = None;
-                    template_task.targets = Some(vec![target]);
-                } else if template_task.targets.is_none() {
-                    template_task.targets = Some(vec![]);
-                }
-                if let Some(ref template) = template_task.template {
-                    template_task.template_options = Some(create_template_options(
-                        &template,
-                        &template_task.template_options,
-                        &chompfile.template_options,
-                        false,
-                    ));
-                }
-                task_queue.push_front(template_task);
-            }
+
+            runner.tasks.push(task);
+            runner.add_job(runner.tasks.len() - 1, None)?;
+            continue;
         }
+
         Ok(runner)
     }
 
@@ -520,8 +569,12 @@ impl<'a> Runner<'a> {
             }
         }
 
-        self.nodes
-            .push(Node::Job(Job::new(task_num, task.serial, interpolate)));
+        self.nodes.push(Node::Job(Job::new(
+            task_num,
+            task.serial,
+            task.display,
+            interpolate,
+        )));
         return Ok(num);
     }
 
@@ -562,79 +615,47 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn mark_complete(&mut self, job_num: usize, mtime: Option<Duration>, failed: bool) -> Result<()> {
+    fn mark_complete(&mut self, job_num: usize, mtime: Option<Duration>, cmd_time: Option<Duration>, failed: bool) {
         {
             let job = self.get_job_mut(job_num).unwrap();
             if let Some(mtime) = mtime {
                 job.mtime = Some(mtime);
             }
-            job.end_time = Some(Instant::now());
             job.state = if failed {
                 JobState::Failed
             } else {
                 JobState::Fresh
             };
-            job.run_future = None;
         }
         let job = self.get_job(job_num).unwrap();
-        let end_time = job.end_time.unwrap();
-        if let Some(start_time_deps) = job.start_time_deps {
-            if let Some(start_time) = job.start_time {
+        if job.display || self.chompfile.debug {
+            let name = job.display_name(self);
+            if let Some(cmd_time) = cmd_time {
                 if failed {
-                    println!(
-                        "x {} [{:?} {:?}]",
-                        job.display_name(self),
-                        end_time - start_time,
-                        end_time - start_time_deps
-                    );
+                    println!("x {} [{:?}]", name, cmd_time);
                 } else {
-                    println!(
-                        "✓ {} [{:?} {:?}]",
-                        job.display_name(self),
-                        end_time - start_time,
-                        end_time - start_time_deps
-                    );
+                    println!("✓ {} [{:?}]", name, cmd_time);
                 }
             } else {
                 if failed {
-                    println!(
-                        "x {} [- {:?}]",
-                        job.display_name(self),
-                        end_time - start_time_deps
-                    );
+                    println!("x {}", name);
+                } else if mtime.is_some() {
+                    println!("● {} [cached]", name);
                 } else {
-                    println!(
-                        "- {} [- {:?}]",
-                        job.display_name(self),
-                        end_time - start_time_deps
-                    );
+                    println!("✓ {}", name);
                 }
-            }
-        } else {
-            if let Some(start_time) = job.start_time {
-                if failed {
-                    println!("x {} [{:?}]", job.display_name(self), end_time - start_time);
-                } else {
-                    println!("√ {} [{:?}]", job.display_name(self), end_time - start_time);
-                }
-            } else {
-                if failed {
-                    return Err(anyhow!("Did not expect failed for cached"));
-                }
-                println!("● {} [cached]", job.display_name(self));
             }
         }
         {
             let job = self.get_job_mut(job_num).unwrap();
-            job.start_time_deps = None;
-            Ok(())
+            job.cmd_num = None;
         }
     }
 
     fn invalidate(
         &mut self,
         path: PathBuf,
-        futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>,
+        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
         queued: &mut QueuedStateTransitions,
     ) -> Result<bool> {
         let cwd = std::env::current_dir()?;
@@ -665,7 +686,7 @@ impl<'a> Runner<'a> {
         &mut self,
         job_num: usize,
         force: bool,
-    ) -> Result<Option<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>> {
+    ) -> Option<Pin<Box<dyn Future<Output = StateTransition>>>> {
         let job = match &self.nodes[job_num] {
             Node::Job(job) => job,
             Node::File(_) => panic!("Expected job"),
@@ -676,8 +697,8 @@ impl<'a> Runner<'a> {
         let task = &self.tasks[job.task];
         // CMD Exec
         if task.run.is_none() {
-            self.mark_complete(job_num, None, false)?;
-            return Ok(None);
+            self.mark_complete(job_num, None, None, false);
+            return None;
         }
         // the interpolation template itself is not run
         if job.interpolate.is_none() {
@@ -688,33 +709,36 @@ impl<'a> Runner<'a> {
                 }
             }
             if has_interpolation {
-                self.mark_complete(job_num, None, false)?;
-                return Ok(None);
+                self.mark_complete(job_num, None, None, false);
+                return None;
             }
         }
         // If we have an mtime, check if we need to do work
         if job.targets.len() > 0 {
             if let Some(mtime) = job.mtime {
-                let can_skip = match task.target_check {
-                    FileCheck::Exists => true,
-                    FileCheck::AlwaysRebuild => false,
-                    FileCheck::Mtime => {
+                let can_skip = match task.invalidation {
+                    InvalidationCheck::NotFound => true,
+                    InvalidationCheck::Always => false,
+                    InvalidationCheck::Mtime => {
                         let mut dep_change = false;
                         for &dep in job.deps.iter() {
                             dep_change = match &self.nodes[dep] {
                                 Node::Job(dep) => {
                                     let invalidated = match dep.mtime {
-                                        // dep_check: 'always-rebuild' doesn't make sense -> should throw rather
-                                        Some(dep_mtime) => match task.dep_check {
-                                            FileCheck::Exists => false,
-                                            FileCheck::AlwaysRebuild | FileCheck::Mtime => match &self.tasks[dep.task].target_check {
-                                                FileCheck::Exists => false,
-                                                FileCheck::AlwaysRebuild | FileCheck::Mtime => dep_mtime > mtime || force,
-                                            },
+                                        Some(dep_mtime) => match &self.tasks[dep.task].invalidation
+                                        {
+                                            InvalidationCheck::NotFound => false,
+                                            InvalidationCheck::Always
+                                            | InvalidationCheck::Mtime => {
+                                                dep_mtime > mtime || force
+                                            }
                                         },
                                         None => true,
                                     };
-                                    if invalidated && !force {
+                                    if invalidated
+                                        && !force
+                                        && (job.display || self.chompfile.debug)
+                                    {
                                         println!(
                                             "  {} invalidated by {}.",
                                             job.display_name(self),
@@ -725,13 +749,13 @@ impl<'a> Runner<'a> {
                                 }
                                 Node::File(dep) => {
                                     let invalidated = match dep.mtime {
-                                        Some(dep_mtime) => match task.dep_check {
-                                            FileCheck::Exists => false,
-                                            FileCheck::AlwaysRebuild | FileCheck::Mtime => dep_mtime > mtime || force,
-                                        },
+                                        Some(dep_mtime) => dep_mtime > mtime || force,
                                         None => true,
                                     };
-                                    if invalidated && !force {
+                                    if invalidated
+                                        && !force
+                                        && (job.display || self.chompfile.debug)
+                                    {
                                         println!(
                                             "  {} invalidated by {}",
                                             job.display_name(self),
@@ -749,12 +773,11 @@ impl<'a> Runner<'a> {
                     }
                 };
                 if can_skip {
-                    self.mark_complete(job_num, None, false)?;
-                    return Ok(None);
+                    self.mark_complete(job_num, None, None, false);
+                    return None;
                 }
             }
         }
-        println!("🞂 {}", job.display_name(self));
 
         let run: String = task.run.as_ref().unwrap().trim().to_string();
         let mut env = task.env.clone();
@@ -771,17 +794,25 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        for (num, target) in task.targets.iter().enumerate() {
-            let target_str = if let Some(interpolate) = &job.interpolate {
-                target.replace("#", &interpolate)
-            } else {
-                target.to_string()
-            };
-            if num == target_index {
-                env.insert("TARGET".to_string(), target_str.clone());
+        let target = if task.targets.len() == 0 {
+            "".to_string()
+        } else if let Some(interpolate) = &job.interpolate {
+            task.targets[target_index].replace('#', interpolate)
+        } else {
+            task.targets[target_index].clone()
+        };
+        let mut targets = String::new();
+        for (idx, t) in task.targets.iter().enumerate() {
+            if idx > 0 {
+                targets.push_str(",");
             }
-            env.insert(format!("TARGET{}", num + 1), target_str);
+            if idx == target_index {
+                targets.push_str(&target);
+            } else {
+                targets.push_str(t);
+            }
         }
+
         let dep_index = if job.interpolate.is_some() {
             task.deps
                 .iter()
@@ -792,43 +823,50 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        for (num, dep) in task.deps.iter().enumerate() {
-            let dep_str = if let Some(interpolate) = &job.interpolate {
-                dep.replace("#", &interpolate)
-            } else {
-                dep.to_string()
-            };
-            if num == dep_index {
-                env.insert("DEP".to_string(), dep_str.clone());
+        let dep = if task.deps.len() == 0 {
+            "".to_string()
+        } else if let Some(interpolate) = &job.interpolate {
+            task.deps[dep_index].replace('#', interpolate)
+        } else {
+            task.deps[dep_index].clone()
+        };
+        let mut deps = String::new();
+        for (idx, t) in task.deps.iter().enumerate() {
+            if idx > 0 {
+                deps.push_str(",");
             }
-            env.insert(format!("DEP{}", num + 1), dep_str);
+            if idx == dep_index {
+                deps.push_str(&dep);
+            } else {
+                deps.push_str(t);
+            }
         }
 
-        let job_future = self
-            .cmd_pool
-            .run(
-                run,
-                job.targets.clone(),
-                &mut env,
-                task.engine,
-                self.chompfile.debug,
-            )
-            .boxed()
-            .shared();
-        let return_future = job_future.clone();
-        let job = self.get_job_mut(job_num).unwrap();
-        job.run_future = Some(job_future);
-        job.state = JobState::Running;
-        job.start_time = Some(Instant::now());
-        let transition = StateTransition::from_job(job_num, JobState::Running);
-        Ok(Some(
-            async move {
-                return_future.await;
-                transition
-            }
-            .boxed()
-            .shared(),
-        ))
+        env.insert("TARGET".to_string(), target);
+        env.insert("TARGETS".to_string(), targets);
+        env.insert("DEP".to_string(), dep);
+        env.insert("DEPS".to_string(), deps);
+
+        let targets = job.targets.clone();
+        let engine = task.engine;
+        let debug = self.chompfile.debug;
+        let cmd_num = {
+            let display_name = if job.display || debug {
+                Some(job.display_name(self))
+            } else {
+                None
+            };
+            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, engine);
+            let job = self.get_job_mut(job_num).unwrap();
+            job.state = JobState::Running;
+            job.cmd_num = Some(cmd_num);
+            cmd_num
+        };
+        let exec_future = self.cmd_pool.get_exec_future(cmd_num);
+        Some(async move {
+            match exec_future.await { _ => {} };
+            StateTransition::from_job(job_num, JobState::Running)
+        }.boxed_local())
     }
 
     // top-down driver - initiates future starts
@@ -837,7 +875,7 @@ impl<'a> Runner<'a> {
         job_num: usize,
         invalidation: bool,
         force: bool,
-        futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>,
+        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
         queued: &mut QueuedStateTransitions,
         parent: Option<usize>,
     ) -> Result<JobOrFileState> {
@@ -849,7 +887,7 @@ impl<'a> Runner<'a> {
                     }
                 }
                 if !job.live {
-                    return Ok(JobOrFileState::Job(job.state))
+                    return Ok(JobOrFileState::Job(job.state));
                 }
                 if invalidation {
                     match job.state {
@@ -867,9 +905,8 @@ impl<'a> Runner<'a> {
                         panic!("Unexpected uninitialized job {}", job_num);
                     }
                     JobState::Initialized => {
-                        job.start_time_deps = Some(Instant::now());
                         let targets = job.targets.clone();
-                        let mtime_future = check_target_mtimes(targets).boxed().shared();
+                        let mtime_future = async { check_target_mtimes(targets).await }.boxed_local().shared();
                         job.mtime_future = Some(mtime_future.clone());
                         job.state = JobState::Checking;
                         let transition = queued
@@ -880,22 +917,20 @@ impl<'a> Runner<'a> {
                                 mtime_future.await;
                                 transition
                             }
-                            .boxed()
-                            .shared(),
+                            .boxed_local()
                         );
                         Ok(JobOrFileState::Job(JobState::Checking))
                     }
                     JobState::Checking => {
                         let job = self.get_job(job_num).unwrap();
                         if let Some(transition) = queued.insert_job(job_num, JobState::Checking) {
-                            let future = job.run_future.clone().unwrap();
+                            let mtime_future = job.mtime_future.as_ref().unwrap().clone();
                             futures.push(
                                 async move {
-                                    future.await;
+                                    mtime_future.await;
                                     transition
                                 }
-                                .boxed()
-                                .shared(),
+                                .boxed_local()
                             );
                         }
                         Ok(JobOrFileState::Job(JobState::Checking))
@@ -912,21 +947,19 @@ impl<'a> Runner<'a> {
                                 self.drive_all(dep, false, force, futures, queued, Some(job_num))?;
                             match dep_state {
                                 JobOrFileState::Job(JobState::Fresh)
-                                | JobOrFileState::File(FileState::Found) => {}
+                                | JobOrFileState::File(FileState::Found)
+                                => {}
                                 JobOrFileState::Job(JobState::Failed)
                                 | JobOrFileState::File(FileState::NotFound) => {
-                                    // Serial propagates any dep error to parent
-                                    if serial {
-                                        self.mark_complete(job_num, None, true)?;
-                                        self.drive_completion(
-                                            StateTransition::from_job(job_num, JobState::Running),
-                                            invalidation,
-                                            force,
-                                            futures,
-                                            queued,
-                                        )?;
-                                        return Ok(JobOrFileState::Job(JobState::Failed));
-                                    }
+                                    self.mark_complete(job_num, None, None, true);
+                                    self.drive_completion(
+                                        StateTransition::from_job(job_num, JobState::Running),
+                                        invalidation,
+                                        force,
+                                        futures,
+                                        queued,
+                                    )?;
+                                    return Ok(JobOrFileState::Job(JobState::Failed));
                                 }
                                 _ => {
                                     // Serial only proceeds on a completion result
@@ -946,7 +979,7 @@ impl<'a> Runner<'a> {
 
                         // deps all completed -> execute this job
                         if all_completed {
-                            return match self.run_job(job_num, force)? {
+                            return match self.run_job(job_num, force) {
                                 Some(future) => {
                                     match queued.insert_job(job_num, JobState::Running) {
                                         Some(_) => futures.push(future),
@@ -970,15 +1003,15 @@ impl<'a> Runner<'a> {
                     }
                     JobState::Running => {
                         let job = self.get_job(job_num).unwrap();
+                        let cmd_num = job.cmd_num.unwrap();
                         if let Some(transition) = queued.insert_job(job_num, JobState::Running) {
-                            let future = job.run_future.clone().unwrap();
+                            let future = self.cmd_pool.get_exec_future(cmd_num);
                             futures.push(
                                 async move {
-                                    future.await;
+                                    match future.await { _ => {} };
                                     transition
                                 }
-                                .boxed()
-                                .shared(),
+                                .boxed_local()
                             );
                         }
                         Ok(JobOrFileState::Job(JobState::Running))
@@ -1008,9 +1041,7 @@ impl<'a> Runner<'a> {
                                     _ => panic!("Unknown file error"),
                                 },
                             }
-                        }
-                        .boxed()
-                        .shared();
+                        }.boxed_local().shared();
                         file.mtime_future = Some(mtime_future.clone());
                         file.state = FileState::Checking;
                         let transition = queued
@@ -1021,21 +1052,19 @@ impl<'a> Runner<'a> {
                                 mtime_future.await;
                                 transition
                             }
-                            .boxed()
-                            .shared(),
+                            .boxed_local()
                         );
                         Ok(JobOrFileState::File(FileState::Checking))
                     }
                     FileState::Checking => {
                         if let Some(transition) = queued.insert_file(job_num, FileState::Checking) {
-                            let future = file.mtime_future.clone().unwrap();
+                            let future = file.mtime_future.as_ref().unwrap().clone();
                             futures.push(
                                 async move {
                                     future.await;
                                     transition
                                 }
-                                .boxed()
-                                .shared(),
+                                .boxed_local()
                             );
                         }
                         Ok(JobOrFileState::File(FileState::Checking))
@@ -1060,7 +1089,7 @@ impl<'a> Runner<'a> {
         transition: StateTransition,
         invalidation: bool,
         force: bool,
-        futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>,
+        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
         queued: &mut QueuedStateTransitions,
     ) -> Result<()> {
         // drives the completion of a state transition to subsequent transitions
@@ -1069,21 +1098,25 @@ impl<'a> Runner<'a> {
             JobOrFileState::Job(JobState::Checking) => {
                 let job = self.get_job_mut(job_num).unwrap();
                 job.state = JobState::Pending;
-                let mtime_future = job.mtime_future.as_ref().unwrap();
-                let mtime = mtime_future.peek().unwrap();
-                job.mtime = mtime.clone();
+                let mtime_future = job.mtime_future.take().unwrap();
+                // we know it's ready so this isn't blocking
+                let mtime = executor::block_on(mtime_future);
+                job.mtime = mtime;
                 job.mtime_future = None;
                 self.drive_all(job_num, invalidation, force, futures, queued, None)?;
                 Ok(())
             }
             JobOrFileState::Job(JobState::Running) => {
-                // job can complete running without an exec promise if eg cached
+                // job can complete running without an exec if eg cached
                 let job = self.get_job(job_num).unwrap();
-                if let Some(ref run_future) = job.run_future {
-                    let (status, mtime) = run_future.peek().unwrap();
-                    let cloned_mtime = mtime.clone();
+                if let Some(cmd_num) = job.cmd_num {
+                    let exec_future = self.cmd_pool.get_exec_future(cmd_num);
+                    let (status, mtime, cmd_time) = match executor::block_on(exec_future) {
+                        Ok(result) => result,
+                        Err(err) => return Err(anyhow!("Exec error: {:?}", err)),
+                    };
                     let success = status.success() && mtime.is_some();
-                    self.mark_complete(job_num, cloned_mtime, !success)?;
+                    self.mark_complete(job_num, mtime, Some(cmd_time), !success);
                 }
                 let job = self.get_job(job_num).unwrap();
                 if matches!(job.state, JobState::Fresh | JobState::Failed) {
@@ -1098,10 +1131,10 @@ impl<'a> Runner<'a> {
                     Node::File(ref mut file) => file,
                     _ => panic!("Expected file"),
                 };
-                let mtime_future = file.mtime_future.as_ref().unwrap();
-                let mtime = mtime_future.peek().unwrap();
-                file.mtime = mtime.clone();
-                file.mtime_future = None;
+                let mtime_future = file.mtime_future.take().unwrap();
+                // we know it's ready so this isn't blocking
+                let mtime = executor::block_on(mtime_future);
+                file.mtime = mtime;
                 file.state = match file.mtime {
                     Some(_mtime) => FileState::Found,
                     None => FileState::NotFound,
@@ -1324,7 +1357,7 @@ impl<'a> Runner<'a> {
                         parent_task,
                     )
                     .await?;
-                }
+                },
                 Err(e) => {
                     eprintln!("{:?}", e);
                     return Err(anyhow!("GLOB ERROR"));
@@ -1397,7 +1430,7 @@ impl<'a> Runner<'a> {
 
     // find the job for the target, and drive its completion
     async fn drive_targets(&mut self, targets: &Vec<String>, force: bool) -> Result<()> {
-        let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>> =
+        let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition>>>> =
             Vec::new();
 
         let mut queued = QueuedStateTransitions::new();
@@ -1445,7 +1478,7 @@ impl<'a> Runner<'a> {
     async fn check_watcher(
         &mut self,
         rx: &Receiver<DebouncedEvent>,
-        futures: &mut Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>>,
+        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
         queued: &mut QueuedStateTransitions,
         blocking: bool,
     ) -> Result<bool> {
@@ -1481,7 +1514,7 @@ impl<'a> Runner<'a> {
 
 async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent>) -> Result<()> {
     loop {
-        let mut futures: Vec<Shared<Pin<Box<dyn Future<Output = StateTransition> + Send>>>> =
+        let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition>>>> =
             Vec::new();
         let mut queued = QueuedStateTransitions::new();
         if runner
@@ -1505,8 +1538,8 @@ async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent
     }
 }
 
-pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool> {
-    let mut runner = Runner::new(opts.ui, &chompfile, &opts.cwd, opts.watch)?;
+pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions) -> Result<bool> {
+    let mut runner = Runner::new(&chompfile, opts.pool_size, &opts.cwd, opts.watch)?;
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
 
@@ -1516,19 +1549,26 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
             None => return Err(anyhow!("No default task provided. Set:\n\n  default-task = \"[taskname]\"\n\nin the chompfile.toml to configure a default build task.")),
         }
     } else {
-        opts.targets.iter().map(|t| {
-            let normalized = t.replace('\\', "/");
-            if normalized.starts_with("./") {
-                normalized[2..].to_string()
-            } else { normalized }
-        }).collect()
+        opts.targets
+            .iter()
+            .map(|t| {
+                let normalized = t.replace('\\', "/");
+                if normalized.starts_with("./") {
+                    normalized[2..].to_string()
+                } else {
+                    normalized
+                }
+            })
+            .collect()
     };
 
     for target in normalized_targets.clone() {
         runner.expand_target(&mut watcher, &target, None).await?;
     }
 
-    runner.drive_targets(&normalized_targets, opts.force).await?;
+    runner
+        .drive_targets(&normalized_targets, opts.force)
+        .await?;
 
     // block on watcher if watching
     if opts.watch {
@@ -1542,7 +1582,7 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions<'a>) -> Result<bool
         let job_num = runner.lookup_target(&mut watcher, &target, true).await?;
         let job = match runner.get_job(job_num) {
             Some(job) => job,
-            None => return Err(anyhow!("Unable to build target {}", &target))
+            None => return Err(anyhow!("Unable to build target {}", &target)),
         };
         if !matches!(job.state, JobState::Fresh) {
             all_ok = false;

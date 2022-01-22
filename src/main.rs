@@ -1,18 +1,21 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
+use crate::task::expand_template_tasks;
 use crate::chompfile::Chompfile;
 use clap::{App, Arg};
-use std::io::stdout;
 use anyhow::{Result, anyhow};
 use async_std::fs;
+use std::collections::HashMap;
+use crate::js::init_js_platform;
+extern crate num_cpus;
 
-use crossterm::tty::IsTty;
+// use crossterm::tty::IsTty;
 
 mod task;
 mod chompfile;
 mod engines;
-mod ui;
+// mod ui;
 mod serve;
 mod js;
 
@@ -52,7 +55,7 @@ async fn main() -> Result<()> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("j")
+            Arg::with_name("jobs")
                 .short("j")
                 .long("jobs")
                 .value_name("N")
@@ -67,6 +70,17 @@ async fn main() -> Result<()> {
                 .default_value("chompfile.toml")
                 .help("Custom chompfile path")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("format")
+                .short("F")
+                .long("format")
+                .help("Format and save the chompfile.toml")
+        )
+        .arg(
+            Arg::with_name("eject_templates")
+                .long("eject")
+                .help("Ejects templates into tasks saving the rewritten chompfile.toml")
         )
         .arg(
             Arg::with_name("force")
@@ -89,7 +103,7 @@ async fn main() -> Result<()> {
         // )
         .get_matches();
 
-    let ui = ui::ChompUI::new(stdout().is_tty());
+    // let ui = ui::ChompUI::new(stdout().is_tty());
     // ui.create_box()?;
 
     let mut targets: Vec<String> = Vec::new();
@@ -106,13 +120,15 @@ async fn main() -> Result<()> {
 
     let chompfile_source = fs::read_to_string(&cfg_file).await?;
     let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
+    let original_template_len = chompfile.template.len();
+    let original_batcher_len = chompfile.batcher.len();
     {
         let mut default_chompfile: Chompfile = toml::from_str(include_str!("templates.toml")).unwrap();
         for template in default_chompfile.template.drain(..) {
             chompfile.template.push(template);
         }
-        for task in default_chompfile.task.drain(..) {
-            chompfile.task.push(task);
+        for batcher in default_chompfile.batcher.drain(..) {
+            chompfile.batcher.push(batcher);
         }
         if chompfile.version != 0.1 {
             return Err(anyhow!(
@@ -124,7 +140,7 @@ async fn main() -> Result<()> {
 
     let mut serve_options = chompfile.server.clone();
     {
-        if let Some(root) = matches.value_of("serve-root") {
+        if let Some(root) = matches.value_of("server-root") {
             serve_options.root = root.to_string();
         }
         if let Some(port) = matches.value_of("port") {
@@ -145,10 +161,38 @@ async fn main() -> Result<()> {
     //     args.push(String::from(item));
     // }
 
+    let mut initialized_js = false;
+    if matches.is_present("format") || matches.is_present("eject_templates") {
+        init_js_platform();
+        initialized_js = true;
+        let mut global_env = HashMap::new();
+        for (key, value) in env::vars() {
+            global_env.insert(key.to_uppercase(), value);
+        }
+        global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
+        chompfile.task = expand_template_tasks(&chompfile, &global_env)?;
+        chompfile.template.truncate(original_template_len);
+        chompfile.batcher.truncate(original_batcher_len);
+        fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
+        if targets.len() == 0 {
+            return Ok(());
+        }
+    }
+
+    if !initialized_js {
+        init_js_platform();
+    }
+
+    let pool_size = match matches.value_of("jobs") {
+        Some(jobs) => jobs.parse()?,
+        None => num_cpus::get(),
+    };
+
     let ok = task::run(&chompfile, task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),
         force: matches.is_present("force"),
-        ui: &ui,
+        // ui: &ui,
+        pool_size,
         cwd: env::current_dir()?,
         targets,
         cfg_file,

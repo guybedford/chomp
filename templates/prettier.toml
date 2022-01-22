@@ -1,9 +1,10 @@
 [[template]]
 name = "prettier"
-definition = """({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall } }) => [{
+definition = """({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall } }, { CHOMP_EJECT }) => [{
   name,
   targets,
-  deps: [...deps, 'node_modules/prettier'],
+  deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/prettier']],
+  invalidation: 'always',
   env,
   run: `prettier ${files} ${
       check ? ' --check' : ''
@@ -14,12 +15,12 @@ definition = """({ name, targets, deps, env, templateOptions: { files = '.', che
     }${
       noErrorOnUnmatchedPattern ? ' --no-error-on-unmatched-pattern' : ''
     }`
-}, {
+}, ...CHOMP_EJECT ? [] : [{
   template: 'npm',
   templateOptions: {
     autoInstall,
     packages: ['prettier'],
     dev: true
   }
-}]
+}]]
 """
