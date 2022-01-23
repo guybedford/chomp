@@ -86,6 +86,12 @@ async fn main() -> Result<()> {
                 .help("Ejects templates into tasks saving the rewritten chompfile.toml")
         )
         .arg(
+            Arg::with_name("clear_cache")
+                .short("C")
+                .long("clear-cache")
+                .help("Clear URL extension cache"),
+        )
+        .arg(
             Arg::with_name("force")
                 .short("f")
                 .long("force")
@@ -128,6 +134,11 @@ async fn main() -> Result<()> {
             "Invalid chompfile version {}, only 0.1 is supported",
             chompfile.version
         ));
+    }
+
+    if matches.is_present("clear_cache") {
+        println!("Clearing URL extension cache...");
+        http_client::clear_cache().await?;
     }
 
     init_js_platform();

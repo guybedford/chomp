@@ -2,6 +2,10 @@ use hyper_tls::HttpsConnector;
 use hyper::{Uri, Client};
 use anyhow::{anyhow, Result};
 
+pub async fn clear_cache () -> Result<()> {
+    Ok(())
+}
+
 pub async fn fetch_uri_cached (uri_str: &str, uri: Uri) -> Result<String> {
     let https = HttpsConnector::new();
     let client = Client::builder().build::<_, hyper::Body>(https);
