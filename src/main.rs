@@ -25,6 +25,16 @@ mod serve;
 use std::path::PathBuf;
 use std::env;
 
+fn uri_parse (uri_str: &str) -> Option<Uri> {
+    match uri_str.parse::<Uri>() {
+        Ok(uri) => match uri.scheme_str() {
+            Some(_) => Some(uri),
+            None => None,
+        },
+        Err(_) => None,
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let matches = App::new("Chomp")
@@ -147,10 +157,11 @@ async fn main() -> Result<()> {
     let mut extension_env = ExtensionEnvironment::new();
     extension_env.add_extension(default_extension, "chomp:core-extensions")?;
 
+    http_client::prep_cache().await?;
     for ext in &chompfile.extensions {
-        let extension_source = match ext.parse::<Uri>() {
-            Ok(uri) => http_client::fetch_uri_cached(&ext, uri).await?,
-            Err(_) => fs::read_to_string(&ext).await?,
+        let extension_source = match uri_parse(ext) {
+            Some(uri) => http_client::fetch_uri_cached(&ext, uri).await?,
+            None => fs::read_to_string(&ext).await?,
         };
         extension_env.add_extension(&extension_source, &ext)?;
     }
