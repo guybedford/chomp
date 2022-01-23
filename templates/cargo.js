@@ -1,7 +1,5 @@
-[[template]]
-name = "cargo"
-definition = """({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP_EJECT }) => {
-  const sep = PATH.match(/\\\\|\\//)[0];
+Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP_EJECT }) {
+  const sep = PATH.match(/\\|\//)[0];
   return CHOMP_EJECT ? [] : [{
     name: `cargo:${bin}`,
     targets: [PATH.split(';').find(p => p.endsWith(`.cargo${sep}bin`)) + sep + bin + (sep === '/' ? '' : '.exe')],
@@ -10,6 +8,5 @@ definition = """({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP
     deps,
     env,
     run: `cargo install ${install}`
-  }]];
-}
-"""
+  }];
+});

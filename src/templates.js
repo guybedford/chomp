@@ -1,7 +1,5 @@
-﻿version = 0.1
-[[template]]
-name = "babel"
-definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }, { CHOMP_EJECT }) => {
+﻿
+Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }, { CHOMP_EJECT }) {
   const defaultConfig = {};
   return [{
     name,
@@ -24,7 +22,7 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
     display: false,
     invalidation: 'not-found',
     run: `
-      echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.babelrc\\x1b[0m (set \\x1b[1m"no-babel-rc = true"\\x1b[0m Babel template option to skip)\n'
+      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (set \x1b[1m"no-babel-rc = true"\x1b[0m Babel template option to skip)\n'
       echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
     `
   }, {
@@ -35,18 +33,14 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
       autoInstall
     }
   }]];
-}
-"""
+});
 
-# Batcher to ensure Babelrc log only appears once
-[[batcher]]
-name = "babel"
-batch = """(batch, running) => {
+Chomp.registerBatcher('babel', function (batch, _running) {
   const run_completions = {};
   let existingBabelRcInit = null;
-  for (const { id, run, engine, env } of batch) {
+  for (const { id, run, engine } of batch) {
     if (engine !== 'cmd' || !run.trimLeft().startsWith('echo ')) continue;
-    if (run.indexOf('Creating \\x1b[1m.babelrc\\x1b[0m') !== -1) {
+    if (run.indexOf('Creating \x1b[1m.babelrc\x1b[0m') !== -1) {
       if (existingBabelRcInit !== null) {
         run_completions[id] = existingBabelRcInit;  
       }
@@ -57,12 +51,9 @@ batch = """(batch, running) => {
     }
   }
   return [[], [], run_completions];
-}
-"""
-[[template]]
-name = "cargo"
-definition = """({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP_EJECT }) => {
-  const sep = PATH.match(/\\\\|\\//)[0];
+});
+Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP_EJECT }) {
+  const sep = PATH.match(/\\|\//)[0];
   return CHOMP_EJECT ? [] : [{
     name: `cargo:${bin}`,
     targets: [PATH.split(';').find(p => p.endsWith(`.cargo${sep}bin`)) + sep + bin + (sep === '/' ? '' : '.exe')],
@@ -71,12 +62,9 @@ definition = """({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP
     deps,
     env,
     run: `cargo install ${install}`
-  }]];
-}
-"""
-[[template]]
-name = "jspm"
-definition = """({ name, targets, deps, env, templateOptions: {
+  }];
+});
+Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOptions: {
   autoInstall,
   env: generatorEnv = ['browser', 'production', 'module'],
   preload,
@@ -84,7 +72,7 @@ definition = """({ name, targets, deps, env, templateOptions: {
   whitespace,
   esModuleShims,
   ...generateOpts
-} }, { CHOMP_EJECT }) => {
+} }, { CHOMP_EJECT }) {
   const mainTarget = targets.find(target => target.includes('#')) || targets[0];
   const isImportMapTarget = mainTarget && mainTarget.endsWith('.importmap');
   const { resolutions } = generateOpts;
@@ -104,9 +92,9 @@ definition = """({ name, targets, deps, env, templateOptions: {
 
     const generator = new Generator({
       mapUrl: ${isImportMapTarget ? 'import.meta.url' : 'pathToFileURL(process.env.TARGET)'}${
-        resolutions && !isImportMapTarget && Object.values(resolutions).some(v => v.startsWith('./') || v.startsWith('../')) ? ',\\n      baseUrl: new URL(\\'.\\', import.meta.url)' : ''
+        resolutions && !isImportMapTarget && Object.values(resolutions).some(v => v.startsWith('./') || v.startsWith('../')) ? ',\n      baseUrl: new URL(\'.\', import.meta.url)' : ''
       },\n      env: ${JSON.stringify(generatorEnv).replace(/","/g, '", "')}${
-        Object.keys(generateOpts).length ? ',\\n      ' + JSON.stringify(generateOpts, null, 2).slice(4, -2).replace(/\\n/g, `\\n    `) : ''
+        Object.keys(generateOpts).length ? ',\n      ' + JSON.stringify(generateOpts, null, 2).slice(4, -2).replace(/\n/g, `\n    `) : ''
       }
     });
 ${isImportMapTarget ? `
@@ -130,56 +118,52 @@ ${isImportMapTarget ? `
       dev: true
     }
   }]];
-}
-"""
-[[template]]
-name = "npm"
-definition = """({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }, { CHOMP_EJECT }) => CHOMP_EJECT ? [] : autoInstall ? [{
-  name,
-  deps: [...deps, ...packages.map(pkg => {
+});
+Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }, { CHOMP_EJECT }) {
+  return CHOMP_EJECT ? [] : autoInstall ? [{
+    name,
+    deps: [...deps, ...packages.map(pkg => {
+      const versionIndex = pkg.indexOf('@', 1);
+      return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
+    })],
+    serial: true
+  }, ...packages.map(pkg => {
     const versionIndex = pkg.indexOf('@', 1);
-    return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-  })],
-  serial: true
-}, ...packages.map(pkg => {
-  const versionIndex = pkg.indexOf('@', 1);
-  return {
-    target: `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`,
+    return {
+      target: `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`,
+      invalidation: 'not-found',
+      display: false,
+      deps: ['npm:init'],
+      env,
+      run: `${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
+    };
+  }), {
+    name: 'npm:init',
+    target: 'package.json',
     invalidation: 'not-found',
     display: false,
-    deps: ['npm:init'],
     env,
-    run: `${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}`
-  };
-}), {
-  name: 'npm:init',
-  target: 'package.json',
-  invalidation: 'not-found',
-  display: false,
-  env,
-  run: `${packageManager} init -y`
-}] : [{
-  name,
-  env,
-  invalidation: 'not-found',
-  display: false,
-  targets: packages.map(pkg => {
-    const versionIndex = pkg.indexOf('@', 1);
-    return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
-  }),
-  run: `echo "\n\\x1b[93mChomp\\x1b[0m: Some packages are missing. Please run \\x1b[1m${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}\\x1b[0m\n"`
-}];
-"""
+    run: `${packageManager} init -y`
+  }] : [{
+    name,
+    env,
+    invalidation: 'not-found',
+    display: false,
+    targets: packages.map(pkg => {
+      const versionIndex = pkg.indexOf('@', 1);
+      return `node_modules/${versionIndex === -1 ? pkg : pkg.slice(0, versionIndex)}`;
+    }),
+    run: `echo "\n\x1b[93mChomp\x1b[0m: Some packages are missing. Please run \x1b[1m${packageManager} install ${packages.join(' ')}${dev ? ' -D' : ''}\x1b[0m\n"`
+  }];
+});
 
-# Batcher for npm executions handles the following:
-# 1. Ensuring only one npm operation runs at a time
-# 2. If two npm init operations are batched, only one is run. If npm init
-#    is already running, ties additional invocations to the existing one.
-# 3. When multiple npm install operations are running at the same time,
-#    combine them into a single install operation.
-[[batcher]]
-name = "npm"
-batch = """(batch, running) => {
+// Batcher for npm executions handles the following:
+// 1. Ensuring only one npm operation runs at a time
+// 2. If two npm init operations are batched, only one is run. If npm init
+//    is already running, ties additional invocations to the existing one.
+// 3. When multiple npm install operations are running at the same time,
+//    combine them into a single install operation.
+Chomp.registerBatcher('npm', function (batch, running) {
   const queued = [], run_completions = {};
   let batchInstall = null;
   for (const { id, run, engine, env } of batch) {
@@ -233,82 +217,77 @@ batch = """(batch, running) => {
     const isDev = flags.length === 1;
     return { packages, isDev };
   }
-}
-"""
-[[template]]
-name = "prettier"
-definition = """({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall } }, { CHOMP_EJECT }) => [{
-  name,
-  targets,
-  deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/prettier']],
-  invalidation: 'always',
-  env,
-  run: `prettier ${files} ${
-      check ? ' --check' : ''
-    }${
-      write ? ' --write' : ''
-    }${
-      config ? ` --config ${config}` : ''
-    }${
-      noErrorOnUnmatchedPattern ? ' --no-error-on-unmatched-pattern' : ''
-    }`
-}, ...CHOMP_EJECT ? [] : [{
-  template: 'npm',
-  templateOptions: {
-    autoInstall,
-    packages: ['prettier'],
-    dev: true
-  }
-}]]
-"""
-[[template]]
-name = "svelte"
-definition = """({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall } }, { CHOMP_EJECT }) => [{
-  name,
-  targets,
-  deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
-  env,
-  engine: 'node',
-  run: `    import { readFile, writeFile } from 'fs/promises';
-    import { compile } from 'svelte/compiler';
-    import mkdirp from 'mkdirp';
-    import { dirname } from 'path';
+});
+Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall } }, { CHOMP_EJECT }) {
+  return [{
+    name,
+    targets,
+    deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/prettier']],
+    invalidation: 'always',
+    env,
+    run: `prettier ${files} ${
+        check ? ' --check' : ''
+      }${
+        write ? ' --write' : ''
+      }${
+        config ? ` --config ${config}` : ''
+      }${
+        noErrorOnUnmatchedPattern ? ' --no-error-on-unmatched-pattern' : ''
+      }`
+  }, ...CHOMP_EJECT ? [] : [{
+    template: 'npm',
+    templateOptions: {
+      autoInstall,
+      packages: ['prettier'],
+      dev: true
+    }
+  }]];
+});
+Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall } }, { CHOMP_EJECT }) {
+  return [{
+    name,
+    targets,
+    deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
+    env,
+    engine: 'node',
+    run: `    import { readFile, writeFile } from 'fs/promises';
+      import { compile } from 'svelte/compiler';
+      import mkdirp from 'mkdirp';
+      import { dirname } from 'path';
 
-    let config;
-    ${svelteConfig ? `
-      config = await import(${svelteConfig === true ? '"./svelte.config.js"' : svelteConfig});
-    ` : `
-      config = {
-        css: false
-      };
-    `}
-    config.filename = process.env.DEP;
+      let config;
+      ${svelteConfig ? `
+        config = await import(${svelteConfig === true ? '"./svelte.config.js"' : svelteConfig});
+      ` : `
+        config = {
+          css: false
+        };
+      `}
+      config.filename = process.env.DEP;
 
-    const source = await readFile(process.env.DEP, 'utf-8');
-    const result = compile(source, config);
+      const source = await readFile(process.env.DEP, 'utf-8');
+      const result = compile(source, config);
 
-    mkdirp.sync(dirname(process.env.TARGET));
-    const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
-    await Promise.all[
-      writeFile(process.env.TARGET, result.js.code),
-      writeFile(process.env.TARGET + ".map", JSON.stringify(result.js.map)),
-      writeFile(cssFile, result.css.code),
-      writeFile(cssFile + ".map", JSON.stringify(result.css.map))
-    ];
-  `
-}, ...CHOMP_EJECT ? [] : [{
-  template: 'npm',
-  templateOptions: {
-    autoInstall,
-    packages: ['svelte@3', 'mkdirp'],
-    dev: true
-  }
-}]]
-"""
-[[template]]
-name = "swc"
-definition = """({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, { PATH, CHOMP_EJECT }) => {
-  const isWin = PATH.match(/\\\\|\\//)[0] !== '/';
+      mkdirp.sync(dirname(process.env.TARGET));
+      const cssFile = process.env.TARGET.replace(/\\.js$/, ".css");
+      await Promise.all[
+        writeFile(process.env.TARGET, result.js.code),
+        writeFile(process.env.TARGET + ".map", JSON.stringify(result.js.map)),
+        writeFile(cssFile, result.css.code),
+        writeFile(cssFile + ".map", JSON.stringify(result.css.map))
+      ];
+    `
+  }, ...CHOMP_EJECT ? [] : [{
+    template: 'npm',
+    templateOptions: {
+      autoInstall,
+      packages: ['svelte@3', 'mkdirp'],
+      dev: true
+    }
+  }]];
+});
+Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, { PATH, CHOMP_EJECT }) {
+  const isWin = PATH.match(/\\|\//)[0] !== '/';
   const defaultConfig = {
     jsc: {
       parser: {
@@ -357,7 +336,7 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
     invalidation: 'not-found',
     display: false,
     run: `
-      echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.swcrc\\x1b[0m (set \\x1b[1m"no-swc-rc = true"\\x1b[0m SWC template option to skip)\n'
+      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.swcrc\x1b[0m (set \x1b[1m"no-swc-rc = true"\x1b[0m SWC template option to skip)\n'
       ${isWin // SWC does not like a BOM... Powershell hacks...
         ? `$encoder = new-object System.Text.UTF8Encoding ; Set-Content -Value $encoder.Getbytes('${JSON.stringify(defaultConfig, null, 2)}') -Encoding Byte -Path $TARGET`
         : `echo '${JSON.stringify(defaultConfig)}' > $TARGET`
@@ -371,18 +350,15 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       dev: true
     }
   }]];
-}
-"""
+});
 
-# Batcher to ensure swcrc log only appears once
-[[batcher]]
-name = "swc"
-batch = """(batch, running) => {
+// Batcher to ensure swcrc log only appears once
+Chomp.registerBatcher('swc', function (batch, running) {
   const run_completions = {};
   let existingSwcRcInit = null;
   for (const { id, run, engine, env } of batch) {
     if (engine !== 'cmd' || !run.trimLeft().startsWith('echo ')) continue;
-    if (run.indexOf('Creating \\x1b[1m.swcrc\\x1b[0m') !== -1) {
+    if (run.indexOf('Creating \x1b[1m.swcrc\x1b[0m') !== -1) {
       if (existingSwcRcInit !== null) {
         run_completions[id] = existingSwcRcInit;
       }
@@ -393,5 +369,4 @@ batch = """(batch, running) => {
     }
   }
   return [[], [], run_completions];
-}
-"""
+});

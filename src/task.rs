@@ -1,10 +1,9 @@
+use crate::ExtensionEnvironment;
 use std::path::Path;
 use futures::future::Shared;
 use std::collections::BTreeMap;
 use crate::chompfile::ChompTaskMaybeTemplated;
-use crate::chompfile::{
-    ChompEngine, ChompTaskMaybeTemplatedNoDefault, ChompTemplate, Chompfile, InvalidationCheck,
-};
+use crate::chompfile::{ChompEngine, ChompTaskMaybeTemplatedNoDefault, Chompfile, InvalidationCheck};
 use crate::engines::CmdPool;
 // use crate::ui::ChompUI;
 use futures::future::{select_all, Future, FutureExt};
@@ -21,7 +20,6 @@ use capturing_glob::glob;
 use std::path::PathBuf;
 use std::pin::Pin;
 extern crate notify;
-use crate::js::run_js_tpl;
 use anyhow::{anyhow, Result};
 use convert_case::{Case, Casing};
 use std::env;
@@ -140,7 +138,7 @@ impl File {
 
 struct Runner<'a> {
     // ui: &'a ChompUI,
-    cmd_pool: CmdPool,
+    cmd_pool: CmdPool<'a>,
     chompfile: &'a Chompfile,
     watch: bool,
     tasks: Vec<Task>,
@@ -331,17 +329,10 @@ fn create_template_options(
 
 pub fn expand_template_tasks(
     chompfile: &Chompfile,
+    extension_env: &mut ExtensionEnvironment,
     global_env: &HashMap<String, String>,
 ) -> Result<Vec<ChompTaskMaybeTemplated>> {
     let mut out_tasks = Vec::new();
-
-    let mut templates: HashMap<&String, &ChompTemplate> = HashMap::new();
-    for template in &chompfile.template {
-        // first template wins (and local overrides chomp included)
-        if templates.get(&template.name).is_none() {
-            templates.insert(&template.name, &template);
-        }
-    }
 
     // expand tasks into initial job list
     let mut task_queue: VecDeque<ChompTaskMaybeTemplated> = VecDeque::new();
@@ -374,10 +365,6 @@ pub fn expand_template_tasks(
             return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial', 'invalidation' fields."));
         }
 
-        let template = match templates.get(template) {
-            Some(template) => template,
-            None => return Err(anyhow!("Unable to find template {}", template)),
-        };
         if task.deps.is_none() {
             task.deps = Some(Default::default());
         }
@@ -393,11 +380,10 @@ pub fn expand_template_tasks(
             env: Some(task.env),
             run: task.run,
             engine: task.engine,
-            template: task.template,
+            template: Some(template.to_string()),
             template_options: task.template_options,
         };
-        let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-            run_js_tpl(&template.definition, &template.name, &js_task, global_env)?;
+        let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> = extension_env.run_template(&template, &js_task, global_env)?;
         // template functions output a list of tasks
         for mut template_task in template_tasks.drain(..) {
             let (target, targets) = if template_task.target.is_some() {
@@ -463,12 +449,13 @@ impl<'a> Runner<'a> {
     fn new(
         // ui: &'a ChompUI,
         chompfile: &'a Chompfile,
+        extension_env: &'a mut ExtensionEnvironment,
         pool_size: usize,
         cwd: &'a PathBuf,
         watch: bool,
     ) -> Result<Runner<'a>> {
         let cmd_pool: CmdPool =
-            CmdPool::new(pool_size, &chompfile.batcher, cwd.to_str().unwrap().to_string(), chompfile.debug);
+            CmdPool::new(pool_size, extension_env, cwd.to_str().unwrap().to_string(), chompfile.debug);
         let mut runner = Runner {
             watch,
             // ui,
@@ -486,7 +473,7 @@ impl<'a> Runner<'a> {
             runner.global_env.insert(key.to_uppercase(), value);
         }
 
-        let mut tasks = expand_template_tasks(runner.chompfile, &runner.global_env)?;
+        let mut tasks = expand_template_tasks(runner.chompfile, runner.cmd_pool.extension_env, &runner.global_env)?;
 
         for task in tasks.drain(..) {
             let targets = task.targets_vec();
@@ -657,7 +644,7 @@ impl<'a> Runner<'a> {
     fn invalidate(
         &mut self,
         path: PathBuf,
-        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
+        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>>,
         queued: &mut QueuedStateTransitions,
     ) -> Result<bool> {
         let cwd = std::env::current_dir()?;
@@ -688,7 +675,7 @@ impl<'a> Runner<'a> {
         &mut self,
         job_num: usize,
         force: bool,
-    ) -> Option<Pin<Box<dyn Future<Output = StateTransition>>>> {
+    ) -> Option<Pin<Box<dyn Future<Output = StateTransition> + 'a>>> {
         let job = match &self.nodes[job_num] {
             Node::Job(job) => job,
             Node::File(_) => panic!("Expected job"),
@@ -876,7 +863,7 @@ impl<'a> Runner<'a> {
         job_num: usize,
         invalidation: bool,
         force: bool,
-        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
+        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>>,
         queued: &mut QueuedStateTransitions,
         parent: Option<usize>,
     ) -> Result<JobOrFileState> {
@@ -1098,7 +1085,7 @@ impl<'a> Runner<'a> {
         transition: StateTransition,
         invalidation: bool,
         force: bool,
-        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
+        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>>,
         queued: &mut QueuedStateTransitions,
     ) -> Result<()> {
         queued.state_transitions.remove(&transition);
@@ -1454,7 +1441,7 @@ impl<'a> Runner<'a> {
 
     // find the job for the target, and drive its completion
     async fn drive_targets(&mut self, targets: &Vec<String>, force: bool, watcher: Option<&Receiver<DebouncedEvent>>) -> Result<()> {
-        let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition>>>> =
+        let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>> =
             Vec::new();
 
         let mut queued = QueuedStateTransitions::new();
@@ -1477,7 +1464,10 @@ impl<'a> Runner<'a> {
             };
 
             let job_num = match self.task_jobs.get(name) {
-                Some(&job_num) => job_num,
+                Some(&job_num) => {
+                    self.get_job_mut(job_num).unwrap().live = true;
+                    job_num
+                },
                 None => match self.file_nodes.get(name) {
                     Some(&job_num) => job_num,
                     None => {
@@ -1487,7 +1477,6 @@ impl<'a> Runner<'a> {
                 },
             };
 
-            self.get_job_mut(job_num).unwrap().live = true;
             self.drive_all(job_num, false, force, &mut futures, &mut queued, None)?;
         }
         if watcher.is_some() {
@@ -1526,7 +1515,7 @@ impl<'a> Runner<'a> {
     fn check_watcher(
         &mut self,
         rx: &Receiver<DebouncedEvent>,
-        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
+        futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>>,
         queued: &mut QueuedStateTransitions,
         blocking: bool,
     ) -> Result<bool> {
@@ -1560,29 +1549,8 @@ impl<'a> Runner<'a> {
     }
 }
 
-// async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent>) -> Result<()> {
-//     loop {
-//         let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition>>>> =
-//             Vec::new();
-//         let mut queued = QueuedStateTransitions::new();
-//         if runner.check_watcher(&rx, &mut futures, &mut queued, true)?
-//         {
-//             loop {
-//                 while runner.check_watcher(&rx, &mut futures, &mut queued, false)? {}
-//                 if futures.len() == 0 {
-//                     break;
-//                 }
-//                 let (transition, _idx, new_futures) = select_all(futures).await;
-//                 futures = new_futures;
-//                 runner.drive_completion(transition, true, false, &mut futures, &mut queued)?;
-//             }
-//             // println!("Watching...");
-//         }
-//     }
-// }
-
-pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions) -> Result<bool> {
-    let mut runner = Runner::new(&chompfile, opts.pool_size, &opts.cwd, opts.watch)?;
+pub async fn run<'a>(chompfile: &'a Chompfile, extension_env: &'a mut ExtensionEnvironment, opts: RunOptions) -> Result<bool> {
+    let mut runner = Runner::new(&chompfile, extension_env, opts.pool_size, &opts.cwd, opts.watch)?;
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
 

@@ -1,7 +1,5 @@
-[[template]]
-name = "swc"
-definition = """({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, { PATH, CHOMP_EJECT }) => {
-  const isWin = PATH.match(/\\\\|\\//)[0] !== '/';
+Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, { PATH, CHOMP_EJECT }) {
+  const isWin = PATH.match(/\\|\//)[0] !== '/';
   const defaultConfig = {
     jsc: {
       parser: {
@@ -50,7 +48,7 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
     invalidation: 'not-found',
     display: false,
     run: `
-      echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.swcrc\\x1b[0m (set \\x1b[1m"no-swc-rc = true"\\x1b[0m SWC template option to skip)\n'
+      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.swcrc\x1b[0m (set \x1b[1m"no-swc-rc = true"\x1b[0m SWC template option to skip)\n'
       ${isWin // SWC does not like a BOM... Powershell hacks...
         ? `$encoder = new-object System.Text.UTF8Encoding ; Set-Content -Value $encoder.Getbytes('${JSON.stringify(defaultConfig, null, 2)}') -Encoding Byte -Path $TARGET`
         : `echo '${JSON.stringify(defaultConfig)}' > $TARGET`
@@ -64,18 +62,15 @@ definition = """({ name, targets, deps, env, templateOptions: { configFile = nul
       dev: true
     }
   }]];
-}
-"""
+});
 
-# Batcher to ensure swcrc log only appears once
-[[batcher]]
-name = "swc"
-batch = """(batch, running) => {
+// Batcher to ensure swcrc log only appears once
+Chomp.registerBatcher('swc', function (batch, running) {
   const run_completions = {};
   let existingSwcRcInit = null;
   for (const { id, run, engine, env } of batch) {
     if (engine !== 'cmd' || !run.trimLeft().startsWith('echo ')) continue;
-    if (run.indexOf('Creating \\x1b[1m.swcrc\\x1b[0m') !== -1) {
+    if (run.indexOf('Creating \x1b[1m.swcrc\x1b[0m') !== -1) {
       if (existingSwcRcInit !== null) {
         run_completions[id] = existingSwcRcInit;
       }
@@ -86,5 +81,4 @@ batch = """(batch, running) => {
     }
   }
   return [[], [], run_completions];
-}
-"""
+});

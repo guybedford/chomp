@@ -21,8 +21,10 @@ clap = "2.33.3"
 convert_case = "0.5.0"
 crossterm = "0.22.1"
 derivative = "2.2.0"
+dirs = "1.0.4"
 futures = "0.3.18"
 hyper = { version = "0.14.16", features = ["full"] }
+hyper-tls = "0.5.0"
 lazy_static = "1.4.0"
 mime_guess = "2.0.3"
 notify = "4.0.17"
@@ -30,6 +32,7 @@ num_cpus = "1.13.0"
 regex = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_v8 = "0.22.0"
+sha2 = "0.10.1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.6.9"
 toml = "0.5"

@@ -28,11 +28,9 @@ pub struct Chompfile {
     #[serde(default, skip_serializing_if = "is_default")]
     pub task: Vec<ChompTaskMaybeTemplated>,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub template: Vec<ChompTemplate>,
-    #[serde(default, skip_serializing_if = "is_default")]
     pub template_options: HashMap<String, HashMap<String, toml::value::Value>>,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub batcher: Vec<Batcher>,
+    pub extensions: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
@@ -131,16 +129,4 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub run: Option<String>,
     pub template: Option<String>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
-}
-
-#[derive(Debug, Serialize, PartialEq, Deserialize)]
-pub struct ChompTemplate {
-    pub name: String,
-    pub definition: String,
-}
-
-#[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
-pub struct Batcher {
-    pub name: String,
-    pub batch: String,
 }

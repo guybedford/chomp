@@ -1,26 +1,39 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
+use crate::extensions::ExtensionEnvironment;
 use crate::task::expand_template_tasks;
 use crate::chompfile::Chompfile;
 use clap::{App, Arg};
 use anyhow::{Result, anyhow};
 use tokio::fs;
 use std::collections::HashMap;
-use crate::js::init_js_platform;
+use crate::extensions::init_js_platform;
 extern crate num_cpus;
+use hyper::Uri;
 
 // use crossterm::tty::IsTty;
 
 mod task;
 mod chompfile;
 mod engines;
+mod extensions;
+mod http_client;
 // mod ui;
 mod serve;
-mod js;
 
 use std::path::PathBuf;
 use std::env;
+
+fn uri_parse (uri_str: &str) -> Option<Uri> {
+    match uri_str.parse::<Uri>() {
+        Ok(uri) => match uri.scheme_str() {
+            Some(_) => Some(uri),
+            None => None,
+        },
+        Err(_) => None,
+    }
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -83,6 +96,12 @@ async fn main() -> Result<()> {
                 .help("Ejects templates into tasks saving the rewritten chompfile.toml")
         )
         .arg(
+            Arg::with_name("clear_cache")
+                .short("C")
+                .long("clear-cache")
+                .help("Clear URL extension cache"),
+        )
+        .arg(
             Arg::with_name("force")
                 .short("f")
                 .long("force")
@@ -120,22 +139,31 @@ async fn main() -> Result<()> {
 
     let chompfile_source = fs::read_to_string(&cfg_file).await?;
     let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
-    let original_template_len = chompfile.template.len();
-    let original_batcher_len = chompfile.batcher.len();
-    {
-        let mut default_chompfile: Chompfile = toml::from_str(include_str!("templates.toml")).unwrap();
-        for template in default_chompfile.template.drain(..) {
-            chompfile.template.push(template);
-        }
-        for batcher in default_chompfile.batcher.drain(..) {
-            chompfile.batcher.push(batcher);
-        }
-        if chompfile.version != 0.1 {
-            return Err(anyhow!(
-                "Invalid chompfile version {}, only 0.1 is supported",
-                chompfile.version
-            ));
-        }
+    if chompfile.version != 0.1 {
+        return Err(anyhow!(
+            "Invalid chompfile version {}, only 0.1 is supported",
+            chompfile.version
+        ));
+    }
+
+    if matches.is_present("clear_cache") {
+        println!("Clearing URL extension cache...");
+        http_client::clear_cache().await?;
+    }
+
+    init_js_platform();
+
+    let default_extension = include_str!("templates.js");
+    let mut extension_env = ExtensionEnvironment::new();
+    extension_env.add_extension(default_extension, "chomp:core-extensions")?;
+
+    http_client::prep_cache().await?;
+    for ext in &chompfile.extensions {
+        let extension_source = match uri_parse(ext) {
+            Some(uri) => http_client::fetch_uri_cached(&ext, uri).await?,
+            None => fs::read_to_string(&ext).await?,
+        };
+        extension_env.add_extension(&extension_source, &ext)?;
     }
 
     let mut serve_options = chompfile.server.clone();
@@ -161,26 +189,17 @@ async fn main() -> Result<()> {
     //     args.push(String::from(item));
     // }
 
-    let mut initialized_js = false;
     if matches.is_present("format") || matches.is_present("eject_templates") {
-        init_js_platform();
-        initialized_js = true;
         let mut global_env = HashMap::new();
         for (key, value) in env::vars() {
             global_env.insert(key.to_uppercase(), value);
         }
         global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
-        chompfile.task = expand_template_tasks(&chompfile, &global_env)?;
-        chompfile.template.truncate(original_template_len);
-        chompfile.batcher.truncate(original_batcher_len);
+        chompfile.task = expand_template_tasks(&chompfile, &mut extension_env, &global_env)?;
         fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
         if targets.len() == 0 {
             return Ok(());
         }
-    }
-
-    if !initialized_js {
-        init_js_platform();
     }
 
     let pool_size = match matches.value_of("jobs") {
@@ -188,7 +207,7 @@ async fn main() -> Result<()> {
         None => num_cpus::get(),
     };
 
-    let ok = task::run(&chompfile, task::RunOptions {
+    let ok = task::run(&chompfile, &mut extension_env, task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),
         force: matches.is_present("force"),
         // ui: &ui,
