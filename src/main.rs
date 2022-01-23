@@ -10,6 +10,7 @@ use tokio::fs;
 use std::collections::HashMap;
 use crate::extensions::init_js_platform;
 extern crate num_cpus;
+use hyper::Uri;
 
 // use crossterm::tty::IsTty;
 
@@ -17,6 +18,7 @@ mod task;
 mod chompfile;
 mod engines;
 mod extensions;
+mod http_client;
 // mod ui;
 mod serve;
 
@@ -135,7 +137,10 @@ async fn main() -> Result<()> {
     extension_env.add_extension(default_extension, "chomp:core-extensions")?;
 
     for ext in &chompfile.extensions {
-        let extension_source = fs::read_to_string(&ext).await?;
+        let extension_source = match ext.parse::<Uri>() {
+            Ok(uri) => http_client::fetch_uri_cached(&ext, uri).await?,
+            Err(_) => fs::read_to_string(&ext).await?,
+        };
         extension_env.add_extension(&extension_source, &ext)?;
     }
 

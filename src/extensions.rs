@@ -85,6 +85,10 @@ impl ExtensionEnvironment {
             let chomp_val = v8::Object::new(scope);
             global.set(scope, chomp_key.into(), chomp_val.into());
 
+            let version_key = v8::String::new(scope, "version").unwrap();
+            let version_str = v8::String::new(scope, "0.1").unwrap();
+            chomp_val.set(scope, version_key.into(), version_str.into());
+
             let tpl_fn = v8::FunctionTemplate::new(scope, chomp_register_template).get_function(scope).unwrap();
             let template_key = v8::String::new(scope, "registerTemplate").unwrap();
             chomp_val.set(scope, template_key.into(), tpl_fn.into());
