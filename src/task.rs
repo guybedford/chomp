@@ -1464,7 +1464,10 @@ impl<'a> Runner<'a> {
             };
 
             let job_num = match self.task_jobs.get(name) {
-                Some(&job_num) => job_num,
+                Some(&job_num) => {
+                    self.get_job_mut(job_num).unwrap().live = true;
+                    job_num
+                },
                 None => match self.file_nodes.get(name) {
                     Some(&job_num) => job_num,
                     None => {
@@ -1474,7 +1477,6 @@ impl<'a> Runner<'a> {
                 },
             };
 
-            self.get_job_mut(job_num).unwrap().live = true;
             self.drive_all(job_num, false, force, &mut futures, &mut queued, None)?;
         }
         if watcher.is_some() {

@@ -19,7 +19,6 @@ mod engines;
 mod extensions;
 // mod ui;
 mod serve;
-mod js;
 
 use std::path::PathBuf;
 use std::env;
@@ -120,12 +119,6 @@ async fn main() -> Result<()> {
 
     let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
 
-    init_js_platform();
-
-    let default_extension = include_str!("templates.js");
-    let mut extension_env = ExtensionEnvironment::new();
-    extension_env.add_extension(default_extension, "chomp:core-extensions")?;
-
     let chompfile_source = fs::read_to_string(&cfg_file).await?;
     let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
     if chompfile.version != 0.1 {
@@ -133,6 +126,17 @@ async fn main() -> Result<()> {
             "Invalid chompfile version {}, only 0.1 is supported",
             chompfile.version
         ));
+    }
+
+    init_js_platform();
+
+    let default_extension = include_str!("templates.js");
+    let mut extension_env = ExtensionEnvironment::new();
+    extension_env.add_extension(default_extension, "chomp:core-extensions")?;
+
+    for ext in &chompfile.extensions {
+        let extension_source = fs::read_to_string(&ext).await?;
+        extension_env.add_extension(&extension_source, &ext)?;
     }
 
     let mut serve_options = chompfile.server.clone();

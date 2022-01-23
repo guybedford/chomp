@@ -29,6 +29,8 @@ pub struct Chompfile {
     pub task: Vec<ChompTaskMaybeTemplated>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub template_options: HashMap<String, HashMap<String, toml::value::Value>>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub extensions: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
