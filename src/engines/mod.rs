@@ -9,8 +9,7 @@ use crate::engines::node::node_runner;
 use crate::js::run_js_batcher;
 use crate::task::check_target_mtimes;
 use anyhow::Error;
-use async_std::process::Child;
-use async_std::process::ExitStatus;
+use tokio::process::Child;
 use cmd::create_cmd;
 use futures::future::{Future, FutureExt};
 use serde::{Deserialize, Serialize};
@@ -21,6 +20,7 @@ use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::time::sleep;
+use futures::executor;
 
 pub struct CmdPool {
     cmd_num: usize,
@@ -56,17 +56,21 @@ pub struct BatchCmd {
     pub ids: Vec<usize>,
 }
 
-enum ExecState {
+#[derive(Debug, Clone, Copy)]
+pub enum ExecState {
     Executing,
     Completed,
     Failed,
+    Terminating,
+    Terminated,
 }
 
-struct Exec {
+#[derive(Debug)]
+pub struct Exec {
     cmd: BatchCmd,
     child: Child,
     state: ExecState,
-    future: Shared<Pin<Box<dyn Future<Output = (ExitStatus, Option<Duration>, Duration)>>>>
+    future: Shared<Pin<Box<dyn Future<Output = (ExecState, Option<Duration>, Duration)>>>>
 }
 
 impl CmdPool {
@@ -87,10 +91,19 @@ impl CmdPool {
         }
     }
 
+    pub fn terminate (&mut self, cmd_num: usize) {
+        let exec_num = self.cmd_execs.get(&cmd_num).unwrap();
+        let exec = &mut self.execs.get_mut(&exec_num).unwrap();
+        if matches!(exec.state, ExecState::Executing) {
+            exec.state = ExecState::Terminating;
+            executor::block_on(exec.child.kill()).expect("Unable to terminate process");
+        }
+    }
+
     pub fn get_exec_future(
         &mut self,
         cmd_num: usize,
-    ) -> Pin<Box<dyn Future<Output = Result<(ExitStatus, Option<Duration>, Duration), Rc<Error>>>>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(ExecState, Option<Duration>, Duration), Rc<Error>>>>> {
         let pool = self as *mut CmdPool;
         async move {
             let this = unsafe { &mut *pool };
@@ -197,8 +210,7 @@ impl CmdPool {
 
         let pool = self as *mut CmdPool;
 
-        // let pool = self as *mut CmdPool;
-        let (child, future) = match cmd.engine {
+        match cmd.engine {
             ChompEngine::Cmd => {
                 let start_time = Instant::now();
                 self.exec_cnt = self.exec_cnt + 1;
@@ -206,22 +218,31 @@ impl CmdPool {
                 let future = async move {
                     let this = unsafe { &mut *pool };
                     let mut exec = &mut this.execs.get_mut(&exec_num).unwrap();
-                    let status = exec.child.status().await.expect("Child process error");
-                    exec.state = if status.success() { ExecState::Completed } else { ExecState::Failed };
+                    exec.state = match exec.child.wait().await {
+                        Ok(status) => {
+                            if status.success() {
+                                ExecState::Completed
+                            } else {
+                                ExecState::Failed
+                            }
+                        },
+                        Err(e) => match exec.state {
+                            ExecState::Terminating => ExecState::Terminated,
+                            _ => panic!("Unexpected exec error {:?}", e)
+                        }
+                    };
                     let end_time = Instant::now();
                     this.exec_cnt = this.exec_cnt - 1;
                     // finally we verify that the targets exist
-                    let mtime = check_target_mtimes(targets).await;
-                    (status, mtime, end_time - start_time)
+                    let mtime = check_target_mtimes(targets, true).await;
+                    (exec.state, mtime, end_time - start_time)
                 }
                 .boxed_local().shared();
-                (child, future)
+                self.execs.insert(exec_num, Exec { cmd, child, future, state: ExecState::Executing });
+                self.exec_num = self.exec_num + 1;
             }
-            ChompEngine::Node => node_runner(self, &mut cmd, targets, debug),
+            ChompEngine::Node => node_runner(self, cmd, targets, debug),
         };
-
-        self.execs.insert(exec_num, Exec { cmd, child, future, state: ExecState::Executing });
-        self.exec_num = self.exec_num + 1;
     }
 
     pub fn batch(

@@ -1,3 +1,4 @@
+use std::path::Path;
 use futures::future::Shared;
 use std::collections::BTreeMap;
 use crate::chompfile::ChompTaskMaybeTemplated;
@@ -6,7 +7,6 @@ use crate::chompfile::{
 };
 use crate::engines::CmdPool;
 // use crate::ui::ChompUI;
-use async_std::path::Path;
 use futures::future::{select_all, Future, FutureExt};
 use notify::DebouncedEvent;
 use notify::RecommendedWatcher;
@@ -17,7 +17,6 @@ use std::io::ErrorKind::NotFound;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_recursion::async_recursion;
-use async_std::fs;
 use capturing_glob::glob;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -28,6 +27,9 @@ use convert_case::{Case, Casing};
 use std::env;
 use derivative::Derivative;
 use futures::executor;
+use tokio::time;
+use tokio::fs;
+use crate::engines::{ExecState};
 
 use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
@@ -57,11 +59,13 @@ pub struct RunOptions {
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
 enum JobState {
+    Sentinel,
     Uninitialized,
     Initialized,
     Checking,
     Pending,
     Running,
+    Terminating,
     Fresh,
     Failed,
 }
@@ -246,16 +250,14 @@ impl QueuedStateTransitions {
     }
 }
 
-impl Default for QueuedStateTransitions {
-    fn default() -> Self {
-        QueuedStateTransitions::new()
-    }
-}
-
 // None = NotFound
-pub async fn check_target_mtimes(targets: Vec<String>) -> Option<Duration> {
+pub async fn check_target_mtimes(targets: Vec<String>, default_latest: bool) -> Option<Duration> {
     if targets.len() == 0 {
-        return Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
+        if default_latest {
+            return Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap());
+        } else {
+            return None;
+        }
     }
     let mut futures = Vec::new();
     for target in &targets {
@@ -714,68 +716,67 @@ impl<'a> Runner<'a> {
             }
         }
         // If we have an mtime, check if we need to do work
-        if job.targets.len() > 0 {
-            if let Some(mtime) = job.mtime {
-                let can_skip = match task.invalidation {
-                    InvalidationCheck::NotFound => true,
-                    InvalidationCheck::Always => false,
-                    InvalidationCheck::Mtime => {
-                        let mut dep_change = false;
-                        for &dep in job.deps.iter() {
-                            dep_change = match &self.nodes[dep] {
-                                Node::Job(dep) => {
-                                    let invalidated = match dep.mtime {
-                                        Some(dep_mtime) => match &self.tasks[dep.task].invalidation
-                                        {
-                                            InvalidationCheck::NotFound => false,
-                                            InvalidationCheck::Always
-                                            | InvalidationCheck::Mtime => {
-                                                dep_mtime > mtime || force
-                                            }
-                                        },
-                                        None => true,
-                                    };
-                                    if invalidated
-                                        && !force
-                                        && (job.display || self.chompfile.debug)
+        if let Some(mtime) = job.mtime {
+            let can_skip = match task.invalidation {
+                InvalidationCheck::NotFound => true,
+                InvalidationCheck::Always => false,
+                InvalidationCheck::Mtime => {
+                    let mut dep_change = false;
+                    for &dep in job.deps.iter() {
+                        dep_change = match &self.nodes[dep] {
+                            Node::Job(dep) => {
+                                println!("DEP {:?}", dep.mtime);
+                                let invalidated = match dep.mtime {
+                                    Some(dep_mtime) => match &self.tasks[dep.task].invalidation
                                     {
-                                        println!(
-                                            "  {} invalidated by {}.",
-                                            job.display_name(self),
-                                            dep.display_name(self)
-                                        );
-                                    }
-                                    invalidated
+                                        InvalidationCheck::NotFound => false,
+                                        InvalidationCheck::Always
+                                        | InvalidationCheck::Mtime => {
+                                            dep_mtime > mtime || force
+                                        }
+                                    },
+                                    None => true,
+                                };
+                                if invalidated
+                                    && !force
+                                    && (job.display || self.chompfile.debug)
+                                {
+                                    println!(
+                                        "  {} invalidated by {}.",
+                                        job.display_name(self),
+                                        dep.display_name(self)
+                                    );
                                 }
-                                Node::File(dep) => {
-                                    let invalidated = match dep.mtime {
-                                        Some(dep_mtime) => dep_mtime > mtime || force,
-                                        None => true,
-                                    };
-                                    if invalidated
-                                        && !force
-                                        && (job.display || self.chompfile.debug)
-                                    {
-                                        println!(
-                                            "  {} invalidated by {}",
-                                            job.display_name(self),
-                                            dep.name
-                                        );
-                                    }
-                                    invalidated
-                                }
-                            };
-                            if dep_change {
-                                break;
+                                invalidated
                             }
+                            Node::File(dep) => {
+                                let invalidated = match dep.mtime {
+                                    Some(dep_mtime) => dep_mtime > mtime || force,
+                                    None => true,
+                                };
+                                if invalidated
+                                    && !force
+                                    && (job.display || self.chompfile.debug)
+                                {
+                                    println!(
+                                        "  {} invalidated by {}",
+                                        job.display_name(self),
+                                        dep.name
+                                    );
+                                }
+                                invalidated
+                            }
+                        };
+                        if dep_change {
+                            break;
                         }
-                        !dep_change
                     }
-                };
-                if can_skip {
-                    self.mark_complete(job_num, None, None, false);
-                    return None;
+                    !dep_change
                 }
+            };
+            if can_skip {
+                self.mark_complete(job_num, None, None, false);
+                return None;
             }
         }
 
@@ -886,8 +887,12 @@ impl<'a> Runner<'a> {
                         job.parents.push(parent);
                     }
                 }
-                if !job.live {
-                    return Ok(JobOrFileState::Job(job.state));
+                if parent.is_none() {
+                    if !job.live {
+                        return Ok(JobOrFileState::Job(job.state));
+                    }
+                } else {
+                    job.live = true;
                 }
                 if invalidation {
                     match job.state {
@@ -895,18 +900,22 @@ impl<'a> Runner<'a> {
                             job.state = JobState::Pending;
                         }
                         JobState::Running => {
-                            return Ok(JobOrFileState::Job(JobState::Running));
+                            if let Some(cmd_num) = job.cmd_num {
+                                self.cmd_pool.terminate(cmd_num);
+                            }
+                            job.mtime = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap() - Duration::from_secs(1));
+                            job.state = JobState::Terminating;
                         }
                         _ => {}
                     }
                 }
                 match job.state {
-                    JobState::Uninitialized => {
+                    JobState::Sentinel | JobState::Uninitialized => {
                         panic!("Unexpected uninitialized job {}", job_num);
-                    }
+                    },
                     JobState::Initialized => {
                         let targets = job.targets.clone();
-                        let mtime_future = async { check_target_mtimes(targets).await }.boxed_local().shared();
+                        let mtime_future = async { check_target_mtimes(targets, false).await }.boxed_local().shared();
                         job.mtime_future = Some(mtime_future.clone());
                         job.state = JobState::Checking;
                         let transition = queued
@@ -941,7 +950,6 @@ impl<'a> Runner<'a> {
                         let serial = job.serial;
                         let deps = job.deps.clone();
 
-                        // TODO: Use a driver counter for deps
                         for dep in deps {
                             let dep_state =
                                 self.drive_all(dep, false, force, futures, queued, Some(job_num))?;
@@ -984,7 +992,7 @@ impl<'a> Runner<'a> {
                                     match queued.insert_job(job_num, JobState::Running) {
                                         Some(_) => futures.push(future),
                                         None => {}
-                                    }
+                                    };
                                     Ok(JobOrFileState::Job(JobState::Running))
                                 }
                                 None => {
@@ -1016,6 +1024,7 @@ impl<'a> Runner<'a> {
                         }
                         Ok(JobOrFileState::Job(JobState::Running))
                     }
+                    JobState::Terminating => Ok(JobOrFileState::Job(JobState::Terminating)),
                     JobState::Failed => Ok(JobOrFileState::Job(JobState::Failed)),
                     JobState::Fresh => Ok(JobOrFileState::Job(JobState::Fresh)),
                 }
@@ -1092,6 +1101,7 @@ impl<'a> Runner<'a> {
         futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
         queued: &mut QueuedStateTransitions,
     ) -> Result<()> {
+        queued.state_transitions.remove(&transition);
         // drives the completion of a state transition to subsequent transitions
         let job_num = transition.job_num;
         match transition.state {
@@ -1115,8 +1125,24 @@ impl<'a> Runner<'a> {
                         Ok(result) => result,
                         Err(err) => return Err(anyhow!("Exec error: {:?}", err)),
                     };
-                    let success = status.success() && mtime.is_some();
-                    self.mark_complete(job_num, mtime, Some(cmd_time), !success);
+                    match status {
+                        ExecState::Completed => {
+                            self.mark_complete(job_num, mtime, Some(cmd_time), mtime.is_none());
+                        },
+                        ExecState::Failed => {
+                            self.mark_complete(job_num, mtime, Some(cmd_time), true);
+                        },
+                        ExecState::Terminated => {
+                            let job = self.get_job_mut(job_num).unwrap();
+                            if matches!(job.state, JobState::Terminating) {
+                                job.state = JobState::Pending;
+                                self.drive_all(job_num, invalidation, force, futures, queued, None)?;
+                            } else {
+                                panic!("Unexpected termination transition");
+                            }
+                        },
+                        _ => panic!("Unexpected promise exec state")
+                    };
                 }
                 let job = self.get_job(job_num).unwrap();
                 if matches!(job.state, JobState::Fresh | JobState::Failed) {
@@ -1256,7 +1282,6 @@ impl<'a> Runner<'a> {
 
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
-                job.live = true;
                 if !matches!(job.state, JobState::Uninitialized) {
                     if let Some(parent) = parent {
                         job.parents.push(parent);
@@ -1409,7 +1434,6 @@ impl<'a> Runner<'a> {
         job.deps.push(dep_num);
         // just because an interpolate is expanded, does not mean it is live
         job.state = JobState::Initialized;
-        job.live = true;
 
         for parent_target in targets {
             job.targets.push(parent_target.replace("#", interpolate));
@@ -1429,7 +1453,7 @@ impl<'a> Runner<'a> {
     }
 
     // find the job for the target, and drive its completion
-    async fn drive_targets(&mut self, targets: &Vec<String>, force: bool) -> Result<()> {
+    async fn drive_targets(&mut self, targets: &Vec<String>, force: bool, watcher: Option<&Receiver<DebouncedEvent>>) -> Result<()> {
         let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition>>>> =
             Vec::new();
 
@@ -1463,19 +1487,43 @@ impl<'a> Runner<'a> {
                 },
             };
 
+            self.get_job_mut(job_num).unwrap().live = true;
             self.drive_all(job_num, false, force, &mut futures, &mut queued, None)?;
         }
-
+        if watcher.is_some() {
+            futures.push(Runner::watcher_interval().boxed_local());
+        }
         while futures.len() > 0 {
             let (transition, _idx, new_futures) = select_all(futures).await;
             futures = new_futures;
-            self.drive_completion(transition, false, force, &mut futures, &mut queued)?;
+            match transition.state {
+                // Sentinel value used to enforce watcher task looping
+                JobOrFileState::Job(JobState::Sentinel) => {
+                    let mut blocking = futures.len() == 0;
+                    while self.check_watcher(watcher.unwrap(), &mut futures, &mut queued, blocking)? {
+                        blocking = futures.len() == 0;
+                    }
+                    futures.push(Runner::watcher_interval().boxed_local());
+                },
+                // Terminating transition must not drive completion
+                JobOrFileState::Job(JobState::Terminating) => {},
+                _ => {
+                    self.drive_completion(transition, false, false, &mut futures, &mut queued)?;
+                }
+            }
         }
-
         Ok(())
     }
 
-    async fn check_watcher(
+    async fn watcher_interval() -> StateTransition {
+        time::sleep(Duration::from_millis(50)).await;
+        StateTransition {
+            job_num: 0,
+            state: JobOrFileState::Job(JobState::Sentinel)
+        }
+    }
+
+    fn check_watcher(
         &mut self,
         rx: &Receiver<DebouncedEvent>,
         futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition>>>>,
@@ -1512,31 +1560,26 @@ impl<'a> Runner<'a> {
     }
 }
 
-async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent>) -> Result<()> {
-    loop {
-        let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition>>>> =
-            Vec::new();
-        let mut queued = QueuedStateTransitions::new();
-        if runner
-            .check_watcher(&rx, &mut futures, &mut queued, true)
-            .await?
-        {
-            loop {
-                while runner
-                    .check_watcher(&rx, &mut futures, &mut queued, false)
-                    .await?
-                {}
-                if futures.len() == 0 {
-                    break;
-                }
-                let (transition, _idx, new_futures) = select_all(futures).await;
-                futures = new_futures;
-                runner.drive_completion(transition, true, false, &mut futures, &mut queued)?;
-            }
-            // println!("Watching...");
-        }
-    }
-}
+// async fn drive_watcher<'a>(runner: &mut Runner<'a>, rx: &Receiver<DebouncedEvent>) -> Result<()> {
+//     loop {
+//         let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition>>>> =
+//             Vec::new();
+//         let mut queued = QueuedStateTransitions::new();
+//         if runner.check_watcher(&rx, &mut futures, &mut queued, true)?
+//         {
+//             loop {
+//                 while runner.check_watcher(&rx, &mut futures, &mut queued, false)? {}
+//                 if futures.len() == 0 {
+//                     break;
+//                 }
+//                 let (transition, _idx, new_futures) = select_all(futures).await;
+//                 futures = new_futures;
+//                 runner.drive_completion(transition, true, false, &mut futures, &mut queued)?;
+//             }
+//             // println!("Watching...");
+//         }
+//     }
+// }
 
 pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions) -> Result<bool> {
     let mut runner = Runner::new(&chompfile, opts.pool_size, &opts.cwd, opts.watch)?;
@@ -1567,14 +1610,8 @@ pub async fn run<'a>(chompfile: &Chompfile, opts: RunOptions) -> Result<bool> {
     }
 
     runner
-        .drive_targets(&normalized_targets, opts.force)
+        .drive_targets(&normalized_targets, opts.force, if opts.watch { Some(&rx) } else { None })
         .await?;
-
-    // block on watcher if watching
-    if opts.watch {
-        println!("Watching for changes...");
-        drive_watcher(&mut runner, &rx).await?;
-    }
 
     // if all targets completed successfully, exit code is 0, otherwise its an error
     let mut all_ok = true;
