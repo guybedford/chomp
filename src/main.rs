@@ -5,7 +5,7 @@ use crate::task::expand_template_tasks;
 use crate::chompfile::Chompfile;
 use clap::{App, Arg};
 use anyhow::{Result, anyhow};
-use async_std::fs;
+use tokio::fs;
 use std::collections::HashMap;
 use crate::js::init_js_platform;
 extern crate num_cpus;
@@ -22,7 +22,7 @@ mod js;
 use std::path::PathBuf;
 use std::env;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let matches = App::new("Chomp")
         .version("0.1.0")

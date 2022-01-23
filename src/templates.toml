@@ -1,4 +1,4 @@
-version = 0.1
+﻿version = 0.1
 [[template]]
 name = "babel"
 definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }, { CHOMP_EJECT }) => {
