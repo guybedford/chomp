@@ -36,6 +36,25 @@ pub fn init_js_platform() {
     v8::V8::initialize();
 }
 
+fn chomp_log(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _rv: v8::ReturnValue,
+) {
+    let mut msg = String::new();
+    let len = args.length();
+    let mut i = 0;
+    while i < len {
+        let arg = args.get(i).to_string(scope).unwrap();
+        if i > 0 {
+            msg.push_str(", ");
+        }
+        msg.push_str(&arg.to_rust_string_lossy(scope));
+        i = i + 1;
+    }
+    println!("{}", &msg);
+}
+
 fn chomp_register_template(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -84,6 +103,14 @@ impl ExtensionEnvironment {
             let chomp_key = v8::String::new(scope, "Chomp").unwrap();
             let chomp_val = v8::Object::new(scope);
             global.set(scope, chomp_key.into(), chomp_val.into());
+
+            let console_key = v8::String::new(scope, "console").unwrap();
+            let console_val = v8::Object::new(scope);
+            global.set(scope, console_key.into(), console_val.into());
+
+            let log_fn = v8::FunctionTemplate::new(scope, chomp_log).get_function(scope).unwrap();
+            let log_key = v8::String::new(scope, "log").unwrap();
+            console_val.set(scope, log_key.into(), log_fn.into());
 
             let version_key = v8::String::new(scope, "version").unwrap();
             let version_str = v8::String::new(scope, "0.1").unwrap();
@@ -146,6 +173,42 @@ impl ExtensionEnvironment {
         Ok(())
     }
 
+    pub fn run_template(
+        &mut self,
+        name: &str,
+        task: &ChompTaskMaybeTemplatedNoDefault,
+        global_env: &HashMap<String, String>,
+    ) -> Result<Vec<ChompTaskMaybeTemplatedNoDefault>> {
+        let template = {
+            let extensions = self.get_extensions().borrow();
+            extensions.templates[name].clone()
+        };
+        let cb = template.open(&mut self.isolate);
+
+        let mut handle_scope = self.handle_scope();
+        let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
+        let len_key = v8::String::new(tc_scope, "length").unwrap().into();
+
+        let len: v8::Local<v8::Number> = cb.get(tc_scope, len_key).unwrap().try_into().unwrap();
+        let this = v8::undefined(tc_scope).into();
+        let args: Vec<v8::Local<v8::Value>> = if len.uint32_value(tc_scope).unwrap() == 2 {
+            vec![
+                to_v8(tc_scope, task).expect("Unable to serialize template params"),
+                to_v8(tc_scope, global_env).expect("Unable to serialize global env"),
+            ]
+        } else {
+            vec![to_v8(tc_scope, task).expect("Unable to serialize template params")]
+        };
+        let result = match cb.call(tc_scope, this, args.as_slice()) {
+            Some(result) => result,
+            None => return Err(v8_exception(tc_scope)),
+        };
+        let task: Vec<ChompTaskMaybeTemplatedNoDefault> = from_v8(tc_scope, result)
+            .expect("Unable to deserialize template task list due to invalid structure");
+        println!("DONE TEMPLATE");
+        Ok(task)
+    }
+
     pub fn run_batcher(
         &mut self,
         idx: usize,
@@ -185,43 +248,6 @@ impl ExtensionEnvironment {
         };
         Ok((result, next))
     }
-
-    pub fn run_template(
-        &mut self,
-        name: &str,
-        task: &ChompTaskMaybeTemplatedNoDefault,
-        global_env: &HashMap<String, String>,
-    ) -> Result<Vec<ChompTaskMaybeTemplatedNoDefault>> {
-        let template = {
-            let extensions = self.get_extensions().borrow();
-            extensions.templates[name].clone()
-        };
-        let cb = template.open(&mut self.isolate);
-
-        let mut handle_scope = self.handle_scope();
-        let context = v8::Context::new(&mut handle_scope);
-        let scope = &mut v8::ContextScope::new(&mut handle_scope, context);
-        let tc_scope = &mut v8::TryCatch::new(scope);
-        let len_key = v8::String::new(tc_scope, "length").unwrap().into();
-
-        let len: v8::Local<v8::Number> = cb.get(tc_scope, len_key).unwrap().try_into().unwrap();
-        let this = v8::undefined(tc_scope).into();
-        let args: Vec<v8::Local<v8::Value>> = if len.uint32_value(tc_scope).unwrap() == 2 {
-            vec![
-                to_v8(tc_scope, task).expect("Unable to serialize template params"),
-                to_v8(tc_scope, global_env).expect("Unable to serialize global env"),
-            ]
-        } else {
-            vec![to_v8(tc_scope, task).expect("Unable to serialize template params")]
-        };
-        let result = match cb.call(tc_scope, this, args.as_slice()) {
-            Some(result) => result,
-            None => return Err(v8_exception(tc_scope)),
-        };
-        let task: Vec<ChompTaskMaybeTemplatedNoDefault> = from_v8(tc_scope, result)
-            .expect("Unable to deserialize template task list due to invalid structure");
-        Ok(task)
-    }
 }
 
 fn v8_exception<'a>(scope: &mut v8::TryCatch<v8::HandleScope>) -> Error {
@@ -232,7 +258,18 @@ fn v8_exception<'a>(scope: &mut v8::TryCatch<v8::HandleScope>) -> Error {
         let stack = get_property(scope, exception, "stack");
         let stack: Option<v8::Local<v8::String>> = stack.and_then(|s| s.try_into().ok());
         let stack = stack.map(|s| s.to_rust_string_lossy(scope));
-        anyhow!("JS error: {}", stack.unwrap())
+        let err_str = stack.unwrap();
+        if err_str.starts_with("Error: ") {
+            anyhow!("{}", &err_str[7..])
+        } else if err_str.starts_with("TypeError: ") {
+            anyhow!("TypeError {}", &err_str[11..])
+        } else if err_str.starts_with("SyntaxError: ") {
+            anyhow!("SyntaxError {}", &err_str[13..])
+        } else if err_str.starts_with("ReferenceError: ") {
+            anyhow!("ReferenceError {}", &err_str[16..])
+        } else {
+            anyhow!("{}", &err_str)
+        }
     } else {
         anyhow!("JS error: {}", exception.to_rust_string_lossy(scope))
     }
@@ -262,9 +299,7 @@ fn is_instance_of_error<'s>(scope: &mut v8::HandleScope<'s>, value: v8::Local<v8
         if prototype.strict_equals(error_prototype) {
             return true;
         }
-        maybe_prototype = prototype
-            .to_object(scope)
-            .and_then(|o| o.get_prototype(scope));
+        maybe_prototype = prototype.to_object(scope).and_then(|o| o.get_prototype(scope));
     }
     false
 }

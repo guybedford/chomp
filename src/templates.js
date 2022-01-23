@@ -1,5 +1,7 @@
 ﻿
-Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid babel template option "${Object.keys(invalid)[0]}"`);
   const defaultConfig = {};
   return [{
     name,
@@ -52,7 +54,9 @@ Chomp.registerBatcher('babel', function (batch, _running) {
   }
   return [[], [], run_completions];
 });
-Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP_EJECT }) {
+Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, install, ...invalid } }, { PATH, CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid cargo template option "${Object.keys(invalid)[0]}"`);
   const sep = PATH.match(/\\|\//)[0];
   return CHOMP_EJECT ? [] : [{
     name: `cargo:${bin}`,
@@ -119,7 +123,11 @@ ${isImportMapTarget ? `
     }
   }]];
 });
-Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid npm template option "${Object.keys(invalid)[0]}"`);
+  if (!packages)
+    throw new Error('npm template requires the "packages" option to be a list of packages to install.');
   return CHOMP_EJECT ? [] : autoInstall ? [{
     name,
     deps: [...deps, ...packages.map(pkg => {
@@ -218,7 +226,9 @@ Chomp.registerBatcher('npm', function (batch, running) {
     return { packages, isDev };
   }
 });
-Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid prettier template option "${Object.keys(invalid)[0]}"`);
   return [{
     name,
     targets,
@@ -243,7 +253,9 @@ Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templat
     }
   }]];
 });
-Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid svelte template option "${Object.keys(invalid)[0]}"`);
   return [{
     name,
     targets,
@@ -286,7 +298,9 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
     }
   }]];
 });
-Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, { PATH, CHOMP_EJECT }) {
+Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }, { PATH, CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid swc template option "${Object.keys(invalid)[0]}"`);
   const isWin = PATH.match(/\\|\//)[0] !== '/';
   const defaultConfig = {
     jsc: {

@@ -1,4 +1,6 @@
-Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid svelte template option "${Object.keys(invalid)[0]}"`);
   return [{
     name,
     targets,
