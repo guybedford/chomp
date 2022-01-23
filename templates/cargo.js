@@ -1,4 +1,6 @@
-Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, install } }, { PATH, CHOMP_EJECT }) {
+Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, install, ...invalid } }, { PATH, CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid cargo template option "${Object.keys(invalid)[0]}"`);
   const sep = PATH.match(/\\|\//)[0];
   return CHOMP_EJECT ? [] : [{
     name: `cargo:${bin}`,

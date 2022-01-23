@@ -1,4 +1,8 @@
-Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid npm template option "${Object.keys(invalid)[0]}"`);
+  if (!packages)
+    throw new Error('npm template requires the "packages" option to be a list of packages to install.');
   return CHOMP_EJECT ? [] : autoInstall ? [{
     name,
     deps: [...deps, ...packages.map(pkg => {

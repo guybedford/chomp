@@ -1,4 +1,6 @@
-Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall } }, { PATH, CHOMP_EJECT }) {
+Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }, { PATH, CHOMP_EJECT }) {
+  if (Object.keys(invalid).length)
+    throw new Error(`Invalid swc template option "${Object.keys(invalid)[0]}"`);
   const isWin = PATH.match(/\\|\//)[0] !== '/';
   const defaultConfig = {
     jsc: {
