@@ -205,7 +205,6 @@ impl ExtensionEnvironment {
         };
         let task: Vec<ChompTaskMaybeTemplatedNoDefault> = from_v8(tc_scope, result)
             .expect("Unable to deserialize template task list due to invalid structure");
-        println!("DONE TEMPLATE");
         Ok(task)
     }
 
