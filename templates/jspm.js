@@ -1,6 +1,4 @@
-[[template]]
-name = "jspm"
-definition = """({ name, targets, deps, env, templateOptions: {
+Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOptions: {
   autoInstall,
   env: generatorEnv = ['browser', 'production', 'module'],
   preload,
@@ -8,7 +6,7 @@ definition = """({ name, targets, deps, env, templateOptions: {
   whitespace,
   esModuleShims,
   ...generateOpts
-} }, { CHOMP_EJECT }) => {
+} }, { CHOMP_EJECT }) {
   const mainTarget = targets.find(target => target.includes('#')) || targets[0];
   const isImportMapTarget = mainTarget && mainTarget.endsWith('.importmap');
   const { resolutions } = generateOpts;
@@ -28,9 +26,9 @@ definition = """({ name, targets, deps, env, templateOptions: {
 
     const generator = new Generator({
       mapUrl: ${isImportMapTarget ? 'import.meta.url' : 'pathToFileURL(process.env.TARGET)'}${
-        resolutions && !isImportMapTarget && Object.values(resolutions).some(v => v.startsWith('./') || v.startsWith('../')) ? ',\\n      baseUrl: import.meta.url' : ''
+        resolutions && !isImportMapTarget && Object.values(resolutions).some(v => v.startsWith('./') || v.startsWith('../')) ? ',\n      baseUrl: new URL(\'.\', import.meta.url)' : ''
       },\n      env: ${JSON.stringify(generatorEnv).replace(/","/g, '", "')}${
-        Object.keys(generateOpts).length ? ',\\n      ' + JSON.stringify(generateOpts, null, 2).slice(4, -2).replace(/\\n/g, `\\n    `) : ''
+        Object.keys(generateOpts).length ? ',\n      ' + JSON.stringify(generateOpts, null, 2).slice(4, -2).replace(/\n/g, `\n    `) : ''
       }
     });
 ${isImportMapTarget ? `
@@ -54,5 +52,4 @@ ${isImportMapTarget ? `
       dev: true
     }
   }]];
-}
-"""
+});

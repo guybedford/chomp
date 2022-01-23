@@ -1,12 +1,11 @@
 mod cmd;
 mod node;
 
+use crate::ExtensionEnvironment;
 use std::rc::Rc;
 use futures::future::Shared;
-use crate::chompfile::Batcher;
 use crate::chompfile::ChompEngine;
 use crate::engines::node::node_runner;
-use crate::js::run_js_batcher;
 use crate::task::check_target_mtimes;
 use anyhow::Error;
 use tokio::process::Child;
@@ -22,18 +21,18 @@ use std::time::Instant;
 use tokio::time::sleep;
 use futures::executor;
 
-pub struct CmdPool {
+pub struct CmdPool<'a> {
     cmd_num: usize,
+    pub extension_env: &'a mut ExtensionEnvironment,
     cmds: BTreeMap<usize, CmdOp>,
     exec_num: usize,
-    execs: BTreeMap<usize, Exec>,
+    execs: BTreeMap<usize, Exec<'a>>,
     exec_cnt: usize,
     batching: BTreeSet<usize>,
     cmd_execs: BTreeMap<usize, usize>,
     cwd: String,
     pool_size: usize,
-    batchers: Vec<Batcher>,
-    batch_future: Option<Shared<Pin<Box<dyn Future<Output = Result<(), Rc<Error>>>>>>>,
+    batch_future: Option<Shared<Pin<Box<dyn Future<Output = Result<(), Rc<Error>>> + 'a>>>>,
     debug: bool,
 }
 
@@ -66,15 +65,15 @@ pub enum ExecState {
 }
 
 #[derive(Debug)]
-pub struct Exec {
+pub struct Exec<'a> {
     cmd: BatchCmd,
     child: Child,
     state: ExecState,
-    future: Shared<Pin<Box<dyn Future<Output = (ExecState, Option<Duration>, Duration)>>>>
+    future: Shared<Pin<Box<dyn Future<Output = (ExecState, Option<Duration>, Duration)> + 'a>>>
 }
 
-impl CmdPool {
-    pub fn new(pool_size: usize, batchers: &Vec<Batcher>, cwd: String, debug: bool) -> CmdPool {
+impl<'a> CmdPool<'a> {
+    pub fn new(pool_size: usize, extension_env: &'a mut ExtensionEnvironment, cwd: String, debug: bool) -> CmdPool {
         CmdPool {
             cmd_num: 0,
             cmds: BTreeMap::new(),
@@ -83,7 +82,7 @@ impl CmdPool {
             execs: BTreeMap::new(),
             pool_size,
             cwd,
-            batchers: batchers.clone(),
+            extension_env,
             batching: BTreeSet::new(),
             cmd_execs: BTreeMap::new(),
             batch_future: None,
@@ -103,7 +102,7 @@ impl CmdPool {
     pub fn get_exec_future(
         &mut self,
         cmd_num: usize,
-    ) -> Pin<Box<dyn Future<Output = Result<(ExecState, Option<Duration>, Duration), Rc<Error>>>>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(ExecState, Option<Duration>, Duration), Rc<Error>>> + 'a>> {
         let pool = self as *mut CmdPool;
         async move {
             let this = unsafe { &mut *pool };
@@ -141,13 +140,10 @@ impl CmdPool {
                 let running: HashSet<&BatchCmd> = this.execs.values().filter(|exec| matches!(&exec.state, ExecState::Executing)).map(|exec| &exec.cmd).collect();
                 let mut global_completion_map: Vec<(usize, usize)> = Vec::new();
                 let mut batched: Vec<BatchCmd> = Vec::new();
-                for batcher in &this.batchers {
-                    let (queued, mut exec, completion_map) = run_js_batcher(
-                        &batcher.batch,
-                        &batcher.name,
-                        &batch,
-                        &running,
-                    )?;
+
+                let mut batcher = 0;
+                'outer: loop {
+                    let ((queued, mut exec, completion_map), next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
                     for (cmd_num, exec_num) in completion_map {
                         batch.remove(&cmds[&cmd_num]);
                         this.batching.remove(&cmd_num);
@@ -163,6 +159,10 @@ impl CmdPool {
                         }
                         batched.push(cmd);
                     }
+                    match next {
+                        Some(num) => { batcher = num },
+                        None => { break 'outer },
+                    };
                 }
                 for (cmd_num, exec_num) in global_completion_map {
                     this.execs.get_mut(&exec_num).unwrap().cmd.ids.push(cmd_num);

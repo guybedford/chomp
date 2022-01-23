@@ -1,6 +1,4 @@
-[[template]]
-name = "babel"
-definition = """({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }, { CHOMP_EJECT }) => {
+Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall } }, { CHOMP_EJECT }) {
   const defaultConfig = {};
   return [{
     name,
@@ -23,7 +21,7 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
     display: false,
     invalidation: 'not-found',
     run: `
-      echo '\n\\x1b[93mChomp\\x1b[0m: Creating \\x1b[1m.babelrc\\x1b[0m (set \\x1b[1m"no-babel-rc = true"\\x1b[0m Babel template option to skip)\n'
+      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (set \x1b[1m"no-babel-rc = true"\x1b[0m Babel template option to skip)\n'
       echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
     `
   }, {
@@ -34,18 +32,14 @@ definition = """({ name, targets, deps, env, templateOptions: { presets = [], pl
       autoInstall
     }
   }]];
-}
-"""
+});
 
-# Batcher to ensure Babelrc log only appears once
-[[batcher]]
-name = "babel"
-batch = """(batch, running) => {
+Chomp.registerBatcher('babel', function (batch, _running) {
   const run_completions = {};
   let existingBabelRcInit = null;
-  for (const { id, run, engine, env } of batch) {
+  for (const { id, run, engine } of batch) {
     if (engine !== 'cmd' || !run.trimLeft().startsWith('echo ')) continue;
-    if (run.indexOf('Creating \\x1b[1m.babelrc\\x1b[0m') !== -1) {
+    if (run.indexOf('Creating \x1b[1m.babelrc\x1b[0m') !== -1) {
       if (existingBabelRcInit !== null) {
         run_completions[id] = existingBabelRcInit;  
       }
@@ -56,5 +50,4 @@ batch = """(batch, running) => {
     }
   }
   return [[], [], run_completions];
-}
-"""
+});
