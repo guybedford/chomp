@@ -1006,8 +1006,9 @@ impl<'a> Runner<'a> {
                                 JobOrFileState::Job(JobState::Failed)
                                 | JobOrFileState::File(FileState::NotFound) => {
                                     self.mark_complete(job_num, None, None, true);
+                                    let transition = queued.insert_job(job_num, JobState::Running, None).unwrap();
                                     self.drive_completion(
-                                        StateTransition::from_job(job_num, JobState::Running, None),
+                                        transition,
                                         force,
                                         futures,
                                         queued,
@@ -1041,8 +1042,9 @@ impl<'a> Runner<'a> {
                                     Ok(JobOrFileState::Job(JobState::Running))
                                 }
                                 None => {
+                                    let transition = queued.insert_job(job_num, JobState::Running, None).unwrap();
                                     self.drive_completion(
-                                        StateTransition::from_job(job_num, JobState::Running, None),
+                                        transition,
                                         force,
                                         futures,
                                         queued,
