@@ -35,7 +35,7 @@ fn uri_parse (uri_str: &str) -> Option<Uri> {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<()> {
     let matches = App::new("Chomp")
         .version("0.1.0")
