@@ -90,6 +90,8 @@ impl<'a> CmdPool<'a> {
     }
 
     pub fn terminate (&mut self, cmd_num: usize, name: &str) {
+        // Note: On Windows, terminating a process does not terminate
+        // the child processes, which can leave zombie processes behind
         println!("Terminating {}...", name);
         let exec_num = self.cmd_execs.get(&cmd_num).unwrap();
         let exec = &mut self.execs.get_mut(&exec_num).unwrap();
