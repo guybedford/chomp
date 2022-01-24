@@ -19,8 +19,6 @@ use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::time::sleep;
-use futures::executor;
-use std::thread;
 
 pub struct CmdPool<'a> {
     cmd_num: usize,
@@ -97,11 +95,8 @@ impl<'a> CmdPool<'a> {
         let exec = &mut self.execs.get_mut(&exec_num).unwrap();
         if matches!(exec.state, ExecState::Executing) {
             exec.state = ExecState::Terminating;
-            let mut child = exec.child.take().unwrap();
-            executor::block_on(child.kill()).expect("Unable to terminate process");
-            executor::block_on(child.wait_with_output()).expect("Unable to wait on exit");
-            thread::sleep(Duration::from_millis(500));
-            exec.child = None;
+            let child = exec.child.as_mut().unwrap();
+            child.start_kill().expect("Unable to terminate process");
         }
     }
 

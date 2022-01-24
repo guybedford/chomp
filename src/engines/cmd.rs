@@ -21,8 +21,9 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
 
 #[cfg(target_os = "windows")]
 pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
+    let run = batch_cmd.run.trim();
     if debug {
-        println!("RUN: {}", batch_cmd.run);
+        println!("RUN: {}", run);
     }
     lazy_static! {
         static ref CMD: Regex = Regex::new("(?x)
@@ -49,7 +50,7 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
     path.push_str(cwd);
     path += "\\node_modules\\.bin";
     // fast path for direct commands to skip the shell entirely
-    if let Some(capture) = CMD.captures(&batch_cmd.run) {
+    if let Some(capture) = CMD.captures(&run) {
         let mut cmd = String::from(&capture["cmd"]);
         let mut do_spawn = true;
         // Path-like must be exact
@@ -139,13 +140,13 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
             run_str.push_str(&format!("${}=\"{}\";", name, value));
         }
         run_str.push('\n');
-        run_str.push_str(&batch_cmd.run);
+        run_str.push_str(&run);
         command.arg(run_str);
     } else {
         command.arg("/d");
         // command.arg("/s");
         command.arg("/c");
-        command.arg(&batch_cmd.run);
+        command.arg(&run);
     }
     command.env("PATH", path);
     for (name, value) in &batch_cmd.env {
@@ -157,8 +158,9 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
 
 #[cfg(not(target_os = "windows"))]
 pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
+    let run = batch_cmd.run.trim();
     if debug {
-        println!("RUN: {}", batch_cmd.run);
+        println!("RUN: {}", run);
     }
     lazy_static! {
         static ref CMD: Regex = Regex::new("(?x)
@@ -185,7 +187,7 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
     path.push_str(cwd);
     path += "\\node_modules\\.bin";
     // fast path for direct commands to skip the shell entirely
-    if let Some(capture) = CMD.captures(&batch_cmd.run) {
+    if let Some(capture) = CMD.captures(&run) {
         let mut cmd = String::from(&capture["cmd"]);
         // Path-like must be exact
         if cmd.contains("/") {
@@ -232,7 +234,7 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
         command.env(name, value);
     }
     command.arg("-c");
-    command.arg(&batch_cmd.run);
+    command.arg(&run);
     command.stdin(Stdio::null());
     command.spawn().unwrap()
 }

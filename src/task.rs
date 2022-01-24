@@ -835,7 +835,7 @@ impl<'a> Runner<'a> {
             }
         }
 
-        let run: String = task.run.as_ref().unwrap().trim().to_string();
+        let run: String = task.run.as_ref().unwrap().to_string();
         let mut env = task.env.clone();
         if let Some(interpolate) = &job.interpolate {
             env.insert("MATCH".to_string(), interpolate.to_string());
