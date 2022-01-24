@@ -20,6 +20,7 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::time::sleep;
 use futures::executor;
+use std::thread;
 
 pub struct CmdPool<'a> {
     cmd_num: usize,
@@ -67,7 +68,7 @@ pub enum ExecState {
 #[derive(Debug)]
 pub struct Exec<'a> {
     cmd: BatchCmd,
-    child: Child,
+    child: Option<Child>,
     state: ExecState,
     future: Shared<Pin<Box<dyn Future<Output = (ExecState, Option<Duration>, Duration)> + 'a>>>
 }
@@ -90,12 +91,17 @@ impl<'a> CmdPool<'a> {
         }
     }
 
-    pub fn terminate (&mut self, cmd_num: usize) {
+    pub fn terminate (&mut self, cmd_num: usize, name: &str) {
+        println!("Terminating {}...", name);
         let exec_num = self.cmd_execs.get(&cmd_num).unwrap();
         let exec = &mut self.execs.get_mut(&exec_num).unwrap();
         if matches!(exec.state, ExecState::Executing) {
             exec.state = ExecState::Terminating;
-            executor::block_on(exec.child.kill()).expect("Unable to terminate process");
+            let mut child = exec.child.take().unwrap();
+            executor::block_on(child.kill()).expect("Unable to terminate process");
+            executor::block_on(child.wait_with_output()).expect("Unable to wait on exit");
+            thread::sleep(Duration::from_millis(500));
+            exec.child = None;
         }
     }
 
@@ -218,7 +224,7 @@ impl<'a> CmdPool<'a> {
                 let future = async move {
                     let this = unsafe { &mut *pool };
                     let mut exec = &mut this.execs.get_mut(&exec_num).unwrap();
-                    exec.state = match exec.child.wait().await {
+                    exec.state = match exec.child.as_mut().unwrap().wait().await {
                         Ok(status) => {
                             if status.success() {
                                 ExecState::Completed
@@ -238,7 +244,7 @@ impl<'a> CmdPool<'a> {
                     (exec.state, mtime, end_time - start_time)
                 }
                 .boxed_local().shared();
-                self.execs.insert(exec_num, Exec { cmd, child, future, state: ExecState::Executing });
+                self.execs.insert(exec_num, Exec { cmd, child: Some(child), future, state: ExecState::Executing });
                 self.exec_num = self.exec_num + 1;
             }
             ChompEngine::Node => node_runner(self, cmd, targets, debug),

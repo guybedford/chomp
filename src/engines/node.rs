@@ -39,7 +39,7 @@ pub fn node_runner(
     let cmd_pool = unsafe { &mut *pool };
     let mut exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();
     write_future.await.expect("unable to write temporary file");
-    exec.state = match exec.child.wait().await {
+    exec.state = match exec.child.as_mut().unwrap().wait().await {
       Ok(status) => {
           if status.success() {
               ExecState::Completed
@@ -60,7 +60,7 @@ pub fn node_runner(
     (exec.state, mtime, end_time - start_time)
   }.boxed_local().shared();
 
-  cmd_pool.execs.insert(exec_num, Exec { cmd, child, future, state: ExecState::Executing });
+  cmd_pool.execs.insert(exec_num, Exec { cmd, child: Some(child), future, state: ExecState::Executing });
   cmd_pool.exec_num = cmd_pool.exec_num + 1;
 
 }
