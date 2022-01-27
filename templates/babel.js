@@ -1,11 +1,11 @@
-Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, babelRc = false, configFile = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid babel template option "${Object.keys(invalid)[0]}"`);
   const defaultConfig = {};
   return [{
     name,
     targets,
-    deps: [...deps, ...noBabelRc || CHOMP_EJECT ? [] : ['.babelrc'], ...CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
+    deps: [...deps, ...!babelRc || CHOMP_EJECT ? [] : ['.babelrc'], ...CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
     env,
     run: `babel $DEP -o $TARGET${
         sourceMap ? ' --source-maps' : ''
@@ -14,16 +14,16 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
       }${
         presets.length ? ` --presets=${presets.join(',')}` : ''
       }${
-        noBabelRc ? ' --no-babelrc' : ''
+        !babelRc ? ' --no-babelrc' : ''
       }${
         configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
       }`
-  }, ...CHOMP_EJECT ? [] : [{
+  }, ...!babelRc || CHOMP_EJECT ? [] : [{
     target: '.babelrc',
     display: false,
     invalidation: 'not-found',
     run: `
-      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (set \x1b[1m"no-babel-rc = true"\x1b[0m Babel template option to skip)\n'
+      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (\x1b[1m"babel-rc = true"\x1b[0m Babel template option in use)\n'
       echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
     `
   }, {

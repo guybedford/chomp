@@ -1,12 +1,12 @@
 ﻿
-Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, noBabelRc = false, configFile = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, babelRc = false, configFile = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid babel template option "${Object.keys(invalid)[0]}"`);
   const defaultConfig = {};
   return [{
     name,
     targets,
-    deps: [...deps, ...noBabelRc || CHOMP_EJECT ? [] : ['.babelrc'], ...CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
+    deps: [...deps, ...!babelRc || CHOMP_EJECT ? [] : ['.babelrc'], ...CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
     env,
     run: `babel $DEP -o $TARGET${
         sourceMap ? ' --source-maps' : ''
@@ -15,16 +15,16 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
       }${
         presets.length ? ` --presets=${presets.join(',')}` : ''
       }${
-        noBabelRc ? ' --no-babelrc' : ''
+        !babelRc ? ' --no-babelrc' : ''
       }${
         configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
       }`
-  }, ...CHOMP_EJECT ? [] : [{
+  }, ...!babelRc || CHOMP_EJECT ? [] : [{
     target: '.babelrc',
     display: false,
     invalidation: 'not-found',
     run: `
-      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (set \x1b[1m"no-babel-rc = true"\x1b[0m Babel template option to skip)\n'
+      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (\x1b[1m"babel-rc = true"\x1b[0m Babel template option in use)\n'
       echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
     `
   }, {
@@ -298,7 +298,7 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
     }
   }]];
 });
-Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }, { PATH, CHOMP_EJECT }) {
+Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, swcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }, { PATH, CHOMP_EJECT }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid swc template option "${Object.keys(invalid)[0]}"`);
   const isWin = PATH.match(/\\|\//)[0] !== '/';
@@ -311,10 +311,11 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
         importMeta: true,
         privateMethod: true,
         dynamicImport: true
-      }/*,
+      },
+      target: 'es2016',
       experimental: {
         keepImportAssertions: true
-      }*/ // TODO: reenable when supported
+      }
     }
   };
   function setDefaultConfig (config, defaultConfig, base = '') {
@@ -328,16 +329,16 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
       }
     }
   }
-  if (noSwcRc) {
+  if (!swcRc) {
     setDefaultConfig(config, defaultConfig);
   }
   return [{
     name,
     targets,
-    deps: [...deps, ...noSwcRc || CHOMP_EJECT ? [] : ['.swcrc'], ...CHOMP_EJECT ? [] : ['node_modules/@swc/core', 'node_modules/@swc/cli']],
+    deps: [...deps, ...!swcRc || CHOMP_EJECT ? [] : ['.swcrc'], ...CHOMP_EJECT ? [] : ['node_modules/@swc/core', 'node_modules/@swc/cli']],
     env,
     run: `node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET${
-        noSwcRc ? ' --no-swcrc' : ''
+        !swcRc ? ' --no-swcrc' : ''
       }${
         configFile ? ` --config-file=${configFile}` : ''
       }${
@@ -345,12 +346,12 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
       }${
         Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
       }`
-  }, ...CHOMP_EJECT ? [] : [...noSwcRc ? [] : [{
+  }, ...CHOMP_EJECT ? [] : [...swcRc ? [] : [{
     target: '.swcrc',
     invalidation: 'not-found',
     display: false,
     run: `
-      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.swcrc\x1b[0m (set \x1b[1m"no-swc-rc = true"\x1b[0m SWC template option to skip)\n'
+      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.swcrc\x1b[0m (\x1b[1m"swc-rc = true"\x1b[0m SWC template option in use)\n'
       ${isWin // SWC does not like a BOM... Powershell hacks...
         ? `$encoder = new-object System.Text.UTF8Encoding ; Set-Content -Value $encoder.Getbytes('${JSON.stringify(defaultConfig, null, 2)}') -Encoding Byte -Path $TARGET`
         : `echo '${JSON.stringify(defaultConfig)}' > $TARGET`
@@ -380,7 +381,7 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
 
       let task;
       if (swcTasks.length) {
-        console.log('> Found SWC template usage, select an existing template task to configure, or to create a new template:');
+        console.log('Found SWC template usage, select an existing template task to configure, or to create a new template:');
         const num = (await input.choose([
           'New Template',
           ...swcTasks.map(task => task.name || task.target || task.targets[0] || task.run || 'Task ' + chpmpfile.task.indexOf(task)),
@@ -445,58 +446,60 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
           if (autoInstall)
             opts['auto-install'] = true;
         }
-        if (!('no-swc-rc' in opts) && !('no-swc-rc' in globalOpts)) {
-          const noSwcRc = !sanitizeYesNo(await input.question('Use an .swcrc file (recommended)? [Yes] ', false), true);
-          if (noSwcRc)
-            opts['no-swc-rc'] = true;
+        if (!('swc-rc' in opts) && !('swc-rc' in globalOpts)) {
+          const swcRc = sanitizeYesNo(await input.question('Use an .swcrc file? [No] ', false), false);
+          if (swcRc)
+            opts['swc-rc'] = true;
         }
-        if (opts['no-swc-rc'] || globalOpts['no-swc-rc']) {
+        if (!opts['swc-rc'] && !globalOpts['swc-rc']) {
           if (!('config-file' in opts) && !('config-file' in globalOpts)) {
             const configFile = await input.question('Custom SWC config file [default: none]: ', false);
             if (configFile)
               opts['config-file'] = configFile;
           }
-        }
-        const cfg = opts['config'] || globalOpts['config'] || {};
-        if (!('jsc.parser.syntax' in cfg)) {
-          const typescript = sanitizeYesNo(await input.question('Enable SWC TypeScript support? [Yes] ', false), true);
-          if (!typescript) {
-            opts.config = opts.config || TOML.Section({});
-            opts.config['jsc.parser.syntax'] = 'ecmascript';
+          const cfg = opts['config'] || globalOpts['config'] || {};
+          if (!('jsc.parser.syntax' in cfg)) {
+            const typescript = sanitizeYesNo(await input.question('Enable SWC TypeScript support? [Yes] ', false), true);
+            if (!typescript) {
+              opts.config = opts.config || TOML.Section({});
+              opts.config['jsc.parser.syntax'] = 'ecmascript';
+            }
           }
-        }
-        if (!('jsc.parser.jsx' in cfg)) {
-          const jsx = sanitizeYesNo(await input.question('Enable SWC JSX support? [No] ', false), false);
-          if (jsx) {
-            opts.config = opts.config || TOML.Section({});
-            opts.config['jsc.parser.jsx'] = true;
+          if (!('jsc.parser.jsx' in cfg)) {
+            const jsx = sanitizeYesNo(await input.question('Enable SWC JSX support? [No] ', false), false);
+            if (jsx) {
+              opts.config = opts.config || TOML.Section({});
+              opts.config['jsc.parser.jsx'] = true;
+            }
           }
-        }
-        if (cfg['jsc.parser.jsx'] || opts['config']?.['jsc.parser.jsx']) {
-          const configFile = await input.question('Custom SWC config file [default: none]: ', false);
-        }
-        if (!('jsc.minify' in cfg)) {
-          const minify = sanitizeYesNo(await input.question('Enable SWC minify? [No] ', false), false);
-          if (minify) {
-            opts.config = opts.config || TOML.Section({});
-            opts.config['jsc.minify'] = true;
+          if (cfg['jsc.parser.jsx'] || opts['config']?.['jsc.parser.jsx']) {
+            const configFile = await input.question('Custom SWC config file [default: none]: ', false);
           }
-        }
-        if (!('jsc.target' in cfg)) {
-          const choices = [
-            'es2015',
-            'es2016',
-            'es2017',
-            'es2018',
-            'es2019',
-            'es2020',
-            'es2021',
-            'es2022'
-          ];
-          console.log('Select SWC Target [es2016]');
-          const ecmaVersion = choices[(await input.choose(choices)).findIndex(x => x)] || 'es2016';
-          opts.config = opts.config || TOML.Section({});
-          opts.config['jsc.target'] = ecmaVersion;
+          if (!('jsc.minify' in cfg)) {
+            const minify = sanitizeYesNo(await input.question('Enable SWC minify? [No] ', false), false);
+            if (minify) {
+              opts.config = opts.config || TOML.Section({});
+              opts.config['jsc.minify'] = true;
+            }
+          }
+          if (!('jsc.target' in cfg)) {
+            const choices = [
+              'es2015',
+              'es2016',
+              'es2017',
+              'es2018',
+              'es2019',
+              'es2020',
+              'es2021',
+              'es2022'
+            ];
+            console.log('Select SWC Target [es2016]');
+            const ecmaVersion = choices[(await input.choose(choices)).findIndex(x => x)];
+            if (ecmaVersion) {
+              opts.config = opts.config || TOML.Section({});
+              opts.config['jsc.target'] = ecmaVersion;
+            }
+          }
         }
       }
 
