@@ -1,11 +1,13 @@
 mod cmd;
 mod node;
+mod deno;
 
 use crate::ExtensionEnvironment;
 use std::rc::Rc;
 use futures::future::Shared;
 use crate::chompfile::ChompEngine;
 use crate::engines::node::node_runner;
+use crate::engines::deno::deno_runner;
 use crate::task::check_target_mtimes;
 use anyhow::Error;
 use tokio::process::Child;
@@ -41,6 +43,7 @@ pub struct CmdOp {
     pub id: usize,
     pub run: String,
     pub env: BTreeMap<String, String>,
+    pub cwd: Option<String>,
     pub engine: ChompEngine,
     pub targets: Vec<String>,
 }
@@ -50,6 +53,7 @@ pub struct BatchCmd {
     pub id: Option<usize>,
     pub run: String,
     pub env: BTreeMap<String, String>,
+    pub cwd: Option<String>,
     pub engine: ChompEngine,
     pub ids: Vec<usize>,
 }
@@ -72,7 +76,7 @@ pub struct Exec<'a> {
 }
 
 impl<'a> CmdPool<'a> {
-    pub fn new(pool_size: usize, extension_env: &'a mut ExtensionEnvironment, cwd: String, debug: bool) -> CmdPool {
+    pub fn new(pool_size: usize, extension_env: &'a mut ExtensionEnvironment, cwd: String, debug: bool) -> CmdPool<'a> {
         CmdPool {
             cmd_num: 0,
             cmds: BTreeMap::new(),
@@ -182,6 +186,7 @@ impl<'a> CmdPool<'a> {
                     this.new_exec(BatchCmd {
                         id: None,
                         run: cmd.run.to_string(),
+                        cwd: cmd.cwd.clone(),
                         engine: cmd.engine,
                         env: cmd.env.clone(),
                         ids: vec![cmd.id],
@@ -217,7 +222,7 @@ impl<'a> CmdPool<'a> {
             ChompEngine::Cmd => {
                 let start_time = Instant::now();
                 self.exec_cnt = self.exec_cnt + 1;
-                let child = create_cmd(&self.cwd, &cmd, debug);
+                let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&self.cwd), &cmd, debug);
                 let future = async move {
                     let this = unsafe { &mut *pool };
                     let mut exec = &mut this.execs.get_mut(&exec_num).unwrap();
@@ -245,6 +250,7 @@ impl<'a> CmdPool<'a> {
                 self.exec_num = self.exec_num + 1;
             }
             ChompEngine::Node => node_runner(self, cmd, targets, debug),
+            ChompEngine::Deno => deno_runner(self, cmd, targets, debug),
         };
     }
 
@@ -254,6 +260,7 @@ impl<'a> CmdPool<'a> {
         run: String,
         targets: Vec<String>,
         env: BTreeMap<String, String>,
+        cwd: Option<String>,
         engine: ChompEngine,
     ) -> usize {
         let id = self.cmd_num;
@@ -261,6 +268,7 @@ impl<'a> CmdPool<'a> {
             id,
             CmdOp {
                 id,
+                cwd,
                 name,
                 run,
                 env,
