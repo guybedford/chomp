@@ -1,12 +1,15 @@
 ﻿
-Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, babelRc = false, configFile = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+// TODO: treat core templates as includes
+// Chomp.include('https://ga.jspm.io/npm:@chompbuild/template-npm@0.1.1/npm.js');
+
+Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOptions: { presets = [], plugins = [], sourceMap = true, babelRc = false, configFile = null, autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid babel template option "${Object.keys(invalid)[0]}"`);
   const defaultConfig = {};
   return [{
     name,
     targets,
-    deps: [...deps, ...!babelRc || CHOMP_EJECT ? [] : ['.babelrc'], ...CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
+    deps: [...deps, ...!babelRc || env.CHOMP_EJECT ? [] : ['.babelrc'], ...env.CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...env.CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
     env,
     run: `babel $DEP -o $TARGET${
         sourceMap ? ' --source-maps' : ''
@@ -19,7 +22,7 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
       }${
         configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
       }`
-  }, ...!babelRc || CHOMP_EJECT ? [] : [{
+  }, ...!babelRc || env.CHOMP_EJECT ? [] : [{
     target: '.babelrc',
     display: false,
     invalidation: 'not-found',
@@ -27,7 +30,7 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
       echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (\x1b[1m"babel-rc = true"\x1b[0m Babel template option in use)\n'
       echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
     `
-  }, {
+  }], ...env.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
@@ -54,11 +57,11 @@ Chomp.registerBatcher('babel', function (batch, _running) {
   }
   return [[], [], run_completions];
 });
-Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, install, ...invalid } }, { PATH, CHOMP_EJECT }) {
+Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, install, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid cargo template option "${Object.keys(invalid)[0]}"`);
   const sep = PATH.match(/\\|\//)[0];
-  return CHOMP_EJECT ? [] : [{
+  return env.CHOMP_EJECT ? [] : [{
     name: `cargo:${bin}`,
     targets: [PATH.split(';').find(p => p.endsWith(`.cargo${sep}bin`)) + sep + bin + (sep === '/' ? '' : '.exe')],
     invalidation: 'not-found',
@@ -68,7 +71,7 @@ Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, i
     run: `cargo install ${install}`
   }];
 });
-Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOptions: {
+Chomp.registerTemplate('jspm', function ({ name, targets, deps, env: conditionalEnv, templateOptions: {
   autoInstall,
   env: generatorEnv = ['browser', 'production', 'module'],
   preload,
@@ -76,7 +79,7 @@ Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOpt
   whitespace,
   esModuleShims,
   ...generateOpts
-} }, { CHOMP_EJECT }) {
+} }) {
   const mainTarget = targets.find(target => target.includes('#')) || targets[0];
   const isImportMapTarget = mainTarget && mainTarget.endsWith('.importmap');
   const { resolutions } = generateOpts;
@@ -85,8 +88,8 @@ Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOpt
     name,
     targets,
     invalidation: 'always',
-    deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/@jspm/generator', 'node_modules/mkdirp']],
-    env,
+    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/@jspm/generator', 'node_modules/mkdirp']],
+    env: conditionalEnv,
     engine: 'node',
     run: `    import { Generator } from '@jspm/generator';
     import { readFile, writeFile } from 'fs/promises';
@@ -102,7 +105,7 @@ Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOpt
       }
     });
 ${isImportMapTarget ? `
-    await Promise.all(process.env.DEPS.split(',')${CHOMP_EJECT ? '' : '.filter(dep => dep !== "node_modules/@jspm/generator" && dep !== "node_modules/mkdirp")'}.map(dep => generator.traceInstall('./' + dep)));
+    await Promise.all(process.env.DEPS.split(',')${env.CHOMP_EJECT ? '' : '.filter(dep => dep !== "node_modules/@jspm/generator" && dep !== "node_modules/mkdirp")'}.map(dep => generator.traceInstall('./' + dep)));
 
     mkdirp.sync(dirname(process.env.TARGET));
     await writeFile(process.env.TARGET, JSON.stringify(generator.getMap(), null, 2));`
@@ -114,7 +117,7 @@ ${isImportMapTarget ? `
       htmlUrl: pathToFileURL(process.env.TARGET)${noHtmlOpts ? '' : ',      ' + JSON.stringify({ preload, integrity, whitespace, esModuleShims })}
     }));`}
 `
-  }, ...CHOMP_EJECT ? [] : [{
+  }, ...env.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,
@@ -123,12 +126,12 @@ ${isImportMapTarget ? `
     }
   }]];
 });
-Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { packages, dev, packageManager = 'npm', autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid npm template option "${Object.keys(invalid)[0]}"`);
   if (!packages)
     throw new Error('npm template requires the "packages" option to be a list of packages to install.');
-  return CHOMP_EJECT ? [] : autoInstall ? [{
+  return env.CHOMP_EJECT ? [] : autoInstall ? [{
     name,
     deps: [...deps, ...packages.map(pkg => {
       const versionIndex = pkg.indexOf('@', 1);
@@ -226,13 +229,13 @@ Chomp.registerBatcher('npm', function (batch, running) {
     return { packages, isDev };
   }
 });
-Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templateOptions: { files = '.', check = false, write = true, config = null, noErrorOnUnmatchedPattern = false, autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid prettier template option "${Object.keys(invalid)[0]}"`);
   return [{
     name,
     targets,
-    deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/prettier']],
+    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/prettier']],
     invalidation: 'always',
     env,
     run: `prettier ${files} ${
@@ -244,7 +247,7 @@ Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templat
       }${
         noErrorOnUnmatchedPattern ? ' --no-error-on-unmatched-pattern' : ''
       }`
-  }, ...CHOMP_EJECT ? [] : [{
+  }, ...env.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,
@@ -253,13 +256,13 @@ Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templat
     }
   }]];
 });
-Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid svelte template option "${Object.keys(invalid)[0]}"`);
   return [{
     name,
     targets,
-    deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
+    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
     env,
     engine: 'node',
     run: `    import { readFile, writeFile } from 'fs/promises';
@@ -289,7 +292,7 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
         writeFile(cssFile + ".map", JSON.stringify(result.css.map))
       ];
     `
-  }, ...CHOMP_EJECT ? [] : [{
+  }, ...env.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,
@@ -298,10 +301,10 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
     }
   }]];
 });
-Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, swcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }, { PATH, CHOMP_EJECT }) {
+Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, swcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid swc template option "${Object.keys(invalid)[0]}"`);
-  const isWin = PATH.match(/\\|\//)[0] !== '/';
+  const isWin = env.PATH.match(/\\|\//)[0] !== '/';
   const defaultConfig = {
     jsc: {
       parser: {
@@ -335,7 +338,7 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
   return [{
     name,
     targets,
-    deps: [...deps, ...!swcRc || CHOMP_EJECT ? [] : ['.swcrc'], ...CHOMP_EJECT ? [] : ['node_modules/@swc/core', 'node_modules/@swc/cli']],
+    deps: [...deps, ...!swcRc || env.CHOMP_EJECT ? [] : ['.swcrc'], ...env.CHOMP_EJECT ? [] : ['node_modules/@swc/core', 'node_modules/@swc/cli']],
     env,
     run: `node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET${
         !swcRc ? ' --no-swcrc' : ''
@@ -346,7 +349,7 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
       }${
         Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
       }`
-  }, ...CHOMP_EJECT ? [] : [...swcRc ? [] : [{
+  }, ...env.CHOMP_EJECT ? [] : [...swcRc ? [] : [{
     target: '.swcrc',
     invalidation: 'not-found',
     display: false,
@@ -364,155 +367,157 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
       packages: ['@swc/core@1', '@swc/cli@0.1'],
       dev: true
     }
-  }, {
-    name: 'swc:init',
-    engine: 'deno',
-    run: `
-      import TOML from 'https://jspm.dev/@ltd/j-toml@1';
-      import InputLoop from 'https://deno.land/x/input@2.0.3/index.ts';
+  }]];
+});
 
-      const chompfile = TOML.parse(new TextDecoder('utf-8').decode(Deno.readFileSync('chompfile.toml', 'utf-8')));
+Chomp.registerTask({
+  name: 'swc:init',
+  engine: 'deno',
+  run: `
+    import TOML from 'https://jspm.dev/@ltd/j-toml@1';
+    import InputLoop from 'https://deno.land/x/input@2.0.3/index.ts';
 
-      const swcTasks = (chompfile.task || []).filter(task => task.template === 'swc');
+    const chompfile = TOML.parse(new TextDecoder('utf-8').decode(Deno.readFileSync('chompfile.toml', 'utf-8')));
 
-      console.log('SWC Chompfile Template Configuration Utility');
+    const swcTasks = (chompfile.task || []).filter(task => task.template === 'swc');
 
-      const input = new InputLoop();
+    console.log('SWC Chompfile Template Configuration Utility');
 
-      let task;
-      if (swcTasks.length) {
-        console.log('Found SWC template usage, select an existing template task to configure, or to create a new template:');
-        const num = (await input.choose([
-          'New Template',
-          ...swcTasks.map(task => task.name || task.target || task.targets[0] || task.run || 'Task ' + chpmpfile.task.indexOf(task)),
-        ])).findIndex(x => x);
-        if (num === 0 || num === -1) {
-          task = await newTemplate();
-        }
-        else {
-          task = swcTasks[num - 1];
-        }
-      }
-      else {
-        console.log("No SWC template found, creating a new template...");
+    const input = new InputLoop();
+
+    let task;
+    if (swcTasks.length) {
+      console.log('Found SWC template usage, select an existing template task to configure, or to create a new template:');
+      const num = (await input.choose([
+        'New Template',
+        ...swcTasks.map(task => task.name || task.target || task.targets[0] || task.run || 'Task ' + chpmpfile.task.indexOf(task)),
+      ])).findIndex(x => x);
+      if (num === 0 || num === -1) {
         task = await newTemplate();
       }
-      await cfgTemplate(task);
-
-      function sanitizeDirInput (dir) {
-        dir = dir.replace(/\\\\/g, '/').trim();
-        if (dir.startsWith('./')) dir = dir.slice(2);
-        if (dir.startsWith('../')) throw new Error('Cannot references paths below the chompfile.');
-        if (!dir.endsWith('/')) dir += '/';
-        return dir;
+      else {
+        task = swcTasks[num - 1];
       }
+    }
+    else {
+      console.log("No SWC template found, creating a new template...");
+      task = await newTemplate();
+    }
+    await cfgTemplate(task);
 
-      function sanitizeYesNo (result, defaultYesNo) {
-        if (result.length === 0) return defaultYesNo;
-        switch (result.toLowerCase().trim()) {
-          case 'y':
-          case 'yes':
-            return true;
-          case 'n':
-          case 'no':
-            return false;
-        }
-        throw new Error('Invalid response.');
+    function sanitizeDirInput (dir) {
+      dir = dir.replace(/\\\\/g, '/').trim();
+      if (dir.startsWith('./')) dir = dir.slice(2);
+      if (dir.startsWith('../')) throw new Error('Cannot references paths below the chompfile.');
+      if (!dir.endsWith('/')) dir += '/';
+      return dir;
+    }
+
+    function sanitizeYesNo (result, defaultYesNo) {
+      if (result.length === 0) return defaultYesNo;
+      switch (result.toLowerCase().trim()) {
+        case 'y':
+        case 'yes':
+          return true;
+        case 'n':
+        case 'no':
+          return false;
       }
+      throw new Error('Invalid response.');
+    }
 
-      async function newTemplate () {
-        const task = {};
-        const name = (await input.question('Enter a name for the template (optional): ', false)).trim();
-        if (name) {
-          if (task.name.indexOf(' ') !== -1) throw new Error('Task name cannot have spaces');
-          if (chompfile.task.some(t => t.name === task.name)) throw new Error('A task "' + task.name + '" already exists.');
-          task.name = name;
-        }
-        const inDir = sanitizeDirInput(await input.question('Which folder do you want to build with SWC? [src] ', false) || 'src');
-        let ext = await input.question('What file extension do you want to build from this folder? [.js] ', false) || '.js';
-        if (ext[0] !== '.') ext = '.' + ext;
-        task.dep = inDir + '#' + ext.trim();
-        task.target = sanitizeDirInput(await input.question('Which folder do you want to output the built JS files to? [lib] ', false) || 'lib') + '#.js';
-        task.template = 'swc';
-        chompfile.task.push(task);
-        return task;
+    async function newTemplate () {
+      const task = {};
+      const name = (await input.question('Enter a name for the template (optional): ', false)).trim();
+      if (name) {
+        if (task.name.indexOf(' ') !== -1) throw new Error('Task name cannot have spaces');
+        if (chompfile.task.some(t => t.name === task.name)) throw new Error('A task "' + task.name + '" already exists.');
+        task.name = name;
       }
+      const inDir = sanitizeDirInput(await input.question('Which folder do you want to build with SWC? [src] ', false) || 'src');
+      let ext = await input.question('What file extension do you want to build from this folder? [.js] ', false) || '.js';
+      if (ext[0] !== '.') ext = '.' + ext;
+      task.dep = inDir + '#' + ext.trim();
+      task.target = sanitizeDirInput(await input.question('Which folder do you want to output the built JS files to? [lib] ', false) || 'lib') + '#.js';
+      task.template = 'swc';
+      chompfile.task.push(task);
+      return task;
+    }
 
-      async function cfgTemplate (task) {
-        const opts = task['template-options'] = task['template-options'] || TOML.Section({});
-        const globalOpts = chompfile['template-options']?.swc || {};
-        if (!('auto-install' in opts) && !('auto-install' in globalOpts)) {
-          const autoInstall = sanitizeYesNo(await input.question('Automatically install SWC (recommended)? [Yes] ', false), true);
-          if (autoInstall)
-            opts['auto-install'] = true;
+    async function cfgTemplate (task) {
+      const opts = task['template-options'] = task['template-options'] || TOML.Section({});
+      const globalOpts = chompfile['template-options']?.swc || {};
+      if (!('auto-install' in opts) && !('auto-install' in globalOpts)) {
+        const autoInstall = sanitizeYesNo(await input.question('Automatically install SWC (recommended)? [Yes] ', false), true);
+        if (autoInstall)
+          opts['auto-install'] = true;
+      }
+      if (!('swc-rc' in opts) && !('swc-rc' in globalOpts)) {
+        const swcRc = sanitizeYesNo(await input.question('Use an .swcrc file? [No] ', false), false);
+        if (swcRc)
+          opts['swc-rc'] = true;
+      }
+      if (!opts['swc-rc'] && !globalOpts['swc-rc']) {
+        if (!('config-file' in opts) && !('config-file' in globalOpts)) {
+          const configFile = await input.question('Custom SWC config file [default: none]: ', false);
+          if (configFile)
+            opts['config-file'] = configFile;
         }
-        if (!('swc-rc' in opts) && !('swc-rc' in globalOpts)) {
-          const swcRc = sanitizeYesNo(await input.question('Use an .swcrc file? [No] ', false), false);
-          if (swcRc)
-            opts['swc-rc'] = true;
+        const cfg = opts['config'] || globalOpts['config'] || {};
+        if (!('jsc.parser.syntax' in cfg)) {
+          const typescript = sanitizeYesNo(await input.question('Enable SWC TypeScript support? [Yes] ', false), true);
+          if (!typescript) {
+            opts.config = opts.config || TOML.Section({});
+            opts.config['jsc.parser.syntax'] = 'ecmascript';
+          }
         }
-        if (!opts['swc-rc'] && !globalOpts['swc-rc']) {
-          if (!('config-file' in opts) && !('config-file' in globalOpts)) {
-            const configFile = await input.question('Custom SWC config file [default: none]: ', false);
-            if (configFile)
-              opts['config-file'] = configFile;
+        if (!('jsc.parser.jsx' in cfg)) {
+          const jsx = sanitizeYesNo(await input.question('Enable SWC JSX support? [No] ', false), false);
+          if (jsx) {
+            opts.config = opts.config || TOML.Section({});
+            opts.config['jsc.parser.jsx'] = true;
           }
-          const cfg = opts['config'] || globalOpts['config'] || {};
-          if (!('jsc.parser.syntax' in cfg)) {
-            const typescript = sanitizeYesNo(await input.question('Enable SWC TypeScript support? [Yes] ', false), true);
-            if (!typescript) {
-              opts.config = opts.config || TOML.Section({});
-              opts.config['jsc.parser.syntax'] = 'ecmascript';
-            }
+        }
+        if (cfg['jsc.parser.jsx'] || opts['config']?.['jsc.parser.jsx']) {
+          const configFile = await input.question('Custom SWC config file [default: none]: ', false);
+        }
+        if (!('jsc.minify' in cfg)) {
+          const minify = sanitizeYesNo(await input.question('Enable SWC minify? [No] ', false), false);
+          if (minify) {
+            opts.config = opts.config || TOML.Section({});
+            opts.config['jsc.minify'] = true;
           }
-          if (!('jsc.parser.jsx' in cfg)) {
-            const jsx = sanitizeYesNo(await input.question('Enable SWC JSX support? [No] ', false), false);
-            if (jsx) {
-              opts.config = opts.config || TOML.Section({});
-              opts.config['jsc.parser.jsx'] = true;
-            }
-          }
-          if (cfg['jsc.parser.jsx'] || opts['config']?.['jsc.parser.jsx']) {
-            const configFile = await input.question('Custom SWC config file [default: none]: ', false);
-          }
-          if (!('jsc.minify' in cfg)) {
-            const minify = sanitizeYesNo(await input.question('Enable SWC minify? [No] ', false), false);
-            if (minify) {
-              opts.config = opts.config || TOML.Section({});
-              opts.config['jsc.minify'] = true;
-            }
-          }
-          if (!('jsc.target' in cfg)) {
-            const choices = [
-              'es2015',
-              'es2016',
-              'es2017',
-              'es2018',
-              'es2019',
-              'es2020',
-              'es2021',
-              'es2022'
-            ];
-            console.log('Select SWC Target [es2016]');
-            const ecmaVersion = choices[(await input.choose(choices)).findIndex(x => x)];
-            if (ecmaVersion) {
-              opts.config = opts.config || TOML.Section({});
-              opts.config['jsc.target'] = ecmaVersion;
-            }
+        }
+        if (!('jsc.target' in cfg)) {
+          const choices = [
+            'es2015',
+            'es2016',
+            'es2017',
+            'es2018',
+            'es2019',
+            'es2020',
+            'es2021',
+            'es2022'
+          ];
+          console.log('Select SWC Target [es2016]');
+          const ecmaVersion = choices[(await input.choose(choices)).findIndex(x => x)];
+          if (ecmaVersion) {
+            opts.config = opts.config || TOML.Section({});
+            opts.config['jsc.target'] = ecmaVersion;
           }
         }
       }
+    }
 
-      // Try to match formatting with "chomp -F" Rust serde formatting
-      Deno.writeFileSync('chompfile.toml', new TextEncoder().encode(TOML.stringify(chompfile, {
-        newline: '\\n',
-        newlineAround: 'section',
-        indent: '    '
-      }).slice(1)));
+    // Try to match formatting with "chomp -F" Rust serde formatting
+    Deno.writeFileSync('chompfile.toml', new TextEncoder().encode(TOML.stringify(chompfile, {
+      newline: '\\n',
+      newlineAround: 'section',
+      indent: '    '
+    }).slice(1)));
 
-      console.log('chompfile.toml updated successfully.');
-    `
-  }]];
+    console.log('chompfile.toml updated successfully.');
+  `
 });
 
 // Batcher to ensure swcrc log only appears once

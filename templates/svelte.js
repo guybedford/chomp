@@ -1,10 +1,10 @@
-Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall, ...invalid } }, { CHOMP_EJECT }) {
+Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateOptions: { svelteConfig = null, autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid svelte template option "${Object.keys(invalid)[0]}"`);
   return [{
     name,
     targets,
-    deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
+    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
     env,
     engine: 'node',
     run: `    import { readFile, writeFile } from 'fs/promises';
@@ -34,7 +34,7 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
         writeFile(cssFile + ".map", JSON.stringify(result.css.map))
       ];
     `
-  }, ...CHOMP_EJECT ? [] : [{
+  }, ...env.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,

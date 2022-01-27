@@ -1,4 +1,4 @@
-Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOptions: {
+Chomp.registerTemplate('jspm', function ({ name, targets, deps, env: conditionalEnv, templateOptions: {
   autoInstall,
   env: generatorEnv = ['browser', 'production', 'module'],
   preload,
@@ -6,7 +6,7 @@ Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOpt
   whitespace,
   esModuleShims,
   ...generateOpts
-} }, { CHOMP_EJECT }) {
+} }) {
   const mainTarget = targets.find(target => target.includes('#')) || targets[0];
   const isImportMapTarget = mainTarget && mainTarget.endsWith('.importmap');
   const { resolutions } = generateOpts;
@@ -15,8 +15,8 @@ Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOpt
     name,
     targets,
     invalidation: 'always',
-    deps: [...deps, ...CHOMP_EJECT ? [] : ['node_modules/@jspm/generator', 'node_modules/mkdirp']],
-    env,
+    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/@jspm/generator', 'node_modules/mkdirp']],
+    env: conditionalEnv,
     engine: 'node',
     run: `    import { Generator } from '@jspm/generator';
     import { readFile, writeFile } from 'fs/promises';
@@ -32,7 +32,7 @@ Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOpt
       }
     });
 ${isImportMapTarget ? `
-    await Promise.all(process.env.DEPS.split(',')${CHOMP_EJECT ? '' : '.filter(dep => dep !== "node_modules/@jspm/generator" && dep !== "node_modules/mkdirp")'}.map(dep => generator.traceInstall('./' + dep)));
+    await Promise.all(process.env.DEPS.split(',')${env.CHOMP_EJECT ? '' : '.filter(dep => dep !== "node_modules/@jspm/generator" && dep !== "node_modules/mkdirp")'}.map(dep => generator.traceInstall('./' + dep)));
 
     mkdirp.sync(dirname(process.env.TARGET));
     await writeFile(process.env.TARGET, JSON.stringify(generator.getMap(), null, 2));`
@@ -44,7 +44,7 @@ ${isImportMapTarget ? `
       htmlUrl: pathToFileURL(process.env.TARGET)${noHtmlOpts ? '' : ',      ' + JSON.stringify({ preload, integrity, whitespace, esModuleShims })}
     }));`}
 `
-  }, ...CHOMP_EJECT ? [] : [{
+  }, ...env.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,

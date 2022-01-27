@@ -164,8 +164,16 @@ async fn main() -> Result<()> {
 
     init_js_platform();
 
+    let mut global_env = HashMap::new();
+    for (key, value) in env::vars() {
+        global_env.insert(key.to_uppercase(), value);
+    }
+    if matches.is_present("eject_templates") {
+        global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
+    }
+
     let default_extension = include_str!("templates.js");
-    let mut extension_env = ExtensionEnvironment::new();
+    let mut extension_env = ExtensionEnvironment::new(&global_env);
     extension_env.add_extension(default_extension, "chomp:core-extensions")?;
 
     http_client::prep_cache().await?;
@@ -201,12 +209,8 @@ async fn main() -> Result<()> {
     // }
 
     if matches.is_present("format") || matches.is_present("eject_templates") {
-        let mut global_env = HashMap::new();
-        for (key, value) in env::vars() {
-            global_env.insert(key.to_uppercase(), value);
-        }
         global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
-        chompfile.task = expand_template_tasks(&chompfile, &mut extension_env, &global_env)?;
+        chompfile.task = expand_template_tasks(&chompfile, &mut extension_env)?;
         fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
         if targets.len() == 0 {
             return Ok(());

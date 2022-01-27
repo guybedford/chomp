@@ -27,7 +27,6 @@ use anyhow::{anyhow, Result};
 use convert_case::{Case, Casing};
 use derivative::Derivative;
 use futures::executor;
-use std::env;
 use tokio::fs;
 use tokio::time;
 
@@ -144,7 +143,6 @@ struct Runner<'a> {
     chompfile: &'a Chompfile,
     watch: bool,
     tasks: Vec<Task>,
-    global_env: HashMap<String, String>,
 
     nodes: Vec<Node>,
 
@@ -339,7 +337,6 @@ fn create_template_options(
 pub fn expand_template_tasks(
     chompfile: &Chompfile,
     extension_env: &mut ExtensionEnvironment,
-    global_env: &HashMap<String, String>,
 ) -> Result<Vec<ChompTaskMaybeTemplated>> {
     let mut out_tasks = Vec::new();
 
@@ -394,7 +391,7 @@ pub fn expand_template_tasks(
             template_options: task.template_options,
         };
         let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-            extension_env.run_template(&template, &js_task, global_env)?;
+            extension_env.run_template(&template, &js_task)?;
         // template functions output a list of tasks
         for mut template_task in template_tasks.drain(..) {
             let (target, targets) = if template_task.target.is_some() {
@@ -486,17 +483,11 @@ impl<'a> Runner<'a> {
             task_jobs: HashMap::new(),
             file_nodes: HashMap::new(),
             interpolate_nodes: Vec::new(),
-            global_env: HashMap::new(),
         };
-
-        for (key, value) in env::vars() {
-            runner.global_env.insert(key.to_uppercase(), value);
-        }
 
         let mut tasks = expand_template_tasks(
             runner.chompfile,
             runner.cmd_pool.extension_env,
-            &runner.global_env,
         )?;
 
         for task in tasks.drain(..) {
