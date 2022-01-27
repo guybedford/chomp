@@ -467,6 +467,8 @@ impl<'a> Runner<'a> {
         cwd: String,
         watch: bool,
     ) -> Result<Runner<'a>> {
+        let mut template_tasks = extension_env.get_tasks();
+
         let cmd_pool: CmdPool = CmdPool::new(
             pool_size,
             extension_env,
@@ -489,6 +491,35 @@ impl<'a> Runner<'a> {
             runner.chompfile,
             runner.cmd_pool.extension_env,
         )?;
+
+        for task in template_tasks.drain(..) {
+            let targets = task.targets_vec();
+            let deps = task.deps_vec();
+            let mut env = BTreeMap::new();
+            for (item, value) in &chompfile.env {
+                env.insert(item.to_uppercase(), value.to_string());
+            }
+            if let Some(task_env) = task.env {
+                for (item, value) in task_env {
+                    env.insert(item.to_uppercase(), value.to_string());
+                }
+            }
+            let task = Task {
+                name: task.name,
+                targets,
+                deps,
+                serial: task.serial.unwrap_or(false),
+                display: task.display.unwrap_or(true),
+                engine: task.engine.unwrap_or_default(),
+                env,
+                run: task.run.clone(),
+                cwd: task.cwd,
+                invalidation: task.invalidation.unwrap_or_default(),
+            };
+
+            runner.tasks.push(task);
+            runner.add_job(runner.tasks.len() - 1, None)?;
+        }
 
         for task in tasks.drain(..) {
             let targets = task.targets_vec();
@@ -515,7 +546,6 @@ impl<'a> Runner<'a> {
 
             runner.tasks.push(task);
             runner.add_job(runner.tasks.len() - 1, None)?;
-            continue;
         }
 
         Ok(runner)

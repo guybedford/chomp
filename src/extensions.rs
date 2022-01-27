@@ -17,7 +17,7 @@ pub struct ExtensionEnvironment {
 }
 
 struct Extensions {
-    tasks: Vec<ChompTaskMaybeTemplatedNoDefault>,
+    pub tasks: Vec<ChompTaskMaybeTemplatedNoDefault>,
     templates: HashMap<String, v8::Global<v8::Function>>,
     batchers: Vec<(String, v8::Global<v8::Function>)>,
 }
@@ -170,6 +170,10 @@ impl ExtensionEnvironment {
 
     fn handle_scope(&mut self) -> v8::HandleScope {
         v8::HandleScope::with_context(&mut self.isolate, self.global_context.clone())
+    }
+
+    pub fn get_tasks(&self) -> Vec<ChompTaskMaybeTemplatedNoDefault> {
+        self.isolate.get_slot::<Rc<RefCell<Extensions>>>().unwrap().borrow().tasks.clone()
     }
 
     fn get_extensions(&self) -> &Rc<RefCell<Extensions>> {

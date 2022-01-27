@@ -209,7 +209,6 @@ async fn main() -> Result<()> {
     // }
 
     if matches.is_present("format") || matches.is_present("eject_templates") {
-        global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
         chompfile.task = expand_template_tasks(&chompfile, &mut extension_env)?;
         fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
         if targets.len() == 0 {

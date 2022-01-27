@@ -110,6 +110,31 @@ impl ChompTaskMaybeTemplated {
     }
 }
 
+impl ChompTaskMaybeTemplatedNoDefault {
+    pub fn targets_vec (&self) -> Vec<String> {
+        if let Some(ref target) = self.target {
+            vec![target.to_string()]
+        }
+        else if let Some(ref targets) = self.targets {
+            targets.clone()
+        }
+        else {
+            vec![]
+        }
+    }
+    pub fn deps_vec (&self) -> Vec<String> {
+        if let Some(ref dep) = self.dep {
+            vec![dep.to_string()]
+        }
+        else if let Some(ref deps) = self.deps {
+            deps.clone()
+        }
+        else {
+            vec![]
+        }
+    }
+}
+
 fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
