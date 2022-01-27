@@ -43,13 +43,14 @@ pub struct Task {
     serial: bool,
     display: bool,
     env: BTreeMap<String, String>,
+    cwd: Option<String>,
     run: Option<String>,
     engine: ChompEngine,
 }
 
 pub struct RunOptions {
     // pub ui: &'a ChompUI,
-    pub cwd: PathBuf,
+    pub cwd: String,
     pub cfg_file: PathBuf,
     pub pool_size: usize,
     pub targets: Vec<String>,
@@ -377,6 +378,7 @@ pub fn expand_template_tasks(
             task.deps = Some(Default::default());
         }
         let js_task = ChompTaskMaybeTemplatedNoDefault {
+            cwd: task.cwd.clone(),
             name: task.name.clone(),
             target: None,
             targets: Some(task.targets_vec()),
@@ -434,6 +436,7 @@ pub fn expand_template_tasks(
                 None
             };
             task_queue.push_front(ChompTaskMaybeTemplated {
+                cwd: template_task.cwd,
                 name: template_task.name,
                 target,
                 targets,
@@ -464,13 +467,13 @@ impl<'a> Runner<'a> {
         chompfile: &'a Chompfile,
         extension_env: &'a mut ExtensionEnvironment,
         pool_size: usize,
-        cwd: &'a PathBuf,
+        cwd: String,
         watch: bool,
     ) -> Result<Runner<'a>> {
         let cmd_pool: CmdPool = CmdPool::new(
             pool_size,
             extension_env,
-            cwd.to_str().unwrap().to_string(),
+            cwd,
             chompfile.debug,
         );
         let mut runner = Runner {
@@ -515,6 +518,7 @@ impl<'a> Runner<'a> {
                 engine: task.engine.unwrap_or_default(),
                 env,
                 run: task.run.clone(),
+                cwd: task.cwd,
                 invalidation: task.invalidation.unwrap_or_default(),
             };
 
@@ -912,7 +916,7 @@ impl<'a> Runner<'a> {
             } else {
                 None
             };
-            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, engine);
+            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, task.cwd.clone(), engine);
             let job = self.get_job_mut(job_num).unwrap();
             job.state = JobState::Running;
             job.cmd_num = Some(cmd_num);
@@ -1505,14 +1509,14 @@ impl<'a> Runner<'a> {
 
         let mut queued = QueuedStateTransitions::new();
 
-        if self.chompfile.debug {
-            dbg!(targets);
-            dbg!(&self.file_nodes);
-            dbg!(&self.task_jobs);
-            dbg!(&self.interpolate_nodes);
-            dbg!(&self.tasks);
-            dbg!(&self.nodes);
-        }
+        // if self.chompfile.debug {
+        //     dbg!(targets);
+        //     dbg!(&self.file_nodes);
+        //     dbg!(&self.task_jobs);
+        //     dbg!(&self.interpolate_nodes);
+        //     dbg!(&self.tasks);
+        //     dbg!(&self.nodes);
+        // }
 
         // first try named target, then fall back to file name check
         for target in targets {
@@ -1625,7 +1629,7 @@ pub async fn run<'a>(
         &chompfile,
         extension_env,
         opts.pool_size,
-        &opts.cwd,
+        opts.cwd,
         opts.watch,
     )?;
     let (tx, rx) = channel();

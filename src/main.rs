@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use crate::extensions::init_js_platform;
 extern crate num_cpus;
 use hyper::Uri;
+use std::env;
+use std::fs::canonicalize;
 
 // use crossterm::tty::IsTty;
 
@@ -23,7 +25,6 @@ mod http_client;
 mod serve;
 
 use std::path::PathBuf;
-use std::env;
 
 fn uri_parse (uri_str: &str) -> Option<Uri> {
     match uri_str.parse::<Uri>() {
@@ -136,6 +137,16 @@ async fn main() -> Result<()> {
     }
 
     let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
+    let canonical_file = {
+        let unc_path = canonicalize(&cfg_file)?;
+        let unc_str = unc_path.to_str().unwrap();
+        if unc_str.starts_with(r"\\?\") {
+            PathBuf::from(String::from(&unc_path.to_str().unwrap()[4..]))
+        } else {
+            unc_path
+        }
+    };
+    let cwd = canonical_file.parent().unwrap();
 
     let chompfile_source = fs::read_to_string(&cfg_file).await?;
     let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
@@ -212,7 +223,7 @@ async fn main() -> Result<()> {
         force: matches.is_present("force"),
         // ui: &ui,
         pool_size,
-        cwd: env::current_dir()?,
+        cwd: cwd.to_str().unwrap().to_string(),
         targets,
         cfg_file,
     }).await?;

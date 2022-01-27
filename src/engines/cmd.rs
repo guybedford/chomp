@@ -1,4 +1,3 @@
-use std::process::Stdio;
 use crate::engines::BatchCmd;
 use tokio::process::{Child, Command};
 use regex::Regex;
@@ -20,7 +19,7 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
+pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
     let run = batch_cmd.run.trim();
     if debug {
         println!("RUN: {}", run);
@@ -74,6 +73,7 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
             for (name, value) in &batch_cmd.env {
                 command.env(name, value);
             }
+            command.current_dir(cwd);
             for arg in ARGS.captures_iter(&capture["args"]) {
                 let arg = arg.get(0).unwrap().as_str();
                 let first_char = arg.as_bytes()[1];
@@ -88,7 +88,8 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
                     command.arg(arg_str);
                 }
             }
-            command.stdin(Stdio::null());
+            // Support a tty: true / false configuration?
+            // command.stdin(Stdio::null());
             match command.spawn() {
                 Ok(child) => return child,
                 Err(_) => {
@@ -97,6 +98,7 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
                     for (name, value) in &batch_cmd.env {
                         command.env(name, value);
                     }
+                    command.current_dir(cwd);
                     for arg in ARGS.captures_iter(&capture["args"]) {
                         let arg = arg.get(0).unwrap().as_str();
                         let first_char = arg.as_bytes()[1];
@@ -111,7 +113,7 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
                             command.arg(arg_str);
                         }
                     }
-                    command.stdin(Stdio::null());
+                    // command.stdin(Stdio::null());
                     match command.spawn() {
                         Ok(child) => return child,
                         Err(_) => {}, // fallback to shell
@@ -152,12 +154,13 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
     for (name, value) in &batch_cmd.env {
         command.env(name, value);
     }
-    command.stdin(Stdio::null());
+    command.current_dir(cwd);
+    // command.stdin(Stdio::null());
     command.spawn().unwrap()
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
+pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
     let run = batch_cmd.run.trim();
     if debug {
         println!("RUN: {}", run);
@@ -199,6 +202,7 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
         for (name, value) in &batch_cmd.env {
             command.env(name, value);
         }
+        command.current_dir(cwd);
         for arg in ARGS.captures_iter(&capture["args"]) {
             let arg = arg.get(0).unwrap().as_str();
             let first_char = arg.as_bytes()[1];
@@ -213,7 +217,7 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
                 command.arg(arg_str);
             }
         }
-        command.stdin(Stdio::null());
+        // command.stdin(Stdio::null());
         match command.spawn() {
             Ok(child) => return child,
             Err(_) => {}, // fallback to shell
@@ -233,8 +237,9 @@ pub fn create_cmd(cwd: &str, batch_cmd: &BatchCmd, debug: bool) -> Child {
     for (name, value) in &batch_cmd.env {
         command.env(name, value);
     }
+    command.current_dir(cwd);
     command.arg("-c");
     command.arg(&run);
-    command.stdin(Stdio::null());
+    // command.stdin(Stdio::null());
     command.spawn().unwrap()
 }

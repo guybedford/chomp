@@ -6,6 +6,7 @@ use std::collections::HashMap;
 pub enum ChompEngine {
     Cmd,
     Node,
+    Deno,
 }
 
 impl Default for ChompEngine {
@@ -75,12 +76,13 @@ pub struct ChompTaskMaybeTemplated {
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
     pub display: Option<bool>,
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub env: HashMap<String, String>,
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
+    pub cwd: Option<String>,
     pub template: Option<String>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub env: HashMap<String, String>,
 }
 
 impl ChompTaskMaybeTemplated {
@@ -124,9 +126,10 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
     pub display: Option<bool>,
-    pub env: Option<HashMap<String, String>>,
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
+    pub cwd: Option<String>,
     pub template: Option<String>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
+    pub env: Option<HashMap<String, String>>,
 }

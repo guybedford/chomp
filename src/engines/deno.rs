@@ -10,26 +10,25 @@ use uuid::Uuid;
 use futures::future::{FutureExt};
 use crate::chompfile::ChompEngine;
 
-// Custom node loader to mimic current working directory despite loading from a tmp file
-const NODE_CMD: &str = "node --no-warnings --loader \"data:text/javascript,import{readFileSync}from'fs';export function resolve(u,c,d){if(u.endsWith('[cm]'))return{url:u,format:'module'};return d(u,c);}export function load(u,c,d){if(u.endsWith('[cm]'))return{source:readFileSync(process.env.CHOMP_MAIN),format:'module'};return d(u,c)}export{load as getFormat,load as getSource}\" [cm]";
+const DENO_CMD: &str = "deno run -A --unstable --no-check $CHOMP_MAIN";
 
-pub fn node_runner(
+pub fn deno_runner(
   cmd_pool: &mut CmdPool,
   mut cmd: BatchCmd,
   targets: Vec<String>,
   debug: bool,
 ) {
-  // TODO: debug should pipe console output for node.js run
+  // TODO: debug should pipe console output for deno.js run
   let start_time = Instant::now();
   let uuid = Uuid::new_v4();
   let mut tmp_file = env::temp_dir();
-  tmp_file.push(&format!("{}.mjs", uuid.to_simple().to_string()));
+  tmp_file.push(&format!("{}.ts", uuid.to_simple().to_string()));
   let tmp_file2 = tmp_file.clone();
   cmd.env.insert("CHOMP_MAIN".to_string(), tmp_file.to_str().unwrap().to_string());
   cmd.env.insert("CHOMP_PATH".to_string(), std::env::args().next().unwrap().to_string());
   let targets = targets.clone();
   let write_future = fs::write(tmp_file, cmd.run.to_string());
-  cmd.run = NODE_CMD.to_string();
+  cmd.run = DENO_CMD.to_string();
   cmd.engine = ChompEngine::Cmd;
   let exec_num = cmd_pool.exec_num;
   cmd_pool.exec_cnt = cmd_pool.exec_cnt + 1;
