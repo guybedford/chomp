@@ -17,6 +17,7 @@ pub struct ExtensionEnvironment {
 }
 
 struct Extensions {
+    pub tasks: Vec<ChompTaskMaybeTemplatedNoDefault>,
     templates: HashMap<String, v8::Global<v8::Function>>,
     batchers: Vec<(String, v8::Global<v8::Function>)>,
 }
@@ -24,6 +25,7 @@ struct Extensions {
 impl Extensions {
     fn new() -> Self {
         Extensions {
+            tasks: Vec::new(),
             templates: HashMap::new(),
             batchers: Vec::new(),
         }
@@ -53,6 +55,22 @@ fn chomp_log(
         i = i + 1;
     }
     println!("{}", &msg);
+}
+
+fn chomp_register_task(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _rv: v8::ReturnValue,
+) {
+    let task: ChompTaskMaybeTemplatedNoDefault = {
+        let tc_scope = &mut v8::TryCatch::new(scope);
+        from_v8(tc_scope, args.get(0)).expect("Unable to register task")
+    };
+    let mut extension_env = scope
+    .get_slot::<Rc<RefCell<Extensions>>>()
+    .unwrap()
+    .borrow_mut();
+    extension_env.tasks.push(task);
 }
 
 fn chomp_register_template(
@@ -90,7 +108,7 @@ fn chomp_register_batcher(
 }
 
 impl ExtensionEnvironment {
-    pub fn new() -> Self {
+    pub fn new(global_env: &HashMap<String, String>) -> Self {
         let mut isolate = v8::Isolate::new(Default::default());
 
         let global_context = {
@@ -116,6 +134,10 @@ impl ExtensionEnvironment {
             let version_str = v8::String::new(scope, "0.1").unwrap();
             chomp_val.set(scope, version_key.into(), version_str.into());
 
+            let task_fn = v8::FunctionTemplate::new(scope, chomp_register_task).get_function(scope).unwrap();
+            let task_key = v8::String::new(scope, "registerTask").unwrap();
+            chomp_val.set(scope, task_key.into(), task_fn.into());
+
             let tpl_fn = v8::FunctionTemplate::new(scope, chomp_register_template).get_function(scope).unwrap();
             let template_key = v8::String::new(scope, "registerTemplate").unwrap();
             chomp_val.set(scope, template_key.into(), tpl_fn.into());
@@ -123,6 +145,16 @@ impl ExtensionEnvironment {
             let batch_fn = v8::FunctionTemplate::new(scope, chomp_register_batcher).get_function(scope).unwrap();
             let batcher_key = v8::String::new(scope, "registerBatcher").unwrap();
             chomp_val.set(scope, batcher_key.into(), batch_fn.into());
+
+            let env_key = v8::String::new(scope, "ENV").unwrap();
+            let env_val = v8::Object::new(scope);
+            global.set(scope, env_key.into(), env_val.into());
+
+            for (key, value) in global_env {
+                let env_key = v8::String::new(scope, key).unwrap();
+                let env_key_val = v8::String::new(scope, value).unwrap();
+                env_val.set(scope, env_key.into(), env_key_val.into());
+            }
 
             v8::Global::new(scope, context)
         };
@@ -138,6 +170,10 @@ impl ExtensionEnvironment {
 
     fn handle_scope(&mut self) -> v8::HandleScope {
         v8::HandleScope::with_context(&mut self.isolate, self.global_context.clone())
+    }
+
+    pub fn get_tasks(&self) -> Vec<ChompTaskMaybeTemplatedNoDefault> {
+        self.isolate.get_slot::<Rc<RefCell<Extensions>>>().unwrap().borrow().tasks.clone()
     }
 
     fn get_extensions(&self) -> &Rc<RefCell<Extensions>> {
@@ -177,7 +213,6 @@ impl ExtensionEnvironment {
         &mut self,
         name: &str,
         task: &ChompTaskMaybeTemplatedNoDefault,
-        global_env: &HashMap<String, String>,
     ) -> Result<Vec<ChompTaskMaybeTemplatedNoDefault>> {
         let template = {
             let extensions = self.get_extensions().borrow();
@@ -187,18 +222,9 @@ impl ExtensionEnvironment {
 
         let mut handle_scope = self.handle_scope();
         let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
-        let len_key = v8::String::new(tc_scope, "length").unwrap().into();
 
-        let len: v8::Local<v8::Number> = cb.get(tc_scope, len_key).unwrap().try_into().unwrap();
         let this = v8::undefined(tc_scope).into();
-        let args: Vec<v8::Local<v8::Value>> = if len.uint32_value(tc_scope).unwrap() == 2 {
-            vec![
-                to_v8(tc_scope, task).expect("Unable to serialize template params"),
-                to_v8(tc_scope, global_env).expect("Unable to serialize global env"),
-            ]
-        } else {
-            vec![to_v8(tc_scope, task).expect("Unable to serialize template params")]
-        };
+        let args: Vec<v8::Local<v8::Value>> = vec![to_v8(tc_scope, task).expect("Unable to serialize template params")];
         let result = match cb.call(tc_scope, this, args.as_slice()) {
             Some(result) => result,
             None => return Err(v8_exception(tc_scope)),

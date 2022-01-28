@@ -1,7 +1,7 @@
-Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, noSwcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }, { PATH, CHOMP_EJECT }) {
+Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, swcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid swc template option "${Object.keys(invalid)[0]}"`);
-  const isWin = PATH.match(/\\|\//)[0] !== '/';
+  const isWin = ENV.PATH.match(/\\|\//)[0] !== '/';
   const defaultConfig = {
     jsc: {
       parser: {
@@ -11,10 +11,11 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
         importMeta: true,
         privateMethod: true,
         dynamicImport: true
-      }/*,
+      },
+      target: 'es2016',
       experimental: {
         keepImportAssertions: true
-      }*/ // TODO: reenable when supported
+      }
     }
   };
   function setDefaultConfig (config, defaultConfig, base = '') {
@@ -28,16 +29,16 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
       }
     }
   }
-  if (noSwcRc) {
+  if (!swcRc) {
     setDefaultConfig(config, defaultConfig);
   }
   return [{
     name,
     targets,
-    deps: [...deps, ...noSwcRc || CHOMP_EJECT ? [] : ['.swcrc'], ...CHOMP_EJECT ? [] : ['node_modules/@swc/core', 'node_modules/@swc/cli']],
+    deps: [...deps, ...!swcRc || env.CHOMP_EJECT ? [] : ['.swcrc'], ...env.CHOMP_EJECT ? [] : ['node_modules/@swc/core', 'node_modules/@swc/cli']],
     env,
     run: `node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET${
-        noSwcRc ? ' --no-swcrc' : ''
+        !swcRc ? ' --no-swcrc' : ''
       }${
         configFile ? ` --config-file=${configFile}` : ''
       }${
@@ -45,12 +46,12 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
       }${
         Object.keys(config).length ? ' ' + Object.keys(config).map(key => `-C ${key}=${config[key]}`).join(' ') : ''
       }`
-  }, ...CHOMP_EJECT ? [] : [...noSwcRc ? [] : [{
+  }, ...env.CHOMP_EJECT ? [] : [...swcRc ? [] : [{
     target: '.swcrc',
     invalidation: 'not-found',
     display: false,
     run: `
-      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.swcrc\x1b[0m (set \x1b[1m"no-swc-rc = true"\x1b[0m SWC template option to skip)\n'
+      echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.swcrc\x1b[0m (\x1b[1m"swc-rc = true"\x1b[0m SWC template option in use)\n'
       ${isWin // SWC does not like a BOM... Powershell hacks...
         ? `$encoder = new-object System.Text.UTF8Encoding ; Set-Content -Value $encoder.Getbytes('${JSON.stringify(defaultConfig, null, 2)}') -Encoding Byte -Path $TARGET`
         : `echo '${JSON.stringify(defaultConfig)}' > $TARGET`
@@ -63,99 +64,101 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
       packages: ['@swc/core@1', '@swc/cli@0.1'],
       dev: true
     }
-  }, {
-    name: 'swc:init',
-    engine: 'deno',
-    run: `
-      import TOML from 'https://jspm.dev/@ltd/j-toml@1';
-      import InputLoop from 'https://deno.land/x/input@2.0.3/index.ts';
+  }]];
+});
 
-      const chompfile = TOML.parse(new TextDecoder('utf-8').decode(Deno.readFileSync('chompfile.toml', 'utf-8')));
+Chomp.registerTask({
+  name: 'swc:init',
+  engine: 'deno',
+  run: `
+    import TOML from 'https://jspm.dev/@ltd/j-toml@1';
+    import InputLoop from 'https://deno.land/x/input@2.0.3/index.ts';
 
-      const swcTasks = (chompfile.task || []).filter(task => task.template === 'swc');
+    const chompfile = TOML.parse(new TextDecoder('utf-8').decode(Deno.readFileSync('chompfile.toml', 'utf-8')));
 
-      console.log('SWC Chompfile Template Configuration Utility');
+    const swcTasks = (chompfile.task || []).filter(task => task.template === 'swc');
 
-      const input = new InputLoop();
+    console.log('SWC Chompfile Template Configuration Utility');
 
-      let task;
-      if (swcTasks.length) {
-        console.log('> Found SWC template usage, select an existing template task to configure, or to create a new template:');
-        const num = (await input.choose([
-          'New Template',
-          ...swcTasks.map(task => task.name || task.target || task.targets[0] || task.run || 'Task ' + chpmpfile.task.indexOf(task)),
-        ])).findIndex(x => x);
-        if (num === 0 || num === -1) {
-          task = await newTemplate();
-        }
-        else {
-          task = swcTasks[num - 1];
-        }
-      }
-      else {
-        console.log("No SWC template found, creating a new template...");
+    const input = new InputLoop();
+
+    let task;
+    if (swcTasks.length) {
+      console.log('Found SWC template usage, select an existing template task to configure, or to create a new template:');
+      const num = (await input.choose([
+        'New Template',
+        ...swcTasks.map(task => task.name || task.target || task.targets[0] || task.run || 'Task ' + chpmpfile.task.indexOf(task)),
+      ])).findIndex(x => x);
+      if (num === 0 || num === -1) {
         task = await newTemplate();
       }
-      await cfgTemplate(task);
-
-      function sanitizeDirInput (dir) {
-        dir = dir.replace(/\\\\/g, '/').trim();
-        if (dir.startsWith('./')) dir = dir.slice(2);
-        if (dir.startsWith('../')) throw new Error('Cannot references paths below the chompfile.');
-        if (!dir.endsWith('/')) dir += '/';
-        return dir;
+      else {
+        task = swcTasks[num - 1];
       }
+    }
+    else {
+      console.log("No SWC template found, creating a new template...");
+      task = await newTemplate();
+    }
+    await cfgTemplate(task);
 
-      function sanitizeYesNo (result, defaultYesNo) {
-        if (result.length === 0) return defaultYesNo;
-        switch (result.toLowerCase().trim()) {
-          case 'y':
-          case 'yes':
-            return true;
-          case 'n':
-          case 'no':
-            return false;
-        }
-        throw new Error('Invalid response.');
+    function sanitizeDirInput (dir) {
+      dir = dir.replace(/\\\\/g, '/').trim();
+      if (dir.startsWith('./')) dir = dir.slice(2);
+      if (dir.startsWith('../')) throw new Error('Cannot references paths below the chompfile.');
+      if (!dir.endsWith('/')) dir += '/';
+      return dir;
+    }
+
+    function sanitizeYesNo (result, defaultYesNo) {
+      if (result.length === 0) return defaultYesNo;
+      switch (result.toLowerCase().trim()) {
+        case 'y':
+        case 'yes':
+          return true;
+        case 'n':
+        case 'no':
+          return false;
       }
+      throw new Error('Invalid response.');
+    }
 
-      async function newTemplate () {
-        const task = {};
-        const name = (await input.question('Enter a name for the template (optional): ', false)).trim();
-        if (name) {
-          if (task.name.indexOf(' ') !== -1) throw new Error('Task name cannot have spaces');
-          if (chompfile.task.some(t => t.name === task.name)) throw new Error('A task "' + task.name + '" already exists.');
-          task.name = name;
-        }
-        const inDir = sanitizeDirInput(await input.question('Which folder do you want to build with SWC? [src] ', false) || 'src');
-        let ext = await input.question('What file extension do you want to build from this folder? [.js] ', false) || '.js';
-        if (ext[0] !== '.') ext = '.' + ext;
-        task.dep = inDir + '#' + ext.trim();
-        task.target = sanitizeDirInput(await input.question('Which folder do you want to output the built JS files to? [lib] ', false) || 'lib') + '#.js';
-        task.template = 'swc';
-        chompfile.task.push(task);
-        return task;
+    async function newTemplate () {
+      const task = {};
+      const name = (await input.question('Enter a name for the template (optional): ', false)).trim();
+      if (name) {
+        if (task.name.indexOf(' ') !== -1) throw new Error('Task name cannot have spaces');
+        if (chompfile.task.some(t => t.name === task.name)) throw new Error('A task "' + task.name + '" already exists.');
+        task.name = name;
       }
+      const inDir = sanitizeDirInput(await input.question('Which folder do you want to build with SWC? [src] ', false) || 'src');
+      let ext = await input.question('What file extension do you want to build from this folder? [.js] ', false) || '.js';
+      if (ext[0] !== '.') ext = '.' + ext;
+      task.dep = inDir + '#' + ext.trim();
+      task.target = sanitizeDirInput(await input.question('Which folder do you want to output the built JS files to? [lib] ', false) || 'lib') + '#.js';
+      task.template = 'swc';
+      chompfile.task.push(task);
+      return task;
+    }
 
-      async function cfgTemplate (task) {
-        const opts = task['template-options'] = task['template-options'] || TOML.Section({});
-        const globalOpts = chompfile['template-options']?.swc || {};
-        if (!('auto-install' in opts) && !('auto-install' in globalOpts)) {
-          const autoInstall = sanitizeYesNo(await input.question('Automatically install SWC (recommended)? [Yes] ', false), true);
-          if (autoInstall)
-            opts['auto-install'] = true;
-        }
-        if (!('no-swc-rc' in opts) && !('no-swc-rc' in globalOpts)) {
-          const noSwcRc = !sanitizeYesNo(await input.question('Use an .swcrc file (recommended)? [Yes] ', false), true);
-          if (noSwcRc)
-            opts['no-swc-rc'] = true;
-        }
-        if (opts['no-swc-rc'] || globalOpts['no-swc-rc']) {
-          if (!('config-file' in opts) && !('config-file' in globalOpts)) {
-            const configFile = await input.question('Custom SWC config file [default: none]: ', false);
-            if (configFile)
-              opts['config-file'] = configFile;
-          }
+    async function cfgTemplate (task) {
+      const opts = task['template-options'] = task['template-options'] || TOML.Section({});
+      const globalOpts = chompfile['template-options']?.swc || {};
+      if (!('auto-install' in opts) && !('auto-install' in globalOpts)) {
+        const autoInstall = sanitizeYesNo(await input.question('Automatically install SWC (recommended)? [Yes] ', false), true);
+        if (autoInstall)
+          opts['auto-install'] = true;
+      }
+      if (!('swc-rc' in opts) && !('swc-rc' in globalOpts)) {
+        const swcRc = sanitizeYesNo(await input.question('Use an .swcrc file? [No] ', false), false);
+        if (swcRc)
+          opts['swc-rc'] = true;
+      }
+      if (!opts['swc-rc'] && !globalOpts['swc-rc']) {
+        if (!('config-file' in opts) && !('config-file' in globalOpts)) {
+          const configFile = await input.question('Custom SWC config file [default: none]: ', false);
+          if (configFile)
+            opts['config-file'] = configFile;
         }
         const cfg = opts['config'] || globalOpts['config'] || {};
         if (!('jsc.parser.syntax' in cfg)) {
@@ -194,22 +197,24 @@ Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOpti
             'es2022'
           ];
           console.log('Select SWC Target [es2016]');
-          const ecmaVersion = choices[(await input.choose(choices)).findIndex(x => x)] || 'es2016';
-          opts.config = opts.config || TOML.Section({});
-          opts.config['jsc.target'] = ecmaVersion;
+          const ecmaVersion = choices[(await input.choose(choices)).findIndex(x => x)];
+          if (ecmaVersion) {
+            opts.config = opts.config || TOML.Section({});
+            opts.config['jsc.target'] = ecmaVersion;
+          }
         }
       }
+    }
 
-      // Try to match formatting with "chomp -F" Rust serde formatting
-      Deno.writeFileSync('chompfile.toml', new TextEncoder().encode(TOML.stringify(chompfile, {
-        newline: '\\n',
-        newlineAround: 'section',
-        indent: '    '
-      }).slice(1)));
+    // Try to match formatting with "chomp -F" Rust serde formatting
+    Deno.writeFileSync('chompfile.toml', new TextEncoder().encode(TOML.stringify(chompfile, {
+      newline: '\\n',
+      newlineAround: 'section',
+      indent: '    '
+    }).slice(1)));
 
-      console.log('chompfile.toml updated successfully.');
-    `
-  }]];
+    console.log('chompfile.toml updated successfully.');
+  `
 });
 
 // Batcher to ensure swcrc log only appears once

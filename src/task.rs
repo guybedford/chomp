@@ -27,7 +27,6 @@ use anyhow::{anyhow, Result};
 use convert_case::{Case, Casing};
 use derivative::Derivative;
 use futures::executor;
-use std::env;
 use tokio::fs;
 use tokio::time;
 
@@ -144,7 +143,6 @@ struct Runner<'a> {
     chompfile: &'a Chompfile,
     watch: bool,
     tasks: Vec<Task>,
-    global_env: HashMap<String, String>,
 
     nodes: Vec<Node>,
 
@@ -339,7 +337,6 @@ fn create_template_options(
 pub fn expand_template_tasks(
     chompfile: &Chompfile,
     extension_env: &mut ExtensionEnvironment,
-    global_env: &HashMap<String, String>,
 ) -> Result<Vec<ChompTaskMaybeTemplated>> {
     let mut out_tasks = Vec::new();
 
@@ -394,7 +391,7 @@ pub fn expand_template_tasks(
             template_options: task.template_options,
         };
         let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
-            extension_env.run_template(&template, &js_task, global_env)?;
+            extension_env.run_template(&template, &js_task)?;
         // template functions output a list of tasks
         for mut template_task in template_tasks.drain(..) {
             let (target, targets) = if template_task.target.is_some() {
@@ -470,6 +467,8 @@ impl<'a> Runner<'a> {
         cwd: String,
         watch: bool,
     ) -> Result<Runner<'a>> {
+        let mut template_tasks = extension_env.get_tasks();
+
         let cmd_pool: CmdPool = CmdPool::new(
             pool_size,
             extension_env,
@@ -486,18 +485,41 @@ impl<'a> Runner<'a> {
             task_jobs: HashMap::new(),
             file_nodes: HashMap::new(),
             interpolate_nodes: Vec::new(),
-            global_env: HashMap::new(),
         };
-
-        for (key, value) in env::vars() {
-            runner.global_env.insert(key.to_uppercase(), value);
-        }
 
         let mut tasks = expand_template_tasks(
             runner.chompfile,
             runner.cmd_pool.extension_env,
-            &runner.global_env,
         )?;
+
+        for task in template_tasks.drain(..) {
+            let targets = task.targets_vec();
+            let deps = task.deps_vec();
+            let mut env = BTreeMap::new();
+            for (item, value) in &chompfile.env {
+                env.insert(item.to_uppercase(), value.to_string());
+            }
+            if let Some(task_env) = task.env {
+                for (item, value) in task_env {
+                    env.insert(item.to_uppercase(), value.to_string());
+                }
+            }
+            let task = Task {
+                name: task.name,
+                targets,
+                deps,
+                serial: task.serial.unwrap_or(false),
+                display: task.display.unwrap_or(true),
+                engine: task.engine.unwrap_or_default(),
+                env,
+                run: task.run.clone(),
+                cwd: task.cwd,
+                invalidation: task.invalidation.unwrap_or_default(),
+            };
+
+            runner.tasks.push(task);
+            runner.add_job(runner.tasks.len() - 1, None)?;
+        }
 
         for task in tasks.drain(..) {
             let targets = task.targets_vec();
@@ -524,7 +546,6 @@ impl<'a> Runner<'a> {
 
             runner.tasks.push(task);
             runner.add_job(runner.tasks.len() - 1, None)?;
-            continue;
         }
 
         Ok(runner)
