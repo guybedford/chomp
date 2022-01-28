@@ -146,7 +146,7 @@ impl ExtensionEnvironment {
             let batcher_key = v8::String::new(scope, "registerBatcher").unwrap();
             chomp_val.set(scope, batcher_key.into(), batch_fn.into());
 
-            let env_key = v8::String::new(scope, "env").unwrap();
+            let env_key = v8::String::new(scope, "ENV").unwrap();
             let env_val = v8::Object::new(scope);
             global.set(scope, env_key.into(), env_val.into());
 

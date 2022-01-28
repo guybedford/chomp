@@ -3,7 +3,7 @@ Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { pa
     throw new Error(`Invalid npm template option "${Object.keys(invalid)[0]}"`);
   if (!packages)
     throw new Error('npm template requires the "packages" option to be a list of packages to install.');
-  return env.CHOMP_EJECT ? [] : autoInstall ? [{
+  return ENV.CHOMP_EJECT ? [] : autoInstall ? [{
     name,
     deps: [...deps, ...packages.map(pkg => {
       const versionIndex = pkg.indexOf('@', 1);

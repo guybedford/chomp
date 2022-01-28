@@ -8,7 +8,7 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
   return [{
     name,
     targets,
-    deps: [...deps, ...!babelRc || env.CHOMP_EJECT ? [] : ['.babelrc'], ...env.CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...env.CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
+    deps: [...deps, ...!babelRc || ENV.CHOMP_EJECT ? [] : ['.babelrc'], ...ENV.CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...ENV.CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
     env,
     run: `babel $DEP -o $TARGET${
         sourceMap ? ' --source-maps' : ''
@@ -21,7 +21,7 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
       }${
         configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
       }`
-  }, ...!babelRc || env.CHOMP_EJECT ? [] : [{
+  }, ...!babelRc || ENV.CHOMP_EJECT ? [] : [{
     target: '.babelrc',
     display: false,
     invalidation: 'not-found',
@@ -29,7 +29,7 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
       echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (\x1b[1m"babel-rc = true"\x1b[0m Babel template option in use)\n'
       echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
     `
-  }], ...env.CHOMP_EJECT ? [] : [{
+  }], ...ENV.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],

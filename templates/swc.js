@@ -1,7 +1,7 @@
 Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, swcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid swc template option "${Object.keys(invalid)[0]}"`);
-  const isWin = env.PATH.match(/\\|\//)[0] !== '/';
+  const isWin = ENV.PATH.match(/\\|\//)[0] !== '/';
   const defaultConfig = {
     jsc: {
       parser: {

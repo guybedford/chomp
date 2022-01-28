@@ -4,7 +4,7 @@ Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templat
   return [{
     name,
     targets,
-    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/prettier']],
+    deps: [...deps, ...ENV.CHOMP_EJECT ? [] : ['node_modules/prettier']],
     invalidation: 'always',
     env,
     run: `prettier ${files} ${
@@ -16,7 +16,7 @@ Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templat
       }${
         noErrorOnUnmatchedPattern ? ' --no-error-on-unmatched-pattern' : ''
       }`
-  }, ...env.CHOMP_EJECT ? [] : [{
+  }, ...ENV.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,

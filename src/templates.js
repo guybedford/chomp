@@ -9,7 +9,7 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
   return [{
     name,
     targets,
-    deps: [...deps, ...!babelRc || env.CHOMP_EJECT ? [] : ['.babelrc'], ...env.CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...env.CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
+    deps: [...deps, ...!babelRc || ENV.CHOMP_EJECT ? [] : ['.babelrc'], ...ENV.CHOMP_EJECT ? [] : presets.map(p => `node_modules/${p}`), ...plugins.map(p => `node_modules/${p}`), ...ENV.CHOMP_EJECT ? [] : ['node_modules/@babel/core', 'node_modules/@babel/cli']],
     env,
     run: `babel $DEP -o $TARGET${
         sourceMap ? ' --source-maps' : ''
@@ -22,7 +22,7 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
       }${
         configFile ? ` --config-file=${configFile.startsWith('./') ? configFile : './' + configFile}` : ''
       }`
-  }, ...!babelRc || env.CHOMP_EJECT ? [] : [{
+  }, ...!babelRc || ENV.CHOMP_EJECT ? [] : [{
     target: '.babelrc',
     display: false,
     invalidation: 'not-found',
@@ -30,7 +30,7 @@ Chomp.registerTemplate('babel', function ({ name, targets, deps, env, templateOp
       echo '\n\x1b[93mChomp\x1b[0m: Creating \x1b[1m.babelrc\x1b[0m (\x1b[1m"babel-rc = true"\x1b[0m Babel template option in use)\n'
       echo '${JSON.stringify(defaultConfig, null, 2)}' > .babelrc
     `
-  }], ...env.CHOMP_EJECT ? [] : [{
+  }], ...ENV.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       packages: [...presets.map(p => p.startsWith('@babel/') ? p + '@7' : p), ...plugins.map(p => p.startsWith('@babel/') ? p + '@7' : p), '@babel/core@7', '@babel/cli@7'],
@@ -61,7 +61,7 @@ Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, i
   if (Object.keys(invalid).length)
     throw new Error(`Invalid cargo template option "${Object.keys(invalid)[0]}"`);
   const sep = PATH.match(/\\|\//)[0];
-  return env.CHOMP_EJECT ? [] : [{
+  return ENV.CHOMP_EJECT ? [] : [{
     name: `cargo:${bin}`,
     targets: [PATH.split(';').find(p => p.endsWith(`.cargo${sep}bin`)) + sep + bin + (sep === '/' ? '' : '.exe')],
     invalidation: 'not-found',
@@ -71,7 +71,7 @@ Chomp.registerTemplate('cargo', function ({ deps, env, templateOptions: { bin, i
     run: `cargo install ${install}`
   }];
 });
-Chomp.registerTemplate('jspm', function ({ name, targets, deps, env: conditionalEnv, templateOptions: {
+Chomp.registerTemplate('jspm', function ({ name, targets, deps, env, templateOptions: {
   autoInstall,
   env: generatorEnv = ['browser', 'production', 'module'],
   preload,
@@ -88,8 +88,8 @@ Chomp.registerTemplate('jspm', function ({ name, targets, deps, env: conditional
     name,
     targets,
     invalidation: 'always',
-    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/@jspm/generator', 'node_modules/mkdirp']],
-    env: conditionalEnv,
+    deps: [...deps, ...ENV.CHOMP_EJECT ? [] : ['node_modules/@jspm/generator', 'node_modules/mkdirp']],
+    env,
     engine: 'node',
     run: `    import { Generator } from '@jspm/generator';
     import { readFile, writeFile } from 'fs/promises';
@@ -105,7 +105,7 @@ Chomp.registerTemplate('jspm', function ({ name, targets, deps, env: conditional
       }
     });
 ${isImportMapTarget ? `
-    await Promise.all(process.env.DEPS.split(',')${env.CHOMP_EJECT ? '' : '.filter(dep => dep !== "node_modules/@jspm/generator" && dep !== "node_modules/mkdirp")'}.map(dep => generator.traceInstall('./' + dep)));
+    await Promise.all(process.env.DEPS.split(',')${ENV.CHOMP_EJECT ? '' : '.filter(dep => dep !== "node_modules/@jspm/generator" && dep !== "node_modules/mkdirp")'}.map(dep => generator.traceInstall('./' + dep)));
 
     mkdirp.sync(dirname(process.env.TARGET));
     await writeFile(process.env.TARGET, JSON.stringify(generator.getMap(), null, 2));`
@@ -117,7 +117,7 @@ ${isImportMapTarget ? `
       htmlUrl: pathToFileURL(process.env.TARGET)${noHtmlOpts ? '' : ',      ' + JSON.stringify({ preload, integrity, whitespace, esModuleShims })}
     }));`}
 `
-  }, ...env.CHOMP_EJECT ? [] : [{
+  }, ...ENV.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,
@@ -131,7 +131,7 @@ Chomp.registerTemplate('npm', function ({ name, deps, env, templateOptions: { pa
     throw new Error(`Invalid npm template option "${Object.keys(invalid)[0]}"`);
   if (!packages)
     throw new Error('npm template requires the "packages" option to be a list of packages to install.');
-  return env.CHOMP_EJECT ? [] : autoInstall ? [{
+  return ENV.CHOMP_EJECT ? [] : autoInstall ? [{
     name,
     deps: [...deps, ...packages.map(pkg => {
       const versionIndex = pkg.indexOf('@', 1);
@@ -235,7 +235,7 @@ Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templat
   return [{
     name,
     targets,
-    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/prettier']],
+    deps: [...deps, ...ENV.CHOMP_EJECT ? [] : ['node_modules/prettier']],
     invalidation: 'always',
     env,
     run: `prettier ${files} ${
@@ -247,7 +247,7 @@ Chomp.registerTemplate('prettier', function ({ name, targets, deps, env, templat
       }${
         noErrorOnUnmatchedPattern ? ' --no-error-on-unmatched-pattern' : ''
       }`
-  }, ...env.CHOMP_EJECT ? [] : [{
+  }, ...ENV.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,
@@ -262,7 +262,7 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
   return [{
     name,
     targets,
-    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
+    deps: [...deps, ...ENV.CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
     env,
     engine: 'node',
     run: `    import { readFile, writeFile } from 'fs/promises';
@@ -292,7 +292,7 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
         writeFile(cssFile + ".map", JSON.stringify(result.css.map))
       ];
     `
-  }, ...env.CHOMP_EJECT ? [] : [{
+  }, ...ENV.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,
@@ -304,7 +304,7 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
 Chomp.registerTemplate('swc', function ({ name, targets, deps, env, templateOptions: { configFile = null, swcRc = false, sourceMaps = true, config = {}, autoInstall, ...invalid } }) {
   if (Object.keys(invalid).length)
     throw new Error(`Invalid swc template option "${Object.keys(invalid)[0]}"`);
-  const isWin = env.PATH.match(/\\|\//)[0] !== '/';
+  const isWin = ENV.PATH.match(/\\|\//)[0] !== '/';
   const defaultConfig = {
     jsc: {
       parser: {

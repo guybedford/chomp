@@ -4,7 +4,7 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
   return [{
     name,
     targets,
-    deps: [...deps, ...env.CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
+    deps: [...deps, ...ENV.CHOMP_EJECT ? [] : ['node_modules/svelte', 'node_modules/mkdirp']],
     env,
     engine: 'node',
     run: `    import { readFile, writeFile } from 'fs/promises';
@@ -34,7 +34,7 @@ Chomp.registerTemplate('svelte', function ({ name, targets, deps, env, templateO
         writeFile(cssFile + ".map", JSON.stringify(result.css.map))
       ];
     `
-  }, ...env.CHOMP_EJECT ? [] : [{
+  }, ...ENV.CHOMP_EJECT ? [] : [{
     template: 'npm',
     templateOptions: {
       autoInstall,
