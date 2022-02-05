@@ -464,8 +464,9 @@ Chomp.registerTask({
             opts['config-file'] = configFile;
         }
         const cfg = opts['config'] || globalOpts['config'] || {};
+        let typescript = cfg['jsc.parser.syntax'] === 'typescript';
         if (!('jsc.parser.syntax' in cfg)) {
-          const typescript = sanitizeYesNo(await input.question('Enable SWC TypeScript support? [Yes] ', false), true);
+          typescript = sanitizeYesNo(await input.question('Enable SWC TypeScript support? [Yes] ', false), true);
           if (!typescript) {
             opts.config = opts.config || TOML.Section({});
             opts.config['jsc.parser.syntax'] = 'ecmascript';
@@ -474,6 +475,7 @@ Chomp.registerTask({
         if (!('jsc.parser.jsx' in cfg)) {
           const jsx = sanitizeYesNo(await input.question('Enable SWC JSX support? [No] ', false), false);
           if (jsx) {
+	    if (typescript) throw new Error('SWC doesnt currently support TypeScript + JSX via inline config. Use an .swcrc file instead.');
             opts.config = opts.config || TOML.Section({});
             opts.config['jsc.parser.jsx'] = true;
           }
