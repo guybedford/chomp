@@ -137,7 +137,7 @@ Chomp.registerTask({
       task.dep = inDir + '#' + ext.trim();
       task.target = sanitizeDirInput(await input.question('Which folder do you want to output the built JS files to? [lib] ', false) || 'lib') + '#.js';
       task.template = 'swc';
-      chompfile.task.push(task);
+      (chompfile.task = chompfile.task || []).push(task);
       return task;
     }
 
