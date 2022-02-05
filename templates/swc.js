@@ -87,7 +87,7 @@ Chomp.registerTask({
       console.log('Found SWC template usage, select an existing template task to configure, or to create a new template:');
       const num = (await input.choose([
         'New Template',
-        ...swcTasks.map(task => task.name || task.target || task.targets[0] || task.run || 'Task ' + chpmpfile.task.indexOf(task)),
+        ...swcTasks.map(task => task.name || task.target || task.targets?.[0] || task.run || 'Task ' + chompfile.task.indexOf(task)),
       ])).findIndex(x => x);
       if (num === 0 || num === -1) {
         task = await newTemplate();
@@ -127,8 +127,8 @@ Chomp.registerTask({
       const task = {};
       const name = (await input.question('Enter a name for the template (optional): ', false)).trim();
       if (name) {
-        if (task.name.indexOf(' ') !== -1) throw new Error('Task name cannot have spaces');
-        if (chompfile.task.some(t => t.name === task.name)) throw new Error('A task "' + task.name + '" already exists.');
+        if (name.indexOf(' ') !== -1) throw new Error('Task name cannot have spaces');
+        if (chompfile.task.some(t => t.name === name)) throw new Error('A task "' + task.name + '" already exists.');
         task.name = name;
       }
       const inDir = sanitizeDirInput(await input.question('Which folder do you want to build with SWC? [src] ', false) || 'src');
