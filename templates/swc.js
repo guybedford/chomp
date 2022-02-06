@@ -124,7 +124,7 @@ Chomp.registerTask({
     }
 
     async function newTemplate () {
-      const task = {};
+      const task = TOML.Section({});
       const name = (await input.question('Enter a name for the template (optional): ', false)).trim();
       if (name) {
         if (name.indexOf(' ') !== -1) throw new Error('Task name cannot have spaces');
