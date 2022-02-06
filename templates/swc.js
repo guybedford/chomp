@@ -71,7 +71,7 @@ Chomp.registerTask({
   name: 'swc:init',
   engine: 'deno',
   run: `
-    import TOML from 'https://jspm.dev/@ltd/j-toml@1';
+    import * as TOML from 'https://jspm.dev/@ltd/j-toml@1';
     import InputLoop from 'https://deno.land/x/input@2.0.3/index.ts';
 
     const chompfile = TOML.parse(new TextDecoder('utf-8').decode(Deno.readFileSync('chompfile.toml', 'utf-8')));
