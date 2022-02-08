@@ -49,7 +49,7 @@ Extensions are able to register task templates for use in Chompfiles.
 Extensions are loaded using the `extensions` list, which can be any local or remote JS file:
 
 ```toml
-version = 0.
+version = 0.1
 extensions = [
   "./local.js",
   "https://remote.com/extension.js"
