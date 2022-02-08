@@ -24,7 +24,7 @@ mod serve;
 
 use std::path::PathBuf;
 
-const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.0/";
+const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.1/";
 
 fn uri_parse (uri_str: &str) -> Option<Uri> {
     match uri_str.parse::<Uri>() {
@@ -283,7 +283,11 @@ async fn main() -> Result<()> {
 
     if matches.is_present("format") || matches.is_present("eject_templates") || matches.is_present("list") {
         if matches.is_present("eject_templates") {
-            chompfile.task = expand_template_tasks(&chompfile, &mut extension_env)?;
+            let (has_templates, template_tasks) = expand_template_tasks(&chompfile, &mut extension_env)?;
+            chompfile.task = template_tasks;
+            if !has_templates {
+                return Err(anyhow!("\x1b[1m{}\x1b[0m has no template usage to eject", cfg_file.to_str().unwrap()));
+            }
         }
 
         if matches.is_present("list") {
@@ -305,8 +309,14 @@ async fn main() -> Result<()> {
             }
             return Ok(());
         } else {
+            chompfile.extensions = Vec::new();
             fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
-            if targets.len() == 0 {
+            if matches.is_present("eject_templates") {
+                println!("\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected", cfg_file.to_str().unwrap());
+            } else {
+                println!("\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m formatted", cfg_file.to_str().unwrap());
+            }
+            if matches.is_present("eject_templates") || targets.len() == 0 {
                 return Ok(());
             }
         }

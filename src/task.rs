@@ -338,8 +338,9 @@ fn create_template_options(
 pub fn expand_template_tasks(
     chompfile: &Chompfile,
     extension_env: &mut ExtensionEnvironment,
-) -> Result<Vec<ChompTaskMaybeTemplated>> {
+) -> Result<(bool, Vec<ChompTaskMaybeTemplated>)> {
     let mut out_tasks = Vec::new();
+    let mut has_templates = false;
 
     // expand tasks into initial job list
     let mut task_queue: VecDeque<ChompTaskMaybeTemplated> = VecDeque::new();
@@ -362,6 +363,7 @@ pub fn expand_template_tasks(
             out_tasks.push(task);
             continue;
         }
+        has_templates = true;
         let template = task.template.as_ref().unwrap();
         // evaluate templates into tasks
         if task.engine.is_some()
@@ -454,7 +456,7 @@ pub fn expand_template_tasks(
         }
     }
 
-    Ok(out_tasks)
+    Ok((has_templates, out_tasks))
 }
 
 fn now () -> std::time::Duration {
@@ -490,7 +492,7 @@ impl<'a> Runner<'a> {
             interpolate_nodes: Vec::new(),
         };
 
-        let mut tasks = expand_template_tasks(
+        let (_, mut tasks) = expand_template_tasks(
             runner.chompfile,
             runner.cmd_pool.extension_env,
         )?;
