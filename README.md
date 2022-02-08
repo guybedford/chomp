@@ -42,11 +42,24 @@ Array `deps` can be defined for targets, whose targets will then be run first wi
 
 In Windows, Powershell is used and Bash on posix systems. Since both `echo` and `>` are defined on both systems the above works cross-platform (Powershell is automatically put into UTF-8 mode for `>` to work similarly).
 
-### Templates
+### Extensions
 
-Templates provide the ability to construct tasks programatically with embedded JS inside of chompfiles.
+Extensions are able to register task templates for use in Chompfiles.
 
-A number of system templates are provided out of the box in the templates directory of this repo. Template PRs can be made to add new default support to Chomp.
+Extensions are loaded using the `extensions` list, which can be any local or remote JS file:
+
+```toml
+version = 0.
+extensions = [
+  "./local.js",
+  "https://remote.com/extension.js"
+]
+```
+
+A core extensions library is provided with useful templates for the JS ecosystem, with
+the short protocol `chomp:ext`, a shorthand for the `@chompbuild/extensions` package contents.
+
+Some short examples of extension templates are provided below. See the [@chompbuild/extensions package](https://github.com/guybedford/chomp-extensions) for extension descriptions and examples.
 
 #### npm install
 
@@ -54,6 +67,7 @@ For example, to install an npm library, rather than manually writing an `npm ins
 
 ```chompfile.toml
 version = 0.1
+extensions = ['chomp:npm']
 
 [[task]]
 name = 'Install Mocha'
@@ -72,6 +86,7 @@ To compile TypeScript with the SWC template:
 
 ```toml
 version = 0.1
+extensions = ['chomp:swc']
 
 [[task]]
 name = 'typescript'

@@ -24,7 +24,7 @@ mod serve;
 
 use std::path::PathBuf;
 
-const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/templates@0.1.3/";
+const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.0/";
 
 fn uri_parse (uri_str: &str) -> Option<Uri> {
     match uri_str.parse::<Uri>() {

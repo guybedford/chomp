@@ -1,6 +1,0 @@
-version = 0.1
-
-[[task]]
-  name = "publish:templates"
-  cwd = "templates"
-  run = "npm publish . --otp=$OTP"
