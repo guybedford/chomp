@@ -5,7 +5,7 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/guybedford/chomp/"
 readme = "README.md"
-description = "Make-like task runner with templates for frontend workflows"
+description = "Make-like task runner with extensions for frontend workflows"
 
 [[bin]]
 name = "chomp"

@@ -1,5 +1,13 @@
 version = 0.1
 
+extensions = [
+  'chomp:prettier',
+  'chomp:jspm',
+  'chomp:svelte',
+  'chomp:swc',
+  'chomp:babel'
+]
+
 [template-options.npm]
   auto-install = true
 

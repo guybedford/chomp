@@ -13,11 +13,14 @@ use v8;
 
 pub struct ExtensionEnvironment {
     isolate: v8::OwnedIsolate,
+    has_extensions: bool,
     global_context: v8::Global<v8::Context>,
 }
 
 struct Extensions {
     pub tasks: Vec<ChompTaskMaybeTemplatedNoDefault>,
+    can_register: bool,
+    includes: Vec<String>,
     templates: HashMap<String, v8::Global<v8::Function>>,
     batchers: Vec<(String, v8::Global<v8::Function>)>,
 }
@@ -25,7 +28,9 @@ struct Extensions {
 impl Extensions {
     fn new() -> Self {
         Extensions {
+            can_register: true,
             tasks: Vec::new(),
+            includes: Vec::new(),
             templates: HashMap::new(),
             batchers: Vec::new(),
         }
@@ -57,6 +62,25 @@ fn chomp_log(
     println!("{}", &msg);
 }
 
+fn chomp_include(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _rv: v8::ReturnValue,
+) {
+    let include: String = {
+        let tc_scope = &mut v8::TryCatch::new(scope);
+        from_v8(tc_scope, args.get(0)).expect("Unable to register include")
+    };
+    let mut extension_env = scope
+        .get_slot::<Rc<RefCell<Extensions>>>()
+        .unwrap()
+        .borrow_mut();
+    if !extension_env.can_register {
+        panic!("Chomp does not yet support dynamic includes.");
+    }
+    extension_env.includes.push(include);
+}
+
 fn chomp_register_task(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -67,9 +91,12 @@ fn chomp_register_task(
         from_v8(tc_scope, args.get(0)).expect("Unable to register task")
     };
     let mut extension_env = scope
-    .get_slot::<Rc<RefCell<Extensions>>>()
-    .unwrap()
-    .borrow_mut();
+        .get_slot::<Rc<RefCell<Extensions>>>()
+        .unwrap()
+        .borrow_mut();
+    if !extension_env.can_register {
+        panic!("Chomp does not support dynamic task registration.");
+    }
     extension_env.tasks.push(task);
 }
 
@@ -84,9 +111,12 @@ fn chomp_register_template(
     let tpl_global = v8::Global::new(scope, tpl);
 
     let mut extension_env = scope
-    .get_slot::<Rc<RefCell<Extensions>>>()
-    .unwrap()
-    .borrow_mut();
+        .get_slot::<Rc<RefCell<Extensions>>>()
+        .unwrap()
+        .borrow_mut();
+    if !extension_env.can_register {
+        panic!("Chomp does not support dynamic template registration.");
+    }
     extension_env.templates.insert(name_str, tpl_global);
 }
 
@@ -101,9 +131,16 @@ fn chomp_register_batcher(
     let batch_global = v8::Global::new(scope, batch);
 
     let mut extension_env = scope
-    .get_slot::<Rc<RefCell<Extensions>>>()
-    .unwrap()
-    .borrow_mut();
+        .get_slot::<Rc<RefCell<Extensions>>>()
+        .unwrap()
+        .borrow_mut();
+    if !extension_env.can_register {
+        panic!("Chomp does not support dynamic batcher registration.");
+    }
+    // remove any existing batcher by the same name
+    if let Some(prev_batcher) = extension_env.batchers.iter().position(|name| name.0 == name_str) {
+        extension_env.batchers.remove(prev_batcher);
+    }
     extension_env.batchers.push((name_str, batch_global));
 }
 
@@ -126,7 +163,9 @@ impl ExtensionEnvironment {
             let console_val = v8::Object::new(scope);
             global.set(scope, console_key.into(), console_val.into());
 
-            let log_fn = v8::FunctionTemplate::new(scope, chomp_log).get_function(scope).unwrap();
+            let log_fn = v8::FunctionTemplate::new(scope, chomp_log)
+                .get_function(scope)
+                .unwrap();
             let log_key = v8::String::new(scope, "log").unwrap();
             console_val.set(scope, log_key.into(), log_fn.into());
 
@@ -134,17 +173,29 @@ impl ExtensionEnvironment {
             let version_str = v8::String::new(scope, "0.1").unwrap();
             chomp_val.set(scope, version_key.into(), version_str.into());
 
-            let task_fn = v8::FunctionTemplate::new(scope, chomp_register_task).get_function(scope).unwrap();
+            let task_fn = v8::FunctionTemplate::new(scope, chomp_register_task)
+                .get_function(scope)
+                .unwrap();
             let task_key = v8::String::new(scope, "registerTask").unwrap();
             chomp_val.set(scope, task_key.into(), task_fn.into());
 
-            let tpl_fn = v8::FunctionTemplate::new(scope, chomp_register_template).get_function(scope).unwrap();
+            let tpl_fn = v8::FunctionTemplate::new(scope, chomp_register_template)
+                .get_function(scope)
+                .unwrap();
             let template_key = v8::String::new(scope, "registerTemplate").unwrap();
             chomp_val.set(scope, template_key.into(), tpl_fn.into());
 
-            let batch_fn = v8::FunctionTemplate::new(scope, chomp_register_batcher).get_function(scope).unwrap();
+            let batch_fn = v8::FunctionTemplate::new(scope, chomp_register_batcher)
+                .get_function(scope)
+                .unwrap();
             let batcher_key = v8::String::new(scope, "registerBatcher").unwrap();
             chomp_val.set(scope, batcher_key.into(), batch_fn.into());
+
+            let include_fn = v8::FunctionTemplate::new(scope, chomp_include)
+                .get_function(scope)
+                .unwrap();
+            let include_key = v8::String::new(scope, "include").unwrap();
+            chomp_val.set(scope, include_key.into(), include_fn.into());
 
             let env_key = v8::String::new(scope, "ENV").unwrap();
             let env_val = v8::Object::new(scope);
@@ -164,6 +215,7 @@ impl ExtensionEnvironment {
 
         ExtensionEnvironment {
             isolate,
+            has_extensions: false,
             global_context,
         }
     }
@@ -173,40 +225,62 @@ impl ExtensionEnvironment {
     }
 
     pub fn get_tasks(&self) -> Vec<ChompTaskMaybeTemplatedNoDefault> {
-        self.isolate.get_slot::<Rc<RefCell<Extensions>>>().unwrap().borrow().tasks.clone()
+        self.isolate
+            .get_slot::<Rc<RefCell<Extensions>>>()
+            .unwrap()
+            .borrow()
+            .tasks
+            .clone()
     }
 
     fn get_extensions(&self) -> &Rc<RefCell<Extensions>> {
         self.isolate.get_slot::<Rc<RefCell<Extensions>>>().unwrap()
     }
 
-    pub fn add_extension(&mut self, extension_source: &str, filename: &str) -> Result<()> {
-        let mut handle_scope = self.handle_scope();
-        let code = v8::String::new(&mut handle_scope, extension_source).unwrap();
-        let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
-        let resource_name = v8::String::new(tc_scope, &filename).unwrap().into();
-        let source_map = v8::String::new(tc_scope, "").unwrap().into();
-        let origin = v8::ScriptOrigin::new(
-            tc_scope,
-            resource_name,
-            0,
-            0,
-            false,
-            123,
-            source_map,
-            true,
-            false,
-            false,
-        );
-        let script = match v8::Script::compile(tc_scope, code, Some(&origin)) {
-            Some(script) => script,
-            None => return Err(v8_exception(tc_scope)),
-        };
-        match script.run(tc_scope) {
-            Some(_) => {}
-            None => return Err(v8_exception(tc_scope)),
-        };
-        Ok(())
+    pub fn add_extension(
+        &mut self,
+        extension_source: &str,
+        filename: &str,
+    ) -> Result<Option<Vec<String>>> {
+        self.has_extensions = true;
+        {
+            let mut handle_scope = self.handle_scope();
+            let code = v8::String::new(&mut handle_scope, extension_source).unwrap();
+            let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
+            let resource_name = v8::String::new(tc_scope, &filename).unwrap().into();
+            let source_map = v8::String::new(tc_scope, "").unwrap().into();
+            let origin = v8::ScriptOrigin::new(
+                tc_scope,
+                resource_name,
+                0,
+                0,
+                false,
+                123,
+                source_map,
+                true,
+                false,
+                false,
+            );
+            let script = match v8::Script::compile(tc_scope, code, Some(&origin)) {
+                Some(script) => script,
+                None => return Err(v8_exception(tc_scope)),
+            };
+            match script.run(tc_scope) {
+                Some(_) => {}
+                None => return Err(v8_exception(tc_scope)),
+            };
+        }
+        let mut extensions = self.get_extensions().borrow_mut();
+        if extensions.includes.len() > 0 {
+            Ok(Some(extensions.includes.drain(..).collect()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn seal_extensions(&mut self) {
+        let mut extensions = self.get_extensions().borrow_mut();
+        extensions.can_register = false;
     }
 
     pub fn run_template(
@@ -216,15 +290,30 @@ impl ExtensionEnvironment {
     ) -> Result<Vec<ChompTaskMaybeTemplatedNoDefault>> {
         let template = {
             let extensions = self.get_extensions().borrow();
-            extensions.templates[name].clone()
-        };
+            match extensions.templates.get(name) {
+                Some(tpl) => Ok(tpl.clone()),
+                None => {
+                    if name == "babel" || name == "cargo" || name == "jspm" || name == "npm" ||
+                        name == "prettier" || name == "svelte" || name == "swc" {
+                        if self.has_extensions {
+                            Err(anyhow!("Template '{}' has not been registered. To include the core template, add \x1b[1m'chomp:{}'\x1b[0m to the extensions list:\x1b[36m\n\n  extensions = [..., 'chomp:{}']\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m.", &name, &name, &name))
+                        } else {
+                            Err(anyhow!("Template '{}' has not been registered. To include the core template, add:\x1b[36m\n\n  extensions = ['chomp:{}']\n\n\x1b[0mto the \x1b[1mchompfile.toml\x1b[0m.", &name, &name))
+                        }
+                    } else {
+                        Err(anyhow!("Template '{}' has not been registered. Make sure it is included in the \x1b[1mchompfile.toml\x1b[0m extensions.", &name))
+                    }
+                }
+            }
+        }?;
         let cb = template.open(&mut self.isolate);
 
         let mut handle_scope = self.handle_scope();
         let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
 
         let this = v8::undefined(tc_scope).into();
-        let args: Vec<v8::Local<v8::Value>> = vec![to_v8(tc_scope, task).expect("Unable to serialize template params")];
+        let args: Vec<v8::Local<v8::Value>> =
+            vec![to_v8(tc_scope, task).expect("Unable to serialize template params")];
         let result = match cb.call(tc_scope, this, args.as_slice()) {
             Some(result) => result,
             None => return Err(v8_exception(tc_scope)),
@@ -232,6 +321,10 @@ impl ExtensionEnvironment {
         let task: Vec<ChompTaskMaybeTemplatedNoDefault> = from_v8(tc_scope, result)
             .expect("Unable to deserialize template task list due to invalid structure");
         Ok(task)
+    }
+
+    pub fn has_batchers (&self) -> bool {
+        self.get_extensions().borrow().batchers.len() > 0
     }
 
     pub fn run_batcher(
@@ -243,6 +336,7 @@ impl ExtensionEnvironment {
         (Vec<usize>, Vec<BatchCmd>, BTreeMap<usize, usize>),
         Option<usize>,
     )> {
+
         let (_name, batcher, batchers_len) = {
             let extensions = self.get_extensions().borrow();
             let (name, batcher) = extensions.batchers[idx].clone();
@@ -324,7 +418,9 @@ fn is_instance_of_error<'s>(scope: &mut v8::HandleScope<'s>, value: v8::Local<v8
         if prototype.strict_equals(error_prototype) {
             return true;
         }
-        maybe_prototype = prototype.to_object(scope).and_then(|o| o.get_prototype(scope));
+        maybe_prototype = prototype
+            .to_object(scope)
+            .and_then(|o| o.get_prototype(scope));
     }
     false
 }

@@ -39,6 +39,7 @@ pub struct Task {
     targets: Vec<String>,
     invalidation: InvalidationCheck,
     deps: Vec<String>,
+    args: Option<Vec<String>>,
     serial: bool,
     display: bool,
     env: BTreeMap<String, String>,
@@ -48,7 +49,7 @@ pub struct Task {
 }
 
 pub struct RunOptions {
-    // pub ui: &'a ChompUI,
+    pub args: Option<Vec<String>>,
     pub cwd: String,
     pub cfg_file: PathBuf,
     pub pool_size: usize,
@@ -382,6 +383,7 @@ pub fn expand_template_tasks(
             invalidation: Some(task.invalidation.clone().unwrap_or_default()),
             dep: None,
             deps: Some(task.deps_vec()),
+            args: task.args.clone(),
             display: Some(task.display.unwrap_or(true)),
             serial: task.serial,
             env: Some(task.env),
@@ -435,6 +437,7 @@ pub fn expand_template_tasks(
             task_queue.push_front(ChompTaskMaybeTemplated {
                 cwd: template_task.cwd,
                 name: template_task.name,
+                args: template_task.args,
                 target,
                 targets,
                 display: template_task.display,
@@ -508,6 +511,7 @@ impl<'a> Runner<'a> {
                 name: task.name,
                 targets,
                 deps,
+                args: task.args.clone(),
                 serial: task.serial.unwrap_or(false),
                 display: task.display.unwrap_or(true),
                 engine: task.engine.unwrap_or_default(),
@@ -535,6 +539,7 @@ impl<'a> Runner<'a> {
                 name: task.name,
                 targets,
                 deps,
+                args: task.args.clone(),
                 serial: task.serial.unwrap_or(false),
                 display: task.display.unwrap_or(true),
                 engine: task.engine.unwrap_or_default(),
@@ -670,20 +675,27 @@ impl<'a> Runner<'a> {
         }
         let job = self.get_job(job_num).unwrap();
         if job.display || self.chompfile.debug {
-            let name = job.display_name(self);
+            let mut name = job.display_name(self);
+            let primary = job.parents.len() == 0;
+            if primary {
+                let mut name_bold = String::from("\x1b[1m");
+                name_bold.push_str(&name);
+                name_bold.push_str("\x1b[0m");
+                name = name_bold;
+            }
             if let Some(cmd_time) = cmd_time {
                 if failed {
-                    println!("x {} [{:?}]", name, cmd_time);
+                    println!("\x1b[1;31mx\x1b[0m {} \x1b[34m[{:?}]\x1b[0m", name, cmd_time);
                 } else {
-                    println!("✓ {} [{:?}]", name, cmd_time);
+                    println!("\x1b[1;32m√\x1b[0m {} \x1b[34m[{:?}]\x1b[0m", name, cmd_time);
                 }
             } else {
                 if failed {
-                    println!("x {}", name);
+                    println!("\x1b[1;31mx\x1b[0m {}", name);
                 } else if mtime.is_some() {
-                    println!("✓ {}", name);
+                    println!("\x1b[1;32m√\x1b[0m {}", name);
                 } else {
-                    println!("● {} [cached]", name);
+                    println!("\x1b[1m●\x1b[0m {} \x1b[34m[cached]\x1b[0m", name);
                 }
             }
         }
@@ -798,12 +810,12 @@ impl<'a> Runner<'a> {
         }
         // If we have an mtime, check if we need to do work
         if let Some(mtime) = job.mtime {
-            let can_skip = match task.invalidation {
+            let can_skip = task.args.is_none() && match task.invalidation {
                 InvalidationCheck::NotFound => true,
                 InvalidationCheck::Always => {
                     if !force && (job.display || self.chompfile.debug) {
                         println!(
-                            "  {} invalidated",
+                            "  \x1b[1m{}\x1b[0m invalidated",
                             job.display_name(self),
                         );
                     }
@@ -825,7 +837,7 @@ impl<'a> Runner<'a> {
                                 };
                                 if invalidated && !force && (job.display || self.chompfile.debug) {
                                     println!(
-                                        "  {} invalidated by {}.",
+                                        "  \x1b[1m{}\x1b[0m invalidated by {}",
                                         job.display_name(self),
                                         dep.display_name(self)
                                     );
@@ -839,7 +851,7 @@ impl<'a> Runner<'a> {
                                 };
                                 if invalidated && !force && (job.display || self.chompfile.debug) {
                                     println!(
-                                        "  {} invalidated by {}",
+                                        "  \x1b[1m{}\x1b[0m invalidated by {}",
                                         job.display_name(self),
                                         dep.name
                                     );
@@ -927,6 +939,15 @@ impl<'a> Runner<'a> {
         env.insert("TARGETS".to_string(), targets);
         env.insert("DEP".to_string(), dep);
         env.insert("DEPS".to_string(), deps);
+
+        if task.args.is_some() {
+            for arg in task.args.as_ref().unwrap() {
+                let k = arg.to_uppercase();
+                if !env.contains_key(&k) {
+                    env.insert(k, String::from(""));
+                }
+            }
+        }
 
         let targets = job.targets.clone();
         let engine = task.engine;
@@ -1325,7 +1346,7 @@ impl<'a> Runner<'a> {
         &mut self,
         watcher: &mut RecommendedWatcher,
         target: &str,
-        drives: Option<usize>,
+        drives: Option<usize>
     ) -> Result<()> {
         let job_num = self.lookup_target(watcher, target, true).await?;
         self.expand_job(watcher, job_num, drives).await
@@ -1337,7 +1358,7 @@ impl<'a> Runner<'a> {
         &mut self,
         watcher: &mut RecommendedWatcher,
         job_num: usize,
-        parent: Option<usize>,
+        parent: Option<usize>
     ) -> Result<()> {
         if let Some(parent) = parent {
             let deps = &mut self.get_job_mut(parent).unwrap().deps;
@@ -1372,6 +1393,9 @@ impl<'a> Runner<'a> {
                         return Err(anyhow!("Cannot have wildcard + interpolate"));
                     }
                     job_targets.push(target.to_string());
+                }
+                if task.args.is_some() && (is_wildcard || is_interpolate) {
+                    return Err(anyhow!("Cannot apply args to interpolate tasks."));
                 }
                 if !is_interpolate {
                     job.targets = job_targets;
@@ -1548,10 +1572,7 @@ impl<'a> Runner<'a> {
             };
 
             let job_num = match self.task_jobs.get(name) {
-                Some(&job_num) => {
-                    self.get_job_mut(job_num).unwrap().live = true;
-                    job_num
-                }
+                Some(&job_num) => job_num,
                 None => match self.file_nodes.get(name) {
                     Some(&job_num) => job_num,
                     None => {
@@ -1561,6 +1582,7 @@ impl<'a> Runner<'a> {
                 },
             };
 
+            self.get_job_mut(job_num).unwrap().live = true;
             self.drive_all(job_num, force, &mut futures, &mut queued, None)?;
         }
         if watcher.is_some() {
@@ -1659,7 +1681,7 @@ pub async fn run<'a>(
     let normalized_targets: Vec<String> = if opts.targets.len() == 0 {
         match &chompfile.default_task {
             Some(default_task) => vec![default_task.clone()],
-            None => return Err(anyhow!("No default task provided. Set:\n\n  default-task = \"[taskname]\"\n\nin the chompfile.toml to configure a default build task.")),
+            None => return Err(anyhow!("No default task provided. Set:\x1b[33m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
         }
     } else {
         opts.targets
@@ -1679,13 +1701,37 @@ pub async fn run<'a>(
         runner.expand_target(&mut watcher, &target, None).await?;
     }
 
+    // When running with arguments, mutate the task environment to include the arguments
+    // Arguments tasks cannot be cached
+    if let Some(args) = opts.args {
+        if normalized_targets.len() > 1 {
+            return Err(anyhow!("Custom args are only supported when running a single command."));
+        }
+        let job_num = runner.lookup_target(&mut watcher, &normalized_targets[0], true).await?;
+        let task_num = runner.get_job(job_num).unwrap().task;
+        let task = &mut runner.tasks[task_num];
+        let task_args_len = match &task.args {
+            Some(args) => args.len(),
+            None => {
+                return Err(anyhow!("Task \x1b[1m{}\x1b[0m doesn't take any arguments.", runner.get_job(job_num).unwrap().display_name(&runner)));
+            }
+        };
+        if task_args_len < args.len() {
+            return Err(anyhow!("Task \x1b[1m{}\x1b[0m only takes {} arguments, while {} were provided.", runner.get_job(job_num).unwrap().display_name(&runner), task_args_len, args.len()));
+        }
+        let task_args = task.args.as_ref().unwrap();
+        for (i, arg) in args.iter().enumerate() {
+            task.env.insert(task_args[i].to_uppercase(), arg.clone());
+        }
+    }
+
     runner
-        .drive_targets(
-            &normalized_targets,
-            opts.force,
-            if opts.watch { Some(&rx) } else { None },
-        )
-        .await?;
+    .drive_targets(
+        &normalized_targets,
+        opts.force,
+        if opts.watch { Some(&rx) } else { None },
+    )
+    .await?;
 
     // if all targets completed successfully, exit code is 0, otherwise its an error
     let mut all_ok = true;

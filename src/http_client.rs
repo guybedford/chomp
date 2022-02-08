@@ -19,7 +19,7 @@ pub async fn clear_cache () -> Result<()> {
 }
 
 pub async fn prep_cache () -> Result<()> {
-    match fs::create_dir(chomp_cache_dir()).await { _ => Ok(()) }
+    match fs::create_dir_all(chomp_cache_dir()).await { _ => Ok(()) }
 }
 
 #[inline(always)]
@@ -64,6 +64,7 @@ pub async fn fetch_uri_cached (uri_str: &str, uri: Uri) -> Result<String> {
         return Ok(cached);
     }
 
+    println!("\x1b[34;1mFetch\x1b[0m {}", &uri_str);
     let https = HttpsConnector::new();
     let client = Client::builder().build::<_, hyper::Body>(https);
 
