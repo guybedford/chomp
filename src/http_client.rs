@@ -19,7 +19,7 @@ pub async fn clear_cache () -> Result<()> {
 }
 
 pub async fn prep_cache () -> Result<()> {
-    match fs::create_dir(chomp_cache_dir()).await { _ => Ok(()) }
+    match fs::create_dir_all(chomp_cache_dir()).await { _ => Ok(()) }
 }
 
 #[inline(always)]
