@@ -64,6 +64,7 @@ pub async fn fetch_uri_cached (uri_str: &str, uri: Uri) -> Result<String> {
         return Ok(cached);
     }
 
+    println!("\x1b[34;1mFetch\x1b[0m {}", &uri_str);
     let https = HttpsConnector::new();
     let client = Client::builder().build::<_, hyper::Body>(https);
 

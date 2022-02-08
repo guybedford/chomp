@@ -149,27 +149,29 @@ impl<'a> CmdPool<'a> {
                 let mut batched: Vec<BatchCmd> = Vec::new();
 
                 let mut batcher = 0;
-                'outer: loop {
-                    let ((queued, mut exec, completion_map), next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
-                    for (cmd_num, exec_num) in completion_map {
-                        batch.remove(&cmds[&cmd_num]);
-                        this.batching.remove(&cmd_num);
-                        global_completion_map.push((cmd_num, exec_num));
-                    }
-                    for cmd_num in queued {
-                        batch.remove(&cmds[&cmd_num]);
-                    }
-                    for cmd in exec.drain(..) {
-                        for cmd_num in cmd.ids.iter() {
+                if this.extension_env.has_batchers() {
+                    'outer: loop {
+                        let ((queued, mut exec, completion_map), next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
+                        for (cmd_num, exec_num) in completion_map {
+                            batch.remove(&cmds[&cmd_num]);
                             this.batching.remove(&cmd_num);
+                            global_completion_map.push((cmd_num, exec_num));
+                        }
+                        for cmd_num in queued {
                             batch.remove(&cmds[&cmd_num]);
                         }
-                        batched.push(cmd);
+                        for cmd in exec.drain(..) {
+                            for cmd_num in cmd.ids.iter() {
+                                this.batching.remove(&cmd_num);
+                                batch.remove(&cmds[&cmd_num]);
+                            }
+                            batched.push(cmd);
+                        }
+                        match next {
+                            Some(num) => { batcher = num },
+                            None => { break 'outer },
+                        };
                     }
-                    match next {
-                        Some(num) => { batcher = num },
-                        None => { break 'outer },
-                    };
                 }
                 for (cmd_num, exec_num) in global_completion_map {
                     this.execs.get_mut(&exec_num).unwrap().cmd.ids.push(cmd_num);
@@ -209,7 +211,7 @@ impl<'a> CmdPool<'a> {
             let cmd = &self.cmds[&id];
             self.cmd_execs.insert(*id, exec_num);
             if let Some(name) = &cmd.name {
-                println!("🞂 {}", name);
+                println!("\x1b[1m🞂 {}\x1b[0m", name);
             }
             for target in &cmd.targets {
                 targets.push(target.to_string());

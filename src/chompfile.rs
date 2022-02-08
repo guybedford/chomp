@@ -23,6 +23,8 @@ pub struct Chompfile {
     pub debug: bool,
     pub default_task: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
+    pub extensions: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub env: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub server: ServerOptions,
@@ -30,8 +32,6 @@ pub struct Chompfile {
     pub task: Vec<ChompTaskMaybeTemplated>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub template_options: HashMap<String, HashMap<String, toml::value::Value>>,
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub extensions: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
@@ -73,6 +73,7 @@ pub struct ChompTaskMaybeTemplated {
     pub targets: Option<Vec<String>>,
     pub dep: Option<String>,
     pub deps: Option<Vec<String>>,
+    pub args: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
     pub display: Option<bool>,
@@ -148,6 +149,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub targets: Option<Vec<String>>,
     pub dep: Option<String>,
     pub deps: Option<Vec<String>>,
+    pub args: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
     pub display: Option<bool>,
