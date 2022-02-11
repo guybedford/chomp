@@ -10,3 +10,4 @@ test/test-babel.js
 test/test-babel.js.map
 test/.babelrc
 test/.swcrc
+test/testlog.txt
