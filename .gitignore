@@ -10,3 +10,4 @@ test/.babelrc
 test/.swcrc
 test/testlog.txt
 test/lib-swc
+sandbox
