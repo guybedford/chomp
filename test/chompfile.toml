@@ -14,7 +14,7 @@ extensions = [
 [[task]]
   name = "test"
   serial = true
-  deps = ["test:init", "fail", "prettier", "jspm", "svelte", "swc", "babel", "check"]
+  deps = ["test:init", "fail", "prettier", "jspm", "svelte", "swc", "babel", "unit", "check"]
 
 [[task]]
   name = "fail"
@@ -22,6 +22,11 @@ extensions = [
     chomp test:fail
     echo "recover"
   """
+
+[[task]]
+  name = "unit"
+  dep = "unit/#.js"
+  run = "node $DEP >> testlog.txt"
 
 # verify that a serial failure stops the build and logs correctly
 [[task]]
@@ -41,15 +46,23 @@ extensions = [
 [[task]]
   name = "check"
   deps = ["app-build.html", "test.js"]
-  run = """
-    echo \"TESTS OK\" >> testlog.txt
-    cat testlog.txt
-    rm testlog.txt
-  """
+  engine = "node"
+  run = '''
+    import { readFileSync } from 'fs';
+    import assert from 'assert';
+
+    const log = readFileSync('testlog.txt', 'utf8').trim().split(/\r?\n/);
+    assert.equal(log.length, 2);
+    assert(log.indexOf('unit test a') !== -1);
+    assert(log.indexOf('unit test b') !== -1);
+
+    console.log('TESTS OK');
+  '''
 
 [[task]]
   name = "test:init"
   run = """
+    rm testlog.txt
     rm -r node_modules
     rm package.json
     rm package-lock.json

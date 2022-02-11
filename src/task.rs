@@ -171,24 +171,21 @@ impl<'a> Job {
     }
 
     fn display_name(&self, runner: &Runner) -> String {
-        match self.targets.first() {
-            Some(target) => {
-                if target.contains('#') {
-                    target.replace("#", &self.interpolate.as_ref().unwrap())
-                } else {
-                    String::from(target)
-                }
+        let task = &runner.tasks[self.task];
+        if self.interpolate.is_some() {
+            if self.targets.len() > 0 {
+                self.targets.iter().find(|&t| t.contains('#')).unwrap().replace('#', &self.interpolate.as_ref().unwrap())
+            } else {
+                task.deps.iter().find(|&d| d.contains('#')).unwrap().replace('#', &self.interpolate.as_ref().unwrap())
             }
-            None => {
-                let task = &runner.tasks[self.task];
-                match &task.name {
-                    Some(name) => String::from(format!(":{}", name)),
-                    None => match &task.run {
-                        Some(run) => String::from(format!("{}", run)),
-                        None => String::from(format!("[task {}]", self.task)),
-                    },
-                }
-            }
+        } else if self.targets.len() > 0 {
+            self.targets.first().unwrap().to_string()
+        } else if let Some(name) = &task.name {
+            String::from(format!(":{}", name))
+        } else if let Some(run) = &task.run {
+            String::from(format!("{}", run))
+        } else {
+            String::from(format!("[task {}]", self.task))
         }
     }
 }
@@ -558,24 +555,18 @@ impl<'a> Runner<'a> {
         Ok(runner)
     }
 
-    fn add_job(&mut self, task_num: usize, interpolate: Option<String>) -> Result<usize> {
+    fn add_job(&mut self, task_num: usize, interpolate: Option<String>) -> Result<(usize, bool)> {
         let num = self.nodes.len();
         let task = &self.tasks[task_num];
 
-        let mut is_interpolate_target = false;
-        for t in task.targets.iter() {
-            if !is_interpolate_target && t.contains('#') {
-                is_interpolate_target = true;
-            }
-        }
+        let is_interpolate_target = task.deps.iter().find(|&d| d.contains('#')).is_some();
 
         // map target name
         if let Some(ref name) = task.name {
             if interpolate.is_none() {
-                if self.task_jobs.contains_key(name) {
-                    //
+                if !self.task_jobs.contains_key(name) {
+                    self.task_jobs.insert(name.to_string(), num);
                 }
-                self.task_jobs.insert(name.to_string(), num);
             }
         }
 
@@ -588,22 +579,46 @@ impl<'a> Runner<'a> {
             }
         }
 
+        let mut job = Job::new(
+            task_num,
+            task.serial,
+            task.display,
+            interpolate.clone(),
+        );
+
         // map target file as file node
+        let task_targets = task.targets.clone();
         if !is_interpolate_target || interpolate.is_some() {
-            for target in task.targets.iter() {
+            for target in task_targets.iter() {
                 let file_target = match &interpolate {
                     Some(interpolate) => {
-                        if !target.contains("#") {
+                        if !target.contains('#') {
                             continue;
                         }
-                        target.replace("#", interpolate)
+                        target.replace('#', interpolate)
                     }
                     None => target.to_string(),
                 };
                 match self.file_nodes.get(&file_target) {
-                    Some(_) => {
-                        // return Err(anyhow!("Multiple targets pointing to same file {}", file_target));
-                    }
+                    Some(&num) => {
+                        match &self.nodes[num] {
+                            Node::Job(_) => {
+                                // duplicate job for same file -> first wins (skip)
+                                return Ok((num, false));
+                            },
+                            Node::File(file) => {
+                                // replacing previous file node with interpolate job node -> upgrade the attachments
+                                self.file_nodes.insert(file_target, num);
+                                let parents = file.parents.clone();
+                                for parent in parents {
+                                    let parent_job = self.get_job_mut(parent).unwrap();
+                                    let idx = parent_job.deps.iter().enumerate().find(|(_, &d)| d == num).unwrap().0;
+                                    parent_job.deps[idx] = num;
+                                    job.parents.push(parent);
+                                }
+                            },
+                        }
+                    },
                     None => {
                         self.file_nodes.insert(file_target, num);
                     }
@@ -611,13 +626,8 @@ impl<'a> Runner<'a> {
             }
         }
 
-        self.nodes.push(Node::Job(Job::new(
-            task_num,
-            task.serial,
-            task.display,
-            interpolate,
-        )));
-        return Ok(num);
+        self.nodes.push(Node::Job(job));
+        return Ok((num, true));
     }
 
     fn add_file(&mut self, file: String) -> Result<usize> {
@@ -799,12 +809,7 @@ impl<'a> Runner<'a> {
         }
         // the interpolation template itself is not run
         if job.interpolate.is_none() {
-            let mut has_interpolation = false;
-            for target in task.targets.iter() {
-                if !has_interpolation && target.contains('#') {
-                    has_interpolation = true;
-                }
-            }
+            let has_interpolation = task.deps.iter().find(|&d| d.contains('#')).is_some();
             if has_interpolation {
                 self.mark_complete(job_num, Some(now()), None, false);
                 return None;
@@ -880,12 +885,10 @@ impl<'a> Runner<'a> {
             env.insert("MATCH".to_string(), interpolate.to_string());
         }
         let target_index = if job.interpolate.is_some() {
-            task.deps
-                .iter()
-                .enumerate()
-                .find(|(_, d)| d.contains('#'))
-                .unwrap()
-                .0
+            match task.deps.iter().enumerate().find(|(_, d)| d.contains('#')) {
+                Some(mtch) => mtch.0,
+                None => 0
+            }
         } else {
             0
         };
@@ -1379,24 +1382,24 @@ impl<'a> Runner<'a> {
                     return Ok(());
                 }
                 let mut is_interpolate = false;
-                let mut is_wildcard = false;
 
                 let task_num = job.task;
                 let task = &self.tasks[job.task];
                 let mut job_targets = Vec::new();
+                let has_targets = task.targets.len() > 0;
                 for target in task.targets.iter() {
-                    if !is_interpolate && target.contains("#") {
+                    if target.contains('*') {
+                        return Err(anyhow!("Error processing target '{}' - glob characters are not supported", &target));
+                    }
+                    if target.contains('#') {
+                        if is_interpolate {
+                            return Err(anyhow!("Error processing target '{}' - can only have a single interpolation target per task", &target));
+                        }
                         is_interpolate = true;
-                    }
-                    if !is_wildcard && target.contains("*") {
-                        is_wildcard = true;
-                    }
-                    if is_wildcard && is_interpolate {
-                        return Err(anyhow!("Cannot have wildcard + interpolate"));
                     }
                     job_targets.push(target.to_string());
                 }
-                if task.args.is_some() && (is_wildcard || is_interpolate) {
+                if task.args.is_some() && is_interpolate {
                     return Err(anyhow!("Cannot apply args to interpolate tasks."));
                 }
                 if !is_interpolate {
@@ -1405,37 +1408,30 @@ impl<'a> Runner<'a> {
 
                 job.state = JobState::Initialized;
 
-                if is_wildcard {
-                    panic!("TODO: wildcard targets");
-                }
-
                 let mut expanded_interpolate = false;
                 let deps = task.deps.clone();
                 for dep in deps {
+                    if dep.contains('*') {
+                        return Err(anyhow!("Error processing dep '{}' - glob deps are not supported", &dep));
+                    }
                     if dep.contains('#') {
-                        if dep.contains('*') {
-                            return Err(anyhow!("Wildcard + interpolate not supported"));
-                        }
-                        if !is_interpolate {
-                            return Err(anyhow!("Interpolate in deps can only be used when contained in target (and run)"));
-                        }
                         if expanded_interpolate {
-                            return Err(anyhow!("Only one interpolated deps is allowed"));
+                            return Err(anyhow!("Error processing dep '{}' - only one interpolated deps is allowed", &dep));
                         }
                         self.expand_interpolate(watcher, String::from(dep), job_num, task_num)
                             .await?;
                         expanded_interpolate = true;
-                    } else if dep.contains('*') {
-                        panic!("TODO: Wildcard deps");
                     } else {
                         self.expand_target(watcher, &String::from(dep), Some(job_num))
                             .await?;
                     }
                 }
-                if is_interpolate {
-                    if !expanded_interpolate {
-                        return Err(anyhow!("Never found deps interpolates"));
-                    }
+
+                if expanded_interpolate && has_targets && !is_interpolate {
+                    return Err(anyhow!("Task has interpolation deps, but defined target does not specify an interpolate"));
+                }
+                if is_interpolate && !expanded_interpolate {
+                    return Err(anyhow!("Task defines an interpolation target without an interpolation dep"));
                 }
             }
             Node::File(ref mut file) => {
@@ -1452,8 +1448,8 @@ impl<'a> Runner<'a> {
         parent_job: usize,
         parent_task: usize,
     ) -> Result<()> {
-        let interpolate_idx = dep.find("#").unwrap();
-        if dep[interpolate_idx + 1..].find("#").is_some() {
+        let interpolate_idx = dep.find('#').unwrap();
+        if dep[interpolate_idx + 1..].find('#').is_some() {
             return Err(anyhow!("multiple interpolates"));
         }
         let mut glob_target = String::new();
@@ -1463,13 +1459,13 @@ impl<'a> Runner<'a> {
         for entry in glob(&glob_target).expect("Failed to read glob pattern") {
             match entry {
                 Ok(entry) => {
-                    let input_path =
-                        String::from(entry.path().to_str().unwrap()).replace("\\", "/");
-                    let interpolate = &input_path
-                        [interpolate_idx..input_path.len() - dep.len() + interpolate_idx + 1];
+                    let dep_path =
+                        String::from(entry.path().to_str().unwrap()).replace('\\', "/");
+                    let interpolate = &dep_path
+                        [interpolate_idx..dep_path.len() - dep.len() + interpolate_idx + 1];
                     self.expand_interpolate_match(
                         watcher,
-                        &input_path,
+                        &dep_path,
                         interpolate,
                         parent_job,
                         parent_task,
@@ -1488,7 +1484,7 @@ impl<'a> Runner<'a> {
     async fn expand_interpolate_match(
         &mut self,
         watcher: &mut RecommendedWatcher,
-        input: &str,
+        dep_path: &str,
         interpolate: &str,
         parent_job: usize,
         parent_task: usize,
@@ -1497,26 +1493,21 @@ impl<'a> Runner<'a> {
         let task = &self.tasks[parent_task];
         let targets = task.targets.clone();
 
-        let interpolate_target = targets
-            .iter()
-            .find(|&t| t.contains('#'))
-            .unwrap()
-            .replace('#', interpolate);
+        let (job_num, new_job) = self.add_job(parent_task, Some(String::from(interpolate)))?;
 
-        // Already expanded
-        if let Some(&existing) = self.file_nodes.get(&interpolate_target) {
-            return Ok(existing);
+        // Already defined -> skip
+        if !new_job {
+            return Ok(job_num);
         }
-        let job_num = self.add_job(parent_task, Some(String::from(interpolate)))?;
 
-        let dep_num = if let Some(&existing) = self.file_nodes.get(input) {
+        let dep_num = if let Some(&existing) = self.file_nodes.get(dep_path) {
             match self.nodes[existing] {
                 Node::File(ref mut file) => file.parents.push(job_num),
                 Node::Job(ref mut job) => job.parents.push(job_num),
             }
             existing
         } else {
-            let dep_num = self.add_file(input.to_string())?;
+            let dep_num = self.add_file(dep_path.to_string())?;
             let file = self.get_file_mut(dep_num).unwrap();
             file.parents.push(job_num);
             file.init(if watch { Some(watcher) } else { None });
@@ -1529,7 +1520,7 @@ impl<'a> Runner<'a> {
         job.state = JobState::Initialized;
 
         for parent_target in targets {
-            job.targets.push(parent_target.replace("#", interpolate));
+            job.targets.push(parent_target.replace('#', interpolate));
         }
         let parent = self.get_job_mut(parent_job).unwrap();
         parent.deps.push(job_num);
