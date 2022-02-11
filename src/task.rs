@@ -173,8 +173,8 @@ impl<'a> Job {
     fn display_name(&self, runner: &Runner) -> String {
         let task = &runner.tasks[self.task];
         if self.interpolate.is_some() {
-            if self.targets.len() > 0 {
-                self.targets.iter().find(|&t| t.contains('#')).unwrap().replace('#', &self.interpolate.as_ref().unwrap())
+            if task.targets.len() > 0 {
+                task.targets.iter().find(|&t| t.contains('#')).unwrap().replace('#', &self.interpolate.as_ref().unwrap())
             } else {
                 task.deps.iter().find(|&d| d.contains('#')).unwrap().replace('#', &self.interpolate.as_ref().unwrap())
             }
@@ -454,6 +454,10 @@ pub fn expand_template_tasks(
     }
 
     Ok((has_templates, out_tasks))
+}
+
+fn has_glob_chars (s: &str) -> bool {
+    s.contains('(') || s.contains('[') || s.contains('?') || s.contains('*')
 }
 
 fn now () -> std::time::Duration {
@@ -1388,7 +1392,7 @@ impl<'a> Runner<'a> {
                 let mut job_targets = Vec::new();
                 let has_targets = task.targets.len() > 0;
                 for target in task.targets.iter() {
-                    if target.contains('*') {
+                    if has_glob_chars(&target) {
                         return Err(anyhow!("Error processing target '{}' - glob characters are not supported", &target));
                     }
                     if target.contains('#') {
@@ -1411,7 +1415,7 @@ impl<'a> Runner<'a> {
                 let mut expanded_interpolate = false;
                 let deps = task.deps.clone();
                 for dep in deps {
-                    if dep.contains('*') {
+                    if has_glob_chars(&dep) {
                         return Err(anyhow!("Error processing dep '{}' - glob deps are not supported", &dep));
                     }
                     if dep.contains('#') {

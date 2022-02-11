@@ -45,7 +45,7 @@ extensions = [
 
 [[task]]
   name = "check"
-  deps = ["app-build.html", "test.js"]
+  deps = ["app-build.html", "lib-swc/test.js", "test-babel.js"]
   engine = "node"
   run = '''
     import { readFileSync } from 'fs';
@@ -66,8 +66,7 @@ extensions = [
     rm -r node_modules
     rm package.json
     rm package-lock.json
-    rm test.js
-    rm test.js.map
+    rm -r lib-swc
     rm -r lib
     rm app-build.html
     rm test-babel.js
@@ -94,8 +93,8 @@ extensions = [
 [[task]]
   name = "swc"
   template = "swc"
-  target = "test.js"
-  deps = ["test.ts"]
+  target = "lib-swc/#.js"
+  dep = "src-swc/#.ts"
 
 [[task]]
   name = "babel"

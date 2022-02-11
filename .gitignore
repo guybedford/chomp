@@ -4,10 +4,9 @@ package.json
 package-lock.json
 test/lib
 test/app-build.html
-test/test.js
-test/test.js.map
 test/test-babel.js
 test/test-babel.js.map
 test/.babelrc
 test/.swcrc
 test/testlog.txt
+test/lib-swc
