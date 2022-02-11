@@ -19,7 +19,7 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
+pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
     let run = batch_cmd.run.trim();
     if debug {
         println!("RUN: {}", run);
@@ -91,7 +91,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
             // Support a tty: true / false configuration?
             // command.stdin(Stdio::null());
             match command.spawn() {
-                Ok(child) => return child,
+                Ok(child) => return Some(child),
                 Err(_) => {
                     let mut command = Command::new(&cmd);
                     command.env("PATH", &path);
@@ -115,8 +115,12 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
                     }
                     // command.stdin(Stdio::null());
                     match command.spawn() {
-                        Ok(child) => return child,
-                        Err(_) => {}, // fallback to shell
+                        Ok(child) => return Some(child),
+                        Err(_) => {
+                            if !fastpath_fallback {
+                                return None;
+                            }
+                        }, // fallback to shell
                     }
                 }
             };
@@ -156,11 +160,11 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
     }
     command.current_dir(cwd);
     // command.stdin(Stdio::null());
-    command.spawn().unwrap()
+    Some(command.spawn().unwrap())
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
+pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
     let run = batch_cmd.run.trim();
     if debug {
         println!("RUN: {}", run);
@@ -219,8 +223,12 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
         }
         // command.stdin(Stdio::null());
         match command.spawn() {
-            Ok(child) => return child,
-            Err(_) => {}, // fallback to shell
+            Ok(child) => return Some(child),
+            Err(_) => {
+                if !fastpath_fallback {
+                    return None;
+                }
+            }, // fallback to shell
         }
     }
 
@@ -241,5 +249,5 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool) -> Child {
     command.arg("-c");
     command.arg(&run);
     // command.stdin(Stdio::null());
-    command.spawn().unwrap()
+    Some(command.spawn().unwrap())
 }

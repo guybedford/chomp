@@ -9,7 +9,7 @@ use crate::chompfile::ChompEngine;
 use crate::engines::node::node_runner;
 use crate::engines::deno::deno_runner;
 use crate::task::check_target_mtimes;
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use tokio::process::Child;
 use cmd::create_cmd;
 use futures::future::{Future, FutureExt};
@@ -21,6 +21,7 @@ use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::time::sleep;
+use anyhow::Result;
 
 pub struct CmdPool<'a> {
     cmd_num: usize,
@@ -72,7 +73,7 @@ pub struct Exec<'a> {
     cmd: BatchCmd,
     child: Option<Child>,
     state: ExecState,
-    future: Shared<Pin<Box<dyn Future<Output = (ExecState, Option<Duration>, Duration)> + 'a>>>
+    future: Shared<Pin<Box<dyn Future<Output = Option<(ExecState, Option<Duration>, Duration)>> + 'a>>>
 }
 
 impl<'a> CmdPool<'a> {
@@ -116,7 +117,15 @@ impl<'a> CmdPool<'a> {
             loop {
                 if let Some(exec_num) = this.cmd_execs.get(&cmd_num) {
                     let exec = &this.execs[&exec_num];
-                    return Ok(exec.future.clone().await);
+                    let result = exec.future.clone().await;
+                    if result.is_none() {
+                        return Err(Rc::new(match exec.cmd.engine {
+                            ChompEngine::Cmd => anyhow!("Unable to initialize shell command engine"),
+                            ChompEngine::Node => anyhow!("Unable to initialize the Node.js Chomp engine.\n\x1b[33mMake sure Node.js is correctly installed and the \x1b[1mnode\x1b[0m\x1b[33m command bin is in the environment PATH.\x1b[0m\n\nSee \x1b[36;4mhttps://nodejs.org/en/download/\x1b[0m\n"),
+                            ChompEngine::Deno => anyhow!("Unable to initialize the Deno Chomp engine.\n\x1b[33mMake sure Deno is correctly installed and the \x1b[1mdeno\x1b[0m\x1b[33m bin is in the environment PATH.\x1b[0m\n\nSee \x1b[36;4mhttps://deno.land/#installation\x1b[0m\n"),
+                        }));
+                    }
+                    return Ok(result.unwrap());
                 }
                 if this.batch_future.is_none() {
                     this.create_batch_future();
@@ -224,7 +233,7 @@ impl<'a> CmdPool<'a> {
             ChompEngine::Cmd => {
                 let start_time = Instant::now();
                 self.exec_cnt = self.exec_cnt + 1;
-                let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&self.cwd), &cmd, debug);
+                let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&self.cwd), &cmd, debug, true);
                 let future = async move {
                     let this = unsafe { &mut *pool };
                     let mut exec = &mut this.execs.get_mut(&exec_num).unwrap();
@@ -245,10 +254,10 @@ impl<'a> CmdPool<'a> {
                     this.exec_cnt = this.exec_cnt - 1;
                     // finally we verify that the targets exist
                     let mtime = check_target_mtimes(targets, true).await;
-                    (exec.state, mtime, end_time - start_time)
+                    Some((exec.state, mtime, end_time - start_time))
                 }
                 .boxed_local().shared();
-                self.execs.insert(exec_num, Exec { cmd, child: Some(child), future, state: ExecState::Executing });
+                self.execs.insert(exec_num, Exec { cmd, child, future, state: ExecState::Executing });
                 self.exec_num = self.exec_num + 1;
             }
             ChompEngine::Node => node_runner(self, cmd, targets, debug),
