@@ -10,11 +10,23 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
 use v8;
+use serde::Deserialize;
 
 pub struct ExtensionEnvironment {
     isolate: v8::OwnedIsolate,
     has_extensions: bool,
     global_context: v8::Global<v8::Context>,
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatcherResult {
+    #[serde(default)]
+    pub defer: Vec<usize>,
+    #[serde(default)]
+    pub exec: Vec<BatchCmd>,
+    #[serde(default)]
+    pub completion_map: BTreeMap<usize, usize>,
 }
 
 struct Extensions {
@@ -194,7 +206,7 @@ impl ExtensionEnvironment {
             let include_fn = v8::FunctionTemplate::new(scope, chomp_include)
                 .get_function(scope)
                 .unwrap();
-            let include_key = v8::String::new(scope, "include").unwrap();
+            let include_key = v8::String::new(scope, "addExtension").unwrap();
             chomp_val.set(scope, include_key.into(), include_fn.into());
 
             let env_key = v8::String::new(scope, "ENV").unwrap();
@@ -333,7 +345,7 @@ impl ExtensionEnvironment {
         batch: &HashSet<&CmdOp>,
         running: &HashSet<&BatchCmd>,
     ) -> Result<(
-        (Vec<usize>, Vec<BatchCmd>, BTreeMap<usize, usize>),
+        BatcherResult,
         Option<usize>,
     )> {
 
@@ -358,14 +370,14 @@ impl ExtensionEnvironment {
             None => return Err(v8_exception(tc_scope)),
         };
 
-        let result: (Vec<usize>, Vec<BatchCmd>, BTreeMap<usize, usize>) = from_v8(tc_scope, result)
+        let result: Option<BatcherResult> = from_v8(tc_scope, result)
             .expect("Unable to deserialize batch due to invalid structure");
         let next = if idx < batchers_len - 1 {
             Some(idx + 1)
         } else {
             None
         };
-        Ok((result, next))
+        Ok((result.unwrap_or(BatcherResult { defer: vec![], exec: vec![], completion_map: BTreeMap::new() }), next))
     }
 }
 

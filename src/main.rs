@@ -182,6 +182,11 @@ async fn main() -> Result<()> {
 
     init_js_platform();
 
+    let pool_size = match matches.value_of("jobs") {
+        Some(jobs) => jobs.parse()?,
+        None => num_cpus::get(),
+    };
+
     let mut global_env = HashMap::new();
     for (key, value) in env::vars() {
         global_env.insert(key.to_uppercase(), value);
@@ -189,6 +194,7 @@ async fn main() -> Result<()> {
     if matches.is_present("eject_templates") {
         global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
     }
+    global_env.insert("CHOMP_POOL_SIZE".to_string(), pool_size.to_string());
 
     let mut extension_env = ExtensionEnvironment::new(&global_env);
 
@@ -321,11 +327,6 @@ async fn main() -> Result<()> {
             }
         }
     }
-
-    let pool_size = match matches.value_of("jobs") {
-        Some(jobs) => jobs.parse()?,
-        None => num_cpus::get(),
-    };
 
     let ok = task::run(&chompfile, &mut extension_env, task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),

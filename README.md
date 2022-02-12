@@ -32,11 +32,20 @@ with this file saved, running:
 
 ```sh
 chomp hello:world
+
+🞂 hello-world.txt
+√ hello-world.txt [3.8352ms]
 ```
 
 will populate the `hello-world.txt` file.
 
-Subsequent runs, will see that the target is defined, and skip running the command again.
+Subsequent runs, will see that the target is defined, and skip running the command again:
+
+```sh
+chomp hello:world
+
+● hello-world.txt [cached]
+```
 
 Array `deps` can be defined for targets, whose targets will then be run first with invalidation based on target / deps mtime comparisons per the standard Makefile approach.
 
@@ -72,10 +81,11 @@ extensions = ['chomp:npm']
 [[task]]
 name = 'Install Mocha'
 template = 'npm'
+
 [task.options]
-  auto-install = true
-  packages = ['mocha']
-  dev = true
+auto-install = true
+packages = ['mocha']
+dev = true
 ```
 
 The template includes conveniences to skip the install if the package is already present, and also ensure a package.json file is initialized if it does not exist.
@@ -92,15 +102,30 @@ extensions = ['chomp:swc']
 name = 'typescript'
 template = 'swc'
 target = 'lib/#.js'
-deps = ['src/#.ts]
+deps = ['src/#.ts']
+
 # Installs SWC automatically if needed
 [task.options]
-  auto-install = true
+auto-install = true
 ```
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.
 
 Only files not existing or whose `src` mtimes are invalidated (or SWC itself is updated) will be rebuilt.
+
+Specific files only can be build directly by name as well, skipping all other build work:
+
+```sh
+chomp lib/main.js lib/dep.js
+
+🞂 lib/dep.js
+🞂 lib/app.js
+Successfully compiled 2 files with swc.
+√ lib/dep.js [317.2838ms]
+√ lib/app.js [310.0831ms]
+```
+
+Automatic batching of builds into SWC commands is also handled by the extenion via the batching hook.
 
 # License
 

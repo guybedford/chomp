@@ -1607,7 +1607,7 @@ impl<'a> Runner<'a> {
                     futures.push(Runner::watcher_interval().boxed_local());
                 },
                 _ => {
-                    self.drive_completion(transition, false, &mut futures, &mut queued)?;
+                    self.drive_completion(transition, force, &mut futures, &mut queued)?;
                 }
             }
         }

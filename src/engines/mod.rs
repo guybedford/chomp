@@ -2,6 +2,7 @@ mod cmd;
 mod node;
 mod deno;
 
+use crate::extensions::BatcherResult;
 use crate::ExtensionEnvironment;
 use std::rc::Rc;
 use futures::future::Shared;
@@ -160,13 +161,13 @@ impl<'a> CmdPool<'a> {
                 let mut batcher = 0;
                 if this.extension_env.has_batchers() {
                     'outer: loop {
-                        let ((queued, mut exec, completion_map), next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
+                        let (BatcherResult { defer: queue, mut exec, completion_map }, next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
                         for (cmd_num, exec_num) in completion_map {
                             batch.remove(&cmds[&cmd_num]);
                             this.batching.remove(&cmd_num);
                             global_completion_map.push((cmd_num, exec_num));
                         }
-                        for cmd_num in queued {
+                        for cmd_num in queue {
                             batch.remove(&cmds[&cmd_num]);
                         }
                         for cmd in exec.drain(..) {
