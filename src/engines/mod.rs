@@ -161,21 +161,27 @@ impl<'a> CmdPool<'a> {
                 let mut batcher = 0;
                 if this.extension_env.has_batchers() {
                     'outer: loop {
-                        let (BatcherResult { defer: queue, mut exec, completion_map }, next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
-                        for (cmd_num, exec_num) in completion_map {
-                            batch.remove(&cmds[&cmd_num]);
-                            this.batching.remove(&cmd_num);
-                            global_completion_map.push((cmd_num, exec_num));
-                        }
-                        for cmd_num in queue {
-                            batch.remove(&cmds[&cmd_num]);
-                        }
-                        for cmd in exec.drain(..) {
-                            for cmd_num in cmd.ids.iter() {
+                        let (BatcherResult { defer: mut queue, mut exec, mut completion_map }, next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
+                        if let Some(completion_map) = completion_map.take() {
+                            for (cmd_num, exec_num) in completion_map {
+                                batch.remove(&cmds[&cmd_num]);
                                 this.batching.remove(&cmd_num);
+                                global_completion_map.push((cmd_num, exec_num));
+                            }
+                        }
+                        if let Some(queue) = queue.take() {
+                            for cmd_num in queue {
                                 batch.remove(&cmds[&cmd_num]);
                             }
-                            batched.push(cmd);
+                        }
+                        if let Some(mut exec) = exec.take() {
+                            for cmd in exec.drain(..) {
+                                for cmd_num in cmd.ids.iter() {
+                                    this.batching.remove(&cmd_num);
+                                    batch.remove(&cmds[&cmd_num]);
+                                }
+                                batched.push(cmd);
+                            }
                         }
                         match next {
                             Some(num) => { batcher = num },

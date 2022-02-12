@@ -21,12 +21,9 @@ pub struct ExtensionEnvironment {
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatcherResult {
-    #[serde(default)]
-    pub defer: Vec<usize>,
-    #[serde(default)]
-    pub exec: Vec<BatchCmd>,
-    #[serde(default)]
-    pub completion_map: BTreeMap<usize, usize>,
+    pub defer: Option<Vec<usize>>,
+    pub exec: Option<Vec<BatchCmd>>,
+    pub completion_map: Option<BTreeMap<usize, usize>>,
 }
 
 struct Extensions {
@@ -349,7 +346,7 @@ impl ExtensionEnvironment {
         Option<usize>,
     )> {
 
-        let (_name, batcher, batchers_len) = {
+        let (name, batcher, batchers_len) = {
             let extensions = self.get_extensions().borrow();
             let (name, batcher) = extensions.batchers[idx].clone();
             (name, batcher, extensions.batchers.len())
@@ -371,13 +368,13 @@ impl ExtensionEnvironment {
         };
 
         let result: Option<BatcherResult> = from_v8(tc_scope, result)
-            .expect("Unable to deserialize batch due to invalid structure");
+            .expect(&format!("Unable to deserialize batch for {} due to invalid structure", name));
         let next = if idx < batchers_len - 1 {
             Some(idx + 1)
         } else {
             None
         };
-        Ok((result.unwrap_or(BatcherResult { defer: vec![], exec: vec![], completion_map: BTreeMap::new() }), next))
+        Ok((result.unwrap_or(BatcherResult { defer: None, exec: None, completion_map: None }), next))
     }
 }
 

@@ -386,6 +386,7 @@ pub fn expand_template_tasks(
             display: Some(task.display.unwrap_or(true)),
             serial: task.serial,
             env: Some(task.env),
+            env_default: Some(task.env_default),
             run: task.run,
             engine: task.engine,
             template: Some(template.to_string()),
@@ -445,6 +446,7 @@ pub fn expand_template_tasks(
                 deps,
                 serial: template_task.serial,
                 env: template_task.env.unwrap_or_default(),
+                env_default: template_task.env_default.unwrap_or_default(),
                 run: template_task.run,
                 engine: template_task.engine,
                 template: template_task.template,
@@ -509,6 +511,14 @@ impl<'a> Runner<'a> {
                 for (item, value) in task_env {
                     env.insert(item.to_uppercase(), value.to_string());
                 }
+            }
+            if let Some(task_env_default) = &task.env_default {
+                for (item, value) in task_env_default {
+                    if !env.contains_key(item) && std::env::var_os(item).is_none() {
+                        env.insert(item.to_uppercase(), value.to_string());
+                    }
+                }
+
             }
             let task = Task {
                 name: task.name,

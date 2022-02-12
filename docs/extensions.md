@@ -236,7 +236,7 @@ Chomp.registerBatcher('my-batcher', function (batch, running) {
     // ignore anything not intresting to this batcher, or if we have hit the pool limit
     if (!is_interesting(item) || exec.length + running.length >= POOL_SIZE) continue;
     
-    // push the batched execution we're interested,
+    // push the batched execution we're interested in,
     // usually matching it up with another to combine their executions
     exec.push({ ...item, ids: [item.id] });
   }

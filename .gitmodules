@@ -1,0 +1,3 @@
+[submodule "chomp-templates"]
+	path = chomp-templates
+	url = git@github.com:guybedford/chomp-templates
