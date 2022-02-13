@@ -184,13 +184,13 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         ").unwrap();
     }
     let mut path: String = env::var("PATH").unwrap_or_default();
-    if path.len() > 0 && !path.ends_with(';') {
-        path += ";";
+    if path.len() > 0 && !path.ends_with(':') {
+        path += ":";
     }
     path.push_str(cwd);
-    path += "/.bin;";
+    path += "/.bin:";
     path.push_str(cwd);
-    path += "/node_modules/.bin;";
+    path += "/node_modules/.bin";
     if debug {
         println!("ENV: {:?}", batch_cmd.env);
         println!("RUN: {}", run);
