@@ -95,7 +95,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         if do_spawn {
             // Try ".cmd" extension first
             // Note: this requires latest Rust version
-            let cmd = replace_env_vars(cmd, &batch_cmd.env);
+            let cmd = replace_env_vars(&cmd, &batch_cmd.env);
             let mut cmd_with_ext = cmd.to_owned();
             cmd_with_ext.push_str(".cmd");
             let mut command = Command::new(&cmd_with_ext);
