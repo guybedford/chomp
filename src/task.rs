@@ -30,6 +30,7 @@ use derivative::Derivative;
 use futures::executor;
 use tokio::fs;
 use tokio::time;
+use crate::engines::replace_env_vars;
 
 use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
@@ -509,23 +510,23 @@ impl<'a> Runner<'a> {
             let deps = task.deps_vec();
             let mut env = BTreeMap::new();
             for (item, value) in &chompfile.env {
-                env.insert(item.to_uppercase(), value.to_string());
+                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
             }
-            if let Some(task_env) = task.env {
+            if let Some(task_env) = &task.env {
                 for (item, value) in task_env {
-                    env.insert(item.to_uppercase(), value.to_string());
+                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
                 }
             }
             if let Some(task_env_default) = &task.env_default {
                 for (item, value) in task_env_default {
                     if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                        env.insert(item.to_uppercase(), value.to_string());
+                        env.insert(item.to_uppercase(), replace_env_vars(value, &env));
                     }
                 }
             }
             for (item, value) in &chompfile.env_default {
                 if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                    env.insert(item.to_uppercase(), value.to_string());
+                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
                 }
             }
             let task = Task {
@@ -551,19 +552,19 @@ impl<'a> Runner<'a> {
             let deps = task.deps_vec();
             let mut env = BTreeMap::new();
             for (item, value) in &chompfile.env {
-                env.insert(item.to_uppercase(), value.to_string());
+                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
             }
-            for (item, value) in task.env {
-                env.insert(item.to_uppercase(), value.to_string());
+            for (item, value) in &task.env {
+                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
             }
             for (item, value) in &task.env_default {
                 if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                    env.insert(item.to_uppercase(), value.to_string());
+                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
                 }
             }
             for (item, value) in &chompfile.env_default {
                 if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                    env.insert(item.to_uppercase(), value.to_string());
+                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
                 }
             }
             let task = Task {

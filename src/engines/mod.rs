@@ -24,6 +24,34 @@ use std::time::Instant;
 use tokio::time::sleep;
 use anyhow::Result;
 
+pub fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
+    let mut out_arg = arg.to_string();
+    if out_arg.find('$').is_none() {
+        return out_arg;
+    }
+    for (name, value) in env {
+        let mut env_str = String::from("$");
+        env_str.push_str(name);
+        if out_arg.contains(&env_str) {
+            out_arg = out_arg.replace(&env_str, value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+    }
+    for (name, value) in std::env::vars() {
+        let mut env_str = String::from("$");
+        env_str.push_str(&name.to_uppercase());
+        if out_arg.contains(&env_str) {
+            out_arg = out_arg.replace(&env_str, &value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+    }
+    out_arg
+}
+
 pub struct CmdPool<'a> {
     cmd_num: usize,
     pub extension_env: &'a mut ExtensionEnvironment,

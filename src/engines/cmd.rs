@@ -1,38 +1,10 @@
 use crate::engines::BatchCmd;
 use tokio::process::{Child, Command};
 use regex::Regex;
-use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
-    let mut out_arg = arg.to_string();
-    if out_arg.find('$').is_none() {
-        return out_arg;
-    }
-    for (name, value) in env {
-        let mut env_str = String::from("$");
-        env_str.push_str(name);
-        if out_arg.contains(&env_str) {
-            out_arg = out_arg.replace(&env_str, value);
-            if out_arg.find('$').is_none() {
-                return out_arg;
-            }
-        }
-    }
-    for (name, value) in std::env::vars() {
-        let mut env_str = String::from("$");
-        env_str.push_str(&name.to_uppercase());
-        if out_arg.contains(&env_str) {
-            out_arg = out_arg.replace(&env_str, &value);
-            if out_arg.find('$').is_none() {
-                return out_arg;
-            }
-        }
-    }
-    out_arg
-}
+use crate::engines::replace_env_vars;
 
 #[cfg(target_os = "windows")]
 pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
@@ -95,7 +67,6 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         if do_spawn {
             // Try ".cmd" extension first
             // Note: this requires latest Rust version
-            let cmd = replace_env_vars(&cmd, &batch_cmd.env);
             let mut cmd_with_ext = cmd.to_owned();
             cmd_with_ext.push_str(".cmd");
             let mut command = Command::new(&cmd_with_ext);
@@ -227,7 +198,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
     // Spawn needs an exact path for Ubuntu?
     // fast path for direct commands to skip the shell entirely
     if let Some(capture) = CMD.captures(&run) {
-        let mut cmd = replace_env_vars(&capture["cmd"], &batch_cmd.env);
+        let mut cmd = capture["cmd"].to_string();
         let mut do_spawn = true;
         // Path-like must be exact
         if cmd.contains("/") {
