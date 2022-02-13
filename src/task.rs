@@ -1,3 +1,4 @@
+use std::fs::canonicalize;
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::{
     ChompEngine, ChompTaskMaybeTemplatedNoDefault, Chompfile, InvalidationCheck,
@@ -140,6 +141,7 @@ impl File {
 
 struct Runner<'a> {
     // ui: &'a ChompUI,
+    cwd: PathBuf,
     cmd_pool: CmdPool<'a>,
     chompfile: &'a Chompfile,
     watch: bool,
@@ -476,6 +478,7 @@ impl<'a> Runner<'a> {
         watch: bool,
     ) -> Result<Runner<'a>> {
         let mut template_tasks = extension_env.get_tasks();
+        let cwd_path = PathBuf::from(&cwd);
 
         let cmd_pool: CmdPool = CmdPool::new(
             pool_size,
@@ -485,6 +488,7 @@ impl<'a> Runner<'a> {
         );
         let mut runner = Runner {
             watch,
+            cwd: cwd_path,
             // ui,
             cmd_pool,
             chompfile,
@@ -518,7 +522,11 @@ impl<'a> Runner<'a> {
                         env.insert(item.to_uppercase(), value.to_string());
                     }
                 }
-
+            }
+            for (item, value) in &chompfile.env_default {
+                if !env.contains_key(item) && std::env::var_os(item).is_none() {
+                    env.insert(item.to_uppercase(), value.to_string());
+                }
             }
             let task = Task {
                 name: task.name,
@@ -547,6 +555,16 @@ impl<'a> Runner<'a> {
             }
             for (item, value) in task.env {
                 env.insert(item.to_uppercase(), value.to_string());
+            }
+            for (item, value) in &task.env_default {
+                if !env.contains_key(item) && std::env::var_os(item).is_none() {
+                    env.insert(item.to_uppercase(), value.to_string());
+                }
+            }
+            for (item, value) in &chompfile.env_default {
+                if !env.contains_key(item) && std::env::var_os(item).is_none() {
+                    env.insert(item.to_uppercase(), value.to_string());
+                }
             }
             let task = Task {
                 name: task.name,
@@ -977,7 +995,21 @@ impl<'a> Runner<'a> {
             } else {
                 None
             };
-            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, task.cwd.clone(), engine);
+            let cwd = match &task.cwd {
+                Some(cwd) => {
+                    let cwd_path = PathBuf::from(cwd);
+                    let cwd = if Path::is_absolute(&cwd_path) {
+                        cwd_path
+                    } else {
+                        let mut base = self.cwd.clone();
+                        base.push(&cwd_path);
+                        base
+                    };
+                    Some(canonicalize(&cwd).expect("Unable to resolve task CWD").to_str().unwrap().to_string())
+                },
+                None => None
+            };
+            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, cwd, engine);
             let job = self.get_job_mut(job_num).unwrap();
             job.state = JobState::Running;
             job.cmd_num = Some(cmd_num);

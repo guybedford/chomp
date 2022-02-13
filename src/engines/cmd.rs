@@ -8,11 +8,27 @@ use std::path::PathBuf;
 
 fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
     let mut out_arg = arg.to_string();
+    if out_arg.find('$').is_none() {
+        return out_arg;
+    }
     for (name, value) in env {
         let mut env_str = String::from("$");
         env_str.push_str(name);
         if out_arg.contains(&env_str) {
             out_arg = out_arg.replace(&env_str, value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+    }
+    for (name, value) in std::env::vars() {
+        let mut env_str = String::from("$");
+        env_str.push_str(&name.to_uppercase());
+        if out_arg.contains(&env_str) {
+            out_arg = out_arg.replace(&env_str, &value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
         }
     }
     out_arg
@@ -22,6 +38,7 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
 pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
     let run = batch_cmd.run.trim();
     if debug {
+        println!("ENV: {:?}", batch_cmd.env);
         println!("RUN: {}", run);
     }
     lazy_static! {
@@ -66,6 +83,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         if do_spawn {
             // Try ".cmd" extension first
             // Note: this requires latest Rust version
+            let cmd = replace_env_vars(cmd, &batch_cmd.env);
             let mut cmd_with_ext = cmd.to_owned();
             cmd_with_ext.push_str(".cmd");
             let mut command = Command::new(&cmd_with_ext);
@@ -167,6 +185,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
 pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
     let run = batch_cmd.run.trim();
     if debug {
+        println!("ENV: {:?}", batch_cmd.env);
         println!("RUN: {}", run);
     }
     lazy_static! {
@@ -193,9 +212,10 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
     path += ".bin;";
     path.push_str(cwd);
     path += "\\node_modules\\.bin";
+    // Spawn needs an exact path for Ubuntu?
     // fast path for direct commands to skip the shell entirely
     if let Some(capture) = CMD.captures(&run) {
-        let mut cmd = String::from(&capture["cmd"]);
+        let mut cmd = replace_env_vars(&capture["cmd"], &batch_cmd.env);
         // Path-like must be exact
         if cmd.contains("/") {
             let canonical = fs::canonicalize(PathBuf::from(cmd.clone())).unwrap();
