@@ -4,7 +4,7 @@ use regex::Regex;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
     let mut out_arg = arg.to_string();
@@ -70,9 +70,17 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         let mut cmd = String::from(&capture["cmd"]);
         let mut do_spawn = true;
         // Path-like must be exact
-        if cmd.contains("/") {
+        if cmd.contains('/') || cmd.contains('\\') {
             // canonicalize returns UNC...
-            let unc_path = fs::canonicalize(PathBuf::from(cmd.clone())).unwrap();
+            let cmd_buf = PathBuf::from(&cmd);
+            let cmd_buf = if Path::is_absolute(&cmd_buf) {
+                cmd_buf
+            } else {
+                let mut buf = PathBuf::from(&cwd);
+                buf.push(cmd_buf);
+                buf
+            };
+            let unc_path = fs::canonicalize(cmd_buf).unwrap();
             let unc_str = unc_path.to_str().unwrap();
             if unc_str.starts_with(r"\\?\") {
                 cmd = String::from(&unc_path.to_str().unwrap()[4..]);
@@ -218,7 +226,15 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         let mut cmd = replace_env_vars(&capture["cmd"], &batch_cmd.env);
         // Path-like must be exact
         if cmd.contains("/") {
-            let canonical = fs::canonicalize(PathBuf::from(cmd.clone())).unwrap();
+            let cmd_buf = PathBuf::from(&cmd);
+            let cmd_buf = if Path::is_absolute(&cmd_buf) {
+                cmd_buf
+            } else {
+                let mut buf = PathBuf::from(&cwd);
+                buf.push(cmd_buf);
+                buf
+            };
+            let canonical = fs::canonicalize(cmd_buf).unwrap();
             cmd = String::from(&canonical.to_str().unwrap()[4..]);
         }
         let mut command = Command::new(&cmd);
