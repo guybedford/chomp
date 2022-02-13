@@ -36,7 +36,7 @@ jobs:
       with:
           toolchain: nightly
           override: true
-          components: rustfmt, clippy
+          components: cargo
     - name: Build
       run: cargo build --verbose
     - name: Set PATH
