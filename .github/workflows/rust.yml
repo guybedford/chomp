@@ -19,6 +19,6 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run Template Tests
-      run: ../target/debug/chomp -c chomp-templates/chompfile.toml test
+      run: target/debug/chomp -c chomp-templates/chompfile.toml test
       env:
         CHOMP: "../target/debug/chomp"
