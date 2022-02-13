@@ -191,6 +191,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
     path += "/.bin:";
     path.push_str(cwd);
     path += "/node_modules/.bin";
+
     if debug {
         println!("ENV: {:?}", batch_cmd.env);
         println!("RUN: {}", run);
@@ -250,14 +251,6 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
     }
 
     let mut command = Command::new("sh");
-    let mut path = env::var("PATH").unwrap_or_default();
-    if path.len() > 0 {
-        path += ":";
-    }
-    path.push_str(cwd);
-    path += ".bin:";
-    path.push_str(cwd);
-    path += "/node_modules/.bin";
     command.env("PATH", path);
     for (name, value) in &batch_cmd.env {
         command.env(name, value);
