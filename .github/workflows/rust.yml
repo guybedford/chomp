@@ -31,11 +31,17 @@ jobs:
     - uses: actions/checkout@v2
       with:
         submodules: 'recursive'
+    - name: Install latest nightly
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
     - name: Build
       run: cargo build --verbose
     - name: Set PATH
       run: echo echo "$(pwd)/target/debug" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     - name: Run Template Tests
-      run: target/debug/chomp -c chomp-templates/chompfile.toml test
+      run: target/debug/chomp.exe -c chomp-templates/chompfile.toml test
       env:
         CHOMP: "../../target/debug/chomp.exe"
