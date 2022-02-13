@@ -80,10 +80,14 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                 buf.push(cmd_buf);
                 buf
             };
-            let unc_path = fs::canonicalize(cmd_buf).unwrap();
-            let unc_str = unc_path.to_str().unwrap();
-            if unc_str.starts_with(r"\\?\") {
-                cmd = String::from(&unc_path.to_str().unwrap()[4..]);
+
+            if let Ok(unc_path) = fs::canonicalize(cmd_buf) {
+                let unc_str = unc_path.to_str().unwrap();
+                if unc_str.starts_with(r"\\?\") {
+                    cmd = String::from(&unc_path.to_str().unwrap()[4..]);
+                } else {
+                    do_spawn = false;
+                }    
             } else {
                 do_spawn = false;
             }
@@ -224,6 +228,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
     // fast path for direct commands to skip the shell entirely
     if let Some(capture) = CMD.captures(&run) {
         let mut cmd = replace_env_vars(&capture["cmd"], &batch_cmd.env);
+        let mut do_spawn = true;
         // Path-like must be exact
         if cmd.contains("/") {
             let cmd_buf = PathBuf::from(&cmd);
@@ -234,37 +239,42 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                 buf.push(cmd_buf);
                 buf
             };
-            let canonical = fs::canonicalize(cmd_buf).unwrap();
-            cmd = String::from(&canonical.to_str().unwrap()[4..]);
-        }
-        let mut command = Command::new(&cmd);
-        command.env("PATH", &path);
-        for (name, value) in &batch_cmd.env {
-            command.env(name, value);
-        }
-        command.current_dir(cwd);
-        for arg in ARGS.captures_iter(&capture["args"]) {
-            let arg = arg.get(0).unwrap().as_str();
-            let first_char = arg.as_bytes()[1];
-            let arg_str = if first_char == b'\'' || first_char == b'"' {
-                &arg[2..arg.len() - 1]
+            if let Ok(canonical) = fs::canonicalize(cmd_buf) {
+                cmd = String::from(&canonical.to_str().unwrap()[4..]);
             } else {
-                &arg[1..arg.len()]
-            };
-            if batch_cmd.env.len() > 0 {
-                command.arg(replace_env_vars(arg_str, &batch_cmd.env));
-            } else {
-                command.arg(arg_str);
+                do_spawn = false;
             }
         }
-        // command.stdin(Stdio::null());
-        match command.spawn() {
-            Ok(child) => return Some(child),
-            Err(_) => {
-                if !fastpath_fallback {
-                    return None;
+        if do_spawn {
+            let mut command = Command::new(&cmd);
+            command.env("PATH", &path);
+            for (name, value) in &batch_cmd.env {
+                command.env(name, value);
+            }
+            command.current_dir(cwd);
+            for arg in ARGS.captures_iter(&capture["args"]) {
+                let arg = arg.get(0).unwrap().as_str();
+                let first_char = arg.as_bytes()[1];
+                let arg_str = if first_char == b'\'' || first_char == b'"' {
+                    &arg[2..arg.len() - 1]
+                } else {
+                    &arg[1..arg.len()]
+                };
+                if batch_cmd.env.len() > 0 {
+                    command.arg(replace_env_vars(arg_str, &batch_cmd.env));
+                } else {
+                    command.arg(arg_str);
                 }
-            }, // fallback to shell
+            }
+            // command.stdin(Stdio::null());
+            match command.spawn() {
+                Ok(child) => return Some(child),
+                Err(_) => {
+                    if !fastpath_fallback {
+                        return None;
+                    }
+                }, // fallback to shell
+            }
         }
     }
 
