@@ -1006,7 +1006,19 @@ impl<'a> Runner<'a> {
                         base.push(&cwd_path);
                         base
                     };
-                    Some(canonicalize(&cwd).expect("Unable to resolve task CWD").to_str().unwrap().to_string())
+                    Some(match canonicalize(&cwd) {
+                        Ok(cwd) => {
+                            let cwd = cwd.to_str().unwrap();
+                            if cwd.starts_with(r"\\?\") {
+                                String::from(&cwd[4..])
+                            } else {
+                                cwd.to_string()
+                            }
+                        },
+                        Err(_) => {
+                            panic!("Unable to resolve task CWD {}", &cwd.to_str().unwrap());
+                        },
+                    })
                 },
                 None => None
             };

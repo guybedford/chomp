@@ -9,10 +9,6 @@ use crate::engines::replace_env_vars;
 #[cfg(target_os = "windows")]
 pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
     let run = batch_cmd.run.trim();
-    if debug {
-        println!("ENV: {:?}", batch_cmd.env);
-        println!("RUN: {}", run);
-    }
     lazy_static! {
         static ref CMD: Regex = Regex::new("(?x)
             ^(?P<cmd>[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
@@ -30,13 +26,17 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         ").unwrap();
     }
     let mut path: String = env::var("PATH").unwrap_or_default();
-    if path.len() > 0 {
+    if path.len() > 0 && !path.ends_with(';') {
         path += ";";
     }
     path.push_str(cwd);
-    path += ".bin;";
+    path += "\\.bin;";
     path.push_str(cwd);
-    path += "\\node_modules\\.bin";
+    path += "\\node_modules\\.bin;";
+    if debug {
+        println!("ENV: {:?}", batch_cmd.env);
+        println!("RUN: {}", run);
+    }
     // fast path for direct commands to skip the shell entirely
     if let Some(capture) = CMD.captures(&run) {
         let mut cmd = String::from(&capture["cmd"]);
@@ -59,7 +59,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                     cmd = String::from(&unc_path.to_str().unwrap()[4..]);
                 } else {
                     do_spawn = false;
-                }    
+                }
             } else {
                 do_spawn = false;
             }
@@ -167,10 +167,6 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
 #[cfg(not(target_os = "windows"))]
 pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
     let run = batch_cmd.run.trim();
-    if debug {
-        println!("ENV: {:?}", batch_cmd.env);
-        println!("RUN: {}", run);
-    }
     lazy_static! {
         static ref CMD: Regex = Regex::new("(?x)
             ^(?P<cmd>[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
@@ -188,13 +184,17 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         ").unwrap();
     }
     let mut path: String = env::var("PATH").unwrap_or_default();
-    if path.len() > 0 {
+    if path.len() > 0 && !path.ends_with(';') {
         path += ";";
     }
     path.push_str(cwd);
-    path += ".bin;";
+    path += "/.bin;";
     path.push_str(cwd);
-    path += "\\node_modules\\.bin";
+    path += "/node_modules/.bin;";
+    if debug {
+        println!("ENV: {:?}", batch_cmd.env);
+        println!("RUN: {}", run);
+    }
     // Spawn needs an exact path for Ubuntu?
     // fast path for direct commands to skip the shell entirely
     if let Some(capture) = CMD.captures(&run) {
