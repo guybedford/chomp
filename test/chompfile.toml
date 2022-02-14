@@ -1,0 +1,23 @@
+version = 0.1
+
+extensions = ['./assert.js']
+
+[[task]]
+name = 'test'
+deps = ['test1']
+
+[[task]]
+target = "fixtures/test1.txt"
+run = 'echo "Chomp Chomp" > fixtures/test1.txt'
+template = 'assert'
+[task.template-options]
+expect-target = "Chomp Chomp"
+
+[[task]]
+name = 'test1'
+dep = 'fixtures/test1.txt'
+template = 'assert'
+[task.template-options]
+expect-dep = "Chomp Chomp"
+
+

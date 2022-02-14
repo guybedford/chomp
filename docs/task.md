@@ -41,7 +41,7 @@ Chomp tasks are primarily characterized by their `"run"` and `"engine"` pair, `"
 
 There are two ways to execute in Chomp:
 
-* Execute a task by name - `chomp [name]` where `[name]` is the `name` field of the task being run.
+* Execute a task by name - `chomp [name]` or `chomp :[name]` where `[name]` is the `name` field of the task being run.
 * Execute a task by filename - `chomp [path]` where `[path]` is the local path relative to the Chompfile being generated.
 
 For example:
@@ -55,8 +55,7 @@ name = 'my-task'
 target = 'output.txt'
 run = 'cat "Chomp Chomp" > output.txt'
 ```
-
-This task writes the text `Chomp Chomp` into the file at `output.txt`, defining this as a target file output of the task.
+_<div style="text-align: center">This task writes the text `Chomp Chomp` into the file at `output.txt`, defining this file as a target output path of the task so that the task is cached.</div>_
 
 The following are all equivalent ways to call this task:
 
@@ -64,9 +63,20 @@ The following are all equivalent ways to call this task:
 $ chomp my-task
 $ chomp :my-task
 $ chomp output.txt
+
+🞂 output.txt
+√ output.txt [3.8352ms]
 ```
 
 The leading `:` can be useful to disambiguate task names from file names when necessary. Setting a `name` on a task is completely optional.
+
+Once the task has been called, with the target file already existing it will treat it as cached and skip subsequent executions:
+
+```sh
+$ chomp my-task
+
+● output.txt [cached]
+```
 
 ### Shell Tasks
 
@@ -76,15 +86,61 @@ Common commands like `echo`, `pwd`, `cat`, `rm`, `cp`, `cd`, as well as operator
 
 In addition to the `run` property, two other useful task properties are `env` and `cwd` which allow customizing the exact execution environment.
 
+The following task-level environment variables are always defined:
+
+* `TARGET`: The path to the current target (relative to the Chompfile / default CWD).
+* `TARGETS`: The comma-separated list of target paths for multiple targets.
+* `DEP`: The path to the dependency (relative to the Chompfile / default CWD).
+* `DEPS`: The comma-separated list of dependency paths for multiple dependencies.
+* `MATCH` When using [task interpolation](#task-interpolation) this provides the matched interpolation replacement value (although the `TARGET` will always be the fully substituted interpolation target for interpolation tasks).
+
 ### Node.js Engine
 
+The `"node"` engine allows writing a Node.js program in the `run` field of a task. This is a useful way to encapsulate cross-platform build scripts which aren't possible with cross-platform shell scripting.
+
+For example, here's how to write a Babel task:
+
+chompfile.toml
+```toml
+version = 0.1
+
+[[task]]
+name = 'build:babel'
+target = 'lib/app.js'
+dep = 'src/app.js'
+engine = 'node'
+run = '''
+  import babel from '@babel/core';
+  import { readFileSync, writeFileSync } from 'fs';
+
+  const input = readFileSync(process.env.DEP, 'utf8');
+  const { code, map } = babel.transformSync(input, {
+    filename: process.env.DEP,
+    babelrc: false,
+    configFile: false,
+    sourceMaps: true,
+    presets: [['@babel/preset-env', {}]],
+    targets: ['> 0.25%, not dead']
+  });
+
+  writeFileSync(process.env.TARGET, code);
+  writeFileSync(process.env.TARGET + '.map', map);
+'''
+```
+
 ### Deno Engine
+
+Just like the `"node"` engine, the `"deno"` engine permits using JS to create build scripts.
+
+The primary benefits being URL import support (no need for package management for tasks) and TypeScript type support (although unfortunately no editor plugins for Chompfiles means it doesn't translate to author time currently). Using a CDN like [JSPM.dev](https://jspm.org/docs/cdn#jspmdev) (importing eg `https://jspm.dev/@babel/core` etc) can be useful for these scripts to load npm packages.
+
+By default the Deno engine will run with full permissions since that is generally the nature of build scripts.
+
+## Task Interpolation
 
 ## Task Dependence
 
 ## Task Invalidation
-
-## Task Interpolation
 
 ## Template Tasks
 

@@ -1480,6 +1480,15 @@ impl<'a> Runner<'a> {
                         self.expand_interpolate(watcher, String::from(dep), job_num, task_num)
                             .await?;
                         expanded_interpolate = true;
+                    } else if dep.starts_with('&') {
+                        if dep == "&next" {
+                            let id = job.task + 1;
+
+                        } else if dep == "&prev" {
+
+                        } else {
+                            return Err(anyhow!("Invalid task reference '{}'", &dep));
+                        }
                     } else {
                         self.expand_target(watcher, &String::from(dep), Some(job_num))
                             .await?;

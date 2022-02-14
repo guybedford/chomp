@@ -2,12 +2,5 @@ node_modules
 target
 package.json
 package-lock.json
-test/lib
-test/app-build.html
-test/test-babel.js
-test/test-babel.js.map
-test/.babelrc
-test/.swcrc
-test/testlog.txt
-test/lib-swc
+test/fixtures
 sandbox
