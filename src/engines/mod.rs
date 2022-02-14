@@ -149,7 +149,7 @@ impl<'a> CmdPool<'a> {
                     let result = exec.future.clone().await;
                     if result.is_none() {
                         return Err(Rc::new(match exec.cmd.engine {
-                            ChompEngine::Cmd => anyhow!("Unable to initialize shell command engine"),
+                            ChompEngine::Shell => anyhow!("Unable to initialize shell command engine"),
                             ChompEngine::Node => anyhow!("Unable to initialize the Node.js Chomp engine.\n\x1b[33mMake sure Node.js is correctly installed and the \x1b[1mnode\x1b[0m\x1b[33m command bin is in the environment PATH.\x1b[0m\n\nSee \x1b[36;4mhttps://nodejs.org/en/download/\x1b[0m\n"),
                             ChompEngine::Deno => anyhow!("Unable to initialize the Deno Chomp engine.\n\x1b[33mMake sure Deno is correctly installed and the \x1b[1mdeno\x1b[0m\x1b[33m bin is in the environment PATH.\x1b[0m\n\nSee \x1b[36;4mhttps://deno.land/#installation\x1b[0m\n"),
                         }));
@@ -265,7 +265,7 @@ impl<'a> CmdPool<'a> {
         let pool = self as *mut CmdPool;
 
         match cmd.engine {
-            ChompEngine::Cmd => {
+            ChompEngine::Shell => {
                 let start_time = Instant::now();
                 self.exec_cnt = self.exec_cnt + 1;
                 let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&self.cwd), &cmd, debug, true);

@@ -4,14 +4,14 @@ use std::collections::HashMap;
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChompEngine {
-    Cmd,
+    Shell,
     Node,
     Deno,
 }
 
 impl Default for ChompEngine {
     fn default () -> Self {
-        ChompEngine::Cmd
+        ChompEngine::Shell
     }
 }
 

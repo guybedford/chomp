@@ -37,7 +37,7 @@ Tasks have the following optional properties:
 
 ## Task Execution
 
-Chomp tasks are primarily characterized by their `"run"` and `"engine"` pair, representing a task execution in an environment.
+Chomp tasks are primarily characterized by their `"run"` and `"engine"` pair, `"run"` representing the source code of a task execution in the `"engine"` execution environment. Currently supported engines include the shell execution (the default), Node.js (`engine = 'node'`) or Deno (`engine = 'deno'`).
 
 There are two ways to execute in Chomp:
 
