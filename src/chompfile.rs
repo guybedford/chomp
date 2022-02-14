@@ -165,3 +165,26 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub env: Option<HashMap<String, String>>,
     pub env_default: Option<HashMap<String, String>>,
 }
+
+pub trait ChompTask {
+    fn env (&self) -> Option<&HashMap<String, String>>;
+    fn env_default (&self) -> Option<&HashMap<String, String>>;
+}
+
+impl ChompTask for ChompTaskMaybeTemplated {
+    fn env (&self) -> Option<&HashMap<String, String>> {
+        Some(&self.env)
+    }
+    fn env_default (&self) -> Option<&HashMap<String, String>> {
+        Some(&self.env_default)
+    }
+}
+
+impl ChompTask for ChompTaskMaybeTemplatedNoDefault {
+    fn env (&self) -> Option<&HashMap<String, String>> {
+        self.env.as_ref()
+    }
+    fn env_default (&self) -> Option<&HashMap<String, String>> {
+        self.env_default.as_ref()
+    }
+}

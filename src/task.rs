@@ -1,3 +1,4 @@
+use crate::chompfile::ChompTask;
 use std::fs::canonicalize;
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::{
@@ -469,6 +470,69 @@ fn now () -> std::time::Duration {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
 }
 
+// On Windows, we need to explicitly redefine wanted system-defined
+// env vars since these are specifically promoted to local variables
+// for the powershell exec
+#[cfg(target_os = "windows")]
+fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    for (item, value) in &chompfile.env {
+        env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+    }
+    if let Some(task_env) = task.env() {
+        for (item, value) in task_env {
+            env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+        }
+    }
+    if let Some(task_env_default) = task.env_default() {
+        for (item, value) in task_env_default {
+            if !env.contains_key(item) {
+                if let Some(val) = std::env::var_os(item) {
+                    env.insert(item.to_uppercase(), String::from(val.to_str().unwrap()));
+                } else {
+                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+                }
+            }
+        }
+    }
+    for (item, value) in &chompfile.env_default {
+        if !env.contains_key(item) {
+            if let Some(val) = std::env::var_os(item) {
+                env.insert(item.to_uppercase(), String::from(val.to_str().unwrap()));
+            } else {
+                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+            }
+        }
+    }
+    env
+}
+
+#[cfg(not(target_os = "windows"))]
+fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    for (item, value) in &chompfile.env {
+        env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+    }
+    if let Some(task_env) = task.env() {
+        for (item, value) in task_env {
+            env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+        }
+    }
+    if let Some(task_env_default) = task.env_default() {
+        for (item, value) in task_env_default {
+            if !env.contains_key(item) && std::env::var_os(item).is_none() {
+                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+            }
+        }
+    }
+    for (item, value) in &chompfile.env_default {
+        if !env.contains_key(item) && std::env::var_os(item).is_none() {
+            env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+        }
+    }
+    env
+}
+
 impl<'a> Runner<'a> {
     fn new(
         // ui: &'a ChompUI,
@@ -508,27 +572,7 @@ impl<'a> Runner<'a> {
         for task in template_tasks.drain(..) {
             let targets = task.targets_vec();
             let deps = task.deps_vec();
-            let mut env = BTreeMap::new();
-            for (item, value) in &chompfile.env {
-                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
-            }
-            if let Some(task_env) = &task.env {
-                for (item, value) in task_env {
-                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
-                }
-            }
-            if let Some(task_env_default) = &task.env_default {
-                for (item, value) in task_env_default {
-                    if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                        env.insert(item.to_uppercase(), replace_env_vars(value, &env));
-                    }
-                }
-            }
-            for (item, value) in &chompfile.env_default {
-                if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
-                }
-            }
+            let env = create_task_env(&task, &chompfile);
             let task = Task {
                 name: task.name,
                 targets,
@@ -550,23 +594,7 @@ impl<'a> Runner<'a> {
         for task in tasks.drain(..) {
             let targets = task.targets_vec();
             let deps = task.deps_vec();
-            let mut env = BTreeMap::new();
-            for (item, value) in &chompfile.env {
-                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
-            }
-            for (item, value) in &task.env {
-                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
-            }
-            for (item, value) in &task.env_default {
-                if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
-                }
-            }
-            for (item, value) in &chompfile.env_default {
-                if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
-                }
-            }
+            let env = create_task_env(&task, &chompfile);
             let task = Task {
                 name: task.name,
                 targets,
