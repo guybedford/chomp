@@ -20,10 +20,10 @@ jobs:
       run: cargo build --verbose
     - name: Set PATH
       run: echo "$(pwd)/target/debug:$PATH" >> $GITHUB_PATH
+    - name: Run Core Tests
+      run: chomp -c test/chompfile.toml test
     - name: Run Template Tests
-      run: target/debug/chomp -c chomp-templates/chompfile.toml test
-      env:
-        CHOMP: "../../target/debug/chomp"
+      run: chomp -c chomp-templates/chompfile.toml test
 
   build-windows:
     runs-on: windows-latest
@@ -41,7 +41,7 @@ jobs:
       run: cargo build --verbose
     - name: Set PATH
       run: echo echo "$(pwd)/target/debug" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    - name: Run Core Tests
+      run: chomp -c test/chompfile.toml test
     - name: Run Template Tests
-      run: target/debug/chomp.exe -c chomp-templates/chompfile.toml test
-      env:
-        CHOMP: "../../target/debug/chomp.exe"
+      run: chomp -c chomp-templates/chompfile.toml test

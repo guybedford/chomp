@@ -61,7 +61,8 @@ fn chomp_log(
     let len = args.length();
     let mut i = 0;
     while i < len {
-        let arg = args.get(i).to_string(scope).unwrap();
+        // TODO: better object logging - currently throws on objects
+        let arg: v8::Local<v8::Value> = args.get(i).try_into().unwrap();
         if i > 0 {
             msg.push_str(", ");
         }

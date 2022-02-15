@@ -16,7 +16,7 @@ impl Default for ChompEngine {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Chompfile {
     pub version: f32,
     #[serde(default, skip_serializing_if = "is_default")]
@@ -68,7 +68,7 @@ impl Default for InvalidationCheck {
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
-#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct ChompTaskMaybeTemplated {
     pub name: Option<String>,
     pub target: Option<String>,
@@ -146,7 +146,7 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
 
 // Pending https://github.com/denoland/deno/issues/13185
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ChompTaskMaybeTemplatedNoDefault {
     pub name: Option<String>,
     pub target: Option<String>,

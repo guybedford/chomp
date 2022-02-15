@@ -174,8 +174,8 @@ impl<'a> Job {
         }
     }
 
-    fn display_name(&self, runner: &Runner) -> String {
-        let task = &runner.tasks[self.task];
+    fn display_name(&self, tasks: &Vec<Task>) -> String {
+        let task = &tasks[self.task];
         if self.interpolate.is_some() {
             if task.targets.len() > 0 {
                 task.targets.iter().find(|&t| t.contains('#')).unwrap().replace('#', &self.interpolate.as_ref().unwrap())
@@ -366,14 +366,6 @@ pub fn expand_template_tasks(
         }
         has_templates = true;
         let template = task.template.as_ref().unwrap();
-        // evaluate templates into tasks
-        if task.engine.is_some()
-            || task.run.is_some()
-            || task.invalidation.is_some()
-            || task.serial.is_some()
-        {
-            return Err(anyhow!("Template invocation does not support overriding 'run', 'engine', 'serial', 'invalidation' fields."));
-        }
 
         if task.deps.is_none() {
             task.deps = Some(Default::default());
@@ -393,13 +385,13 @@ pub fn expand_template_tasks(
             env_default: Some(task.env_default),
             run: task.run,
             engine: task.engine,
-            template: Some(template.to_string()),
+            template: None,
             template_options: task.template_options,
         };
         let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
             extension_env.run_template(&template, &js_task)?;
         // template functions output a list of tasks
-        for mut template_task in template_tasks.drain(..) {
+        for mut template_task in template_tasks.drain(..).rev() {
             let (target, targets) = if template_task.target.is_some() {
                 (Some(template_task.target.take().unwrap()), None)
             } else if template_task.targets.is_some() {
@@ -748,7 +740,7 @@ impl<'a> Runner<'a> {
         }
         let job = self.get_job(job_num).unwrap();
         if job.display || self.chompfile.debug {
-            let mut name = job.display_name(self);
+            let mut name = job.display_name(&self.tasks);
             let primary = job.parents.len() == 0;
             if primary {
                 let mut name_bold = String::from("\x1b[1m");
@@ -796,7 +788,7 @@ impl<'a> Runner<'a> {
                     // as a kind of Pending analog which may or may not rerun
                     queued.remove_job(job_num, JobState::Running, Some(cmd_num));
                     let job = self.get_job(job_num).unwrap();
-                    let display_name = job.display_name(self);
+                    let display_name = job.display_name(&self.tasks);
                     self.cmd_pool.terminate(cmd_num, &display_name);
                     self.get_job_mut(job_num).unwrap()
                 } else {
@@ -878,13 +870,13 @@ impl<'a> Runner<'a> {
         }
         // If we have an mtime, check if we need to do work
         if let Some(mtime) = job.mtime {
-            let can_skip = task.args.is_none() && match task.invalidation {
+            let can_skip = !force && task.args.is_none() && match task.invalidation {
                 InvalidationCheck::NotFound => true,
                 InvalidationCheck::Always => {
-                    if !force && (job.display || self.chompfile.debug) {
+                    if job.display || self.chompfile.debug {
                         println!(
                             "  \x1b[1m{}\x1b[0m invalidated",
-                            job.display_name(self),
+                            job.display_name(&self.tasks),
                         );
                     }
                     false
@@ -897,30 +889,28 @@ impl<'a> Runner<'a> {
                                 let invalidated = match dep.mtime {
                                     Some(dep_mtime) => match &self.tasks[dep.task].invalidation {
                                         InvalidationCheck::NotFound => false,
-                                        InvalidationCheck::Always | InvalidationCheck::Mtime => {
-                                            dep_mtime > mtime || force
-                                        }
+                                        InvalidationCheck::Always | InvalidationCheck::Mtime => dep_mtime > mtime,
                                     },
                                     None => true,
                                 };
-                                if invalidated && !force && (job.display || self.chompfile.debug) {
+                                if invalidated && (job.display || self.chompfile.debug) {
                                     println!(
                                         "  \x1b[1m{}\x1b[0m invalidated by {}",
-                                        job.display_name(self),
-                                        dep.display_name(self)
+                                        job.display_name(&self.tasks),
+                                        dep.display_name(&self.tasks)
                                     );
                                 }
                                 invalidated
                             }
                             Node::File(dep) => {
                                 let invalidated = match dep.mtime {
-                                    Some(dep_mtime) => dep_mtime > mtime || force,
+                                    Some(dep_mtime) => dep_mtime > mtime,
                                     None => true,
                                 };
-                                if invalidated && !force && (job.display || self.chompfile.debug) {
+                                if invalidated && (job.display || self.chompfile.debug) {
                                     println!(
                                         "  \x1b[1m{}\x1b[0m invalidated by {}",
-                                        job.display_name(self),
+                                        job.display_name(&self.tasks),
                                         dep.name
                                     );
                                 }
@@ -1020,7 +1010,7 @@ impl<'a> Runner<'a> {
         let debug = self.chompfile.debug;
         let cmd_num = {
             let display_name = if job.display || debug {
-                Some(job.display_name(self))
+                Some(job.display_name(&self.tasks))
             } else {
                 None
             };
@@ -1357,6 +1347,22 @@ impl<'a> Runner<'a> {
         }
     }
 
+    fn lookup_task(&mut self, task: usize) -> Option<usize> {
+        for (id, node) in self.nodes.iter().enumerate() {
+            let job = match node {
+                Node::File(_) => continue,
+                Node::Job(job) => job,
+            };
+            // find the job for the task or interpolation task parent
+            if job.task != task || job.interpolate.is_some() {
+                continue;
+            }
+            return Some(id);
+        }
+        None
+    }
+
+
     #[async_recursion(?Send)]
     async fn lookup_target(
         &mut self,
@@ -1496,7 +1502,9 @@ impl<'a> Runner<'a> {
                 job.state = JobState::Initialized;
 
                 let mut expanded_interpolate = false;
+                let task_id = job.task;
                 let deps = task.deps.clone();
+                let display_name = job.display_name(&self.tasks);
                 for dep in deps {
                     if has_glob_chars(&dep) {
                         return Err(anyhow!("Error processing dep '{}' - glob deps are not supported", &dep));
@@ -1510,10 +1518,18 @@ impl<'a> Runner<'a> {
                         expanded_interpolate = true;
                     } else if dep.starts_with('&') {
                         if dep == "&next" {
-                            let id = job.task + 1;
-
+                            if task_id + 1 >= self.tasks.len() {
+                                return Err(anyhow!("No next task to reference for dep '&next' in task {}", &display_name));
+                            }
+                            let dep_num = self.lookup_task(task_id + 1).unwrap();
+                            self.expand_job(watcher, dep_num, Some(job_num)).await?;
+                            
                         } else if dep == "&prev" {
-
+                            if task_id == 0 {
+                                return Err(anyhow!("No previous task to reference for dep '&prev' in task {}", &display_name));
+                            }
+                            let dep_num = self.lookup_task(task_id - 1).unwrap();
+                            self.expand_job(watcher, dep_num, Some(job_num)).await?;
                         } else {
                             return Err(anyhow!("Invalid task reference '{}'", &dep));
                         }
@@ -1671,7 +1687,10 @@ impl<'a> Runner<'a> {
                 },
             };
 
-            self.get_job_mut(job_num).unwrap().live = true;
+            // if a job, make it live
+            if let Some(ref mut job) = self.get_job_mut(job_num) {
+                job.live = true;
+            }
             self.drive_all(job_num, force, &mut futures, &mut queued, None)?;
         }
         if watcher.is_some() {
@@ -1802,11 +1821,11 @@ pub async fn run<'a>(
         let task_args_len = match &task.args {
             Some(args) => args.len(),
             None => {
-                return Err(anyhow!("Task \x1b[1m{}\x1b[0m doesn't take any arguments.", runner.get_job(job_num).unwrap().display_name(&runner)));
+                return Err(anyhow!("Task \x1b[1m{}\x1b[0m doesn't take any arguments.", runner.get_job(job_num).unwrap().display_name(&runner.tasks)));
             }
         };
         if task_args_len < args.len() {
-            return Err(anyhow!("Task \x1b[1m{}\x1b[0m only takes {} arguments, while {} were provided.", runner.get_job(job_num).unwrap().display_name(&runner), task_args_len, args.len()));
+            return Err(anyhow!("Task \x1b[1m{}\x1b[0m only takes {} arguments, while {} were provided.", runner.get_job(job_num).unwrap().display_name(&runner.tasks), task_args_len, args.len()));
         }
         let task_args = task.args.as_ref().unwrap();
         for (i, arg) in args.iter().enumerate() {

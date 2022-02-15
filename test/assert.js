@@ -1,43 +1,44 @@
 Chomp.registerTemplate('assert', function (task) {
-  if (task.templateOptions.expectDep)
-    env['EXPECT_DEP'] = task.templateOptions.expectDep;
-  if (task.templateOptions.expectTarget)
-    env['EXPECT_TARGET'] = task.templateOptions.expectTarget;
+  let env = {};
+  if (task.templateOptions.expectEquals) {
+    console.log(task.name);
+    env['EXPECT_EQUALS'] = task.templateOptions.expectEquals;
+    if (task.targets.length === 0)
+      throw new Error('Assertion tests must have a target to assert.');
+    if (task.targets.some(target => target.indexOf('#') !== -1))
+      throw new Error('Assertion tests do not support interpolates.');
+    env['ASSERT_TARGET'] = task.targets[0];
+  }
+  if (!task.name)
+    throw new Error('Assertion tests must be named.');
+  const name = task.name;
+  delete task.name;
   return [{
+    name,
     dep: '&next',
     engine: 'node',
+    env,
     run: `
       import { strictEqual } from 'assert';
       import { readFileSync } from 'fs';
 
       function rnlb (source) {
+        source = source.replace(/\\r\\n/g, '\\n');
         if (source.startsWith('\\ufeff'))
           source = source.slice(1);
-        if (source.endsWith('\\r\\n'))
-          source = source.slice(0, -2);
-        else if (source.endsWith('\\n'))
+        if (source.endsWith('\\n'))
           source = source.slice(0, -1);
         return source;
       }
 
       let asserted = false;
-
-      if (process.env.EXPECT_DEP) {
-        strictEqual(rnlb(readFileSync(process.env.DEP, 'utf8')), rnlb(process.env.EXPECT_DEP));
+      if (process.env.EXPECT_EQUALS) {
+        strictEqual(rnlb(readFileSync(process.env.ASSERT_TARGET, 'utf8')), rnlb(process.env.EXPECT_EQUALS));
         asserted = true;
       }
-
-      if (process.env.EXPECT_TARGET) {
-        strictEqual(rnlb(readFileSync(process.env.TARGET, 'utf8')), rnlb(process.env.EXPECT_TARGET));
-        asserted = true;
-      }
-
       if (!asserted) {
         throw new Error('Chomp assert template did not assert anything! There must be an "expect-dep" or "expect-target" check.');
       }
     `
-  }, {
-    ...task,
-    deps: [...task.deps]
-  }];
+  }, task];
 });

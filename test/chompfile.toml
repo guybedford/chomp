@@ -1,23 +1,75 @@
 version = 0.1
 
-extensions = ['./assert.js']
+extensions = ['./assert.js', 'chomp:npm']
+
+[[task]]
+name = 'test:clean'
+run = 'rm fixtures/*'
 
 [[task]]
 name = 'test'
-deps = ['test1']
+deps = ['test1', 'test2', 'test3']
 
-[[task]]
-target = "fixtures/test1.txt"
-run = 'echo "Chomp Chomp" > fixtures/test1.txt'
-template = 'assert'
-[task.template-options]
-expect-target = "Chomp Chomp"
-
+# Test1
 [[task]]
 name = 'test1'
-dep = 'fixtures/test1.txt'
+target = 'fixtures/test1.txt'
+run = 'echo "Chomp Chomp" > $TARGET'
 template = 'assert'
 [task.template-options]
-expect-dep = "Chomp Chomp"
+expect-equals = 'Chomp Chomp'
 
+# Test2
+[[task]]
+name = 'test2'
+target = 'fixtures/test2.txt'
+run = '''
+  echo "$VAR $ANOTHER" > $TARGET
+'''
+template = 'assert'
+[task.env]
+VAR = 'Chomp'
+[task.env-default]
+ANOTHER = '$VAR MM'
+[task.template-options]
+expect-equals = 'Chomp Chomp MM'
 
+# Test3
+[[task]]
+name = 'test3'
+target = 'fixtures/test3.js'
+deps = ['app.js', 'babel:install']
+engine = 'node'
+run = '''
+  import babel from '@babel/core';
+  import { readFileSync, writeFileSync } from 'fs';
+  import { basename } from 'path';
+
+  const input = readFileSync(process.env.DEP, 'utf8');
+  const { code, map } = babel.transformSync(input, {
+    filename: process.env.DEP,
+    babelrc: false,
+    configFile: false,
+    sourceMaps: true,
+    presets: [['@babel/preset-env', {
+      targets: {
+        esmodules: true
+      },
+      modules: false
+    }]],
+  });
+  writeFileSync(process.env.TARGET, code + '\n//# sourceMappingURL=' + basename(process.env.TARGET) + '.map');
+  writeFileSync(process.env.TARGET + '.map', JSON.stringify(map));
+'''
+template = 'assert'
+[task.template-options]
+expect-equals = '''export var p = 5;
+//# sourceMappingURL=test3.js.map
+'''
+
+[[task]]
+name = 'babel:install'
+template = 'npm'
+[task.template-options]
+packages = ['@babel/core', '@babel/preset-env']
+auto-install = true

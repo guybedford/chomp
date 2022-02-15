@@ -109,8 +109,9 @@ With execution `chomp template-example` writing `chomp chomp` to the console.
 ```js
 Chomp.registerTemplate('echo', function (task) {
   if (typeof task.templateOptions.message !== 'string')
-    throw new Error('Echo template expects a string message in template-options');
-
+    throw new Error('Echo template expects a string message in template-options.');
+  if (task.run || task.engine)
+    throw new Error('Echo template does not expect a run or engine field.');
   return [{
     // task "name" and "deps" need to be passed through manually
     // and similarly for tasks that define targets
