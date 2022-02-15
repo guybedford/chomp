@@ -53,7 +53,6 @@ pub struct Task {
 
 pub struct RunOptions {
     pub args: Option<Vec<String>>,
-    pub cwd: String,
     pub cfg_file: PathBuf,
     pub pool_size: usize,
     pub targets: Vec<String>,
@@ -143,7 +142,7 @@ impl File {
 
 struct Runner<'a> {
     // ui: &'a ChompUI,
-    cwd: PathBuf,
+    cwd: String,
     cmd_pool: CmdPool<'a>,
     chompfile: &'a Chompfile,
     watch: bool,
@@ -531,22 +530,22 @@ impl<'a> Runner<'a> {
         chompfile: &'a Chompfile,
         extension_env: &'a mut ExtensionEnvironment,
         pool_size: usize,
-        cwd: String,
         watch: bool,
     ) -> Result<Runner<'a>> {
         let mut template_tasks = extension_env.get_tasks();
-        let cwd_path = PathBuf::from(&cwd);
+        let cwd_buf = std::env::current_dir()?;
+        let cwd = cwd_buf.to_str().unwrap();
 
         let cmd_pool: CmdPool = CmdPool::new(
             pool_size,
+            String::from(cwd),
             extension_env,
-            cwd,
             chompfile.debug,
         );
         let mut runner = Runner {
             watch,
-            cwd: cwd_path,
             // ui,
+            cwd: String::from(cwd),
             cmd_pool,
             chompfile,
             nodes: Vec::new(),
@@ -816,13 +815,11 @@ impl<'a> Runner<'a> {
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
     ) -> Result<bool> {
-        let cwd = std::env::current_dir()?;
-        let cwd_str = cwd.to_str().unwrap();
         let path_str = path.to_str().unwrap();
-        if !path_str.starts_with(cwd_str) {
+        if !path_str.starts_with(&self.cwd) {
             return Err(anyhow!("Expected path within cwd"));
         }
-        let rel_str = &path_str[cwd_str.len() + 1..];
+        let rel_str = &path_str[self.cwd.len() + 1..];
         let sanitized_path = rel_str.replace("\\", "/");
         match self.file_nodes.get(&sanitized_path) {
             Some(&node_num) => match self.nodes[node_num] {
@@ -886,12 +883,15 @@ impl<'a> Runner<'a> {
                     for &dep in job.deps.iter() {
                         dep_change = match &self.nodes[dep] {
                             Node::Job(dep) => {
-                                let invalidated = match dep.mtime {
-                                    Some(dep_mtime) => match &self.tasks[dep.task].invalidation {
-                                        InvalidationCheck::NotFound => false,
-                                        InvalidationCheck::Always | InvalidationCheck::Mtime => dep_mtime > mtime,
+                                let invalidated = match &self.tasks[dep.task].invalidation {
+                                    InvalidationCheck::NotFound => false,
+                                    InvalidationCheck::Always | InvalidationCheck::Mtime => match dep.mtime {
+                                        Some(dep_mtime) => {
+                                            println!("{:?} {:?} {} {:?}", mtime, dep_mtime, dep_mtime > mtime, &dep);
+                                            dep_mtime > mtime
+                                        },
+                                        None => true,
                                     },
-                                    None => true,
                                 };
                                 if invalidated && (job.display || self.chompfile.debug) {
                                     println!(
@@ -1020,7 +1020,7 @@ impl<'a> Runner<'a> {
                     let cwd = if Path::is_absolute(&cwd_path) {
                         cwd_path
                     } else {
-                        let mut base = self.cwd.clone();
+                        let mut base = PathBuf::from(&self.cwd);
                         base.push(&cwd_path);
                         base
                     };
@@ -1215,6 +1215,7 @@ impl<'a> Runner<'a> {
                     FileState::Initialized => {
                         let name = file.name.to_string();
                         let mtime_future = async move {
+
                             match fs::metadata(&name).await {
                                 Ok(n) => {
                                     let mtime = n.modified().expect("No modified implementation");
@@ -1780,7 +1781,6 @@ pub async fn run<'a>(
         &chompfile,
         extension_env,
         opts.pool_size,
-        opts.cwd,
         opts.watch,
     )?;
     let (tx, rx) = channel();

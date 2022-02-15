@@ -106,15 +106,15 @@ pub struct Exec<'a> {
 }
 
 impl<'a> CmdPool<'a> {
-    pub fn new(pool_size: usize, extension_env: &'a mut ExtensionEnvironment, cwd: String, debug: bool) -> CmdPool<'a> {
+    pub fn new(pool_size: usize, cwd: String, extension_env: &'a mut ExtensionEnvironment, debug: bool) -> CmdPool<'a> {
         CmdPool {
             cmd_num: 0,
+            cwd,
             cmds: BTreeMap::new(),
             exec_num: 0,
             exec_cnt: 0,
             execs: BTreeMap::new(),
             pool_size,
-            cwd,
             extension_env,
             batching: BTreeSet::new(),
             cmd_execs: BTreeMap::new(),

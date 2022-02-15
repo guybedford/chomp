@@ -139,6 +139,24 @@ async fn main() -> Result<()> {
     }
 
     let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
+
+    let chompfile_source = match fs::read_to_string(&cfg_file).await {
+        Ok(source) => source,
+        Err(_) => {
+            return Err(anyhow!(
+                "Unable to load the Chomp configuration {}.",
+                &cfg_file.to_str().unwrap()
+            ));
+        }
+    };
+    let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
+    if chompfile.version != 0.1 {
+        return Err(anyhow!(
+            "Invalid chompfile version {}, only 0.1 is supported",
+            chompfile.version
+        ));
+    }
+
     let canonical_file = {
         let unc_path = match canonicalize(&cfg_file) {
             Ok(path) => path,
@@ -157,23 +175,7 @@ async fn main() -> Result<()> {
         }
     };
     let cwd = canonical_file.parent().unwrap();
-
-    let chompfile_source = match fs::read_to_string(&cfg_file).await {
-        Ok(source) => source,
-        Err(_) => {
-            return Err(anyhow!(
-                "Unable to load the Chomp configuration {}.",
-                &cfg_file.to_str().unwrap()
-            ));
-        }
-    };
-    let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
-    if chompfile.version != 0.1 {
-        return Err(anyhow!(
-            "Invalid chompfile version {}, only 0.1 is supported",
-            chompfile.version
-        ));
-    }
+    assert!(env::set_current_dir(&cwd).is_ok());
 
     if matches.is_present("clear_cache") {
         println!("Clearing URL extension cache...");
@@ -333,7 +335,6 @@ async fn main() -> Result<()> {
         force: matches.is_present("force"),
         args: if args.len() > 0 { Some(args) } else { None },
         pool_size,
-        cwd: cwd.to_str().unwrap().to_string(),
         targets,
         cfg_file,
     }).await?;
