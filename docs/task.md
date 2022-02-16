@@ -228,9 +228,11 @@ _<div style="text-align: center">`$DEP` and `$TARGET` will always be the interpo
 
 ## Task Dependence
 
-Using dependencies and targets, task graphs are built up through the task pattern in Chomp, where each task can be cached at a fine-grained level and task inputs can be the result of targets or other tasks. Build order is determined by the graph in this way.
+Using dependencies and targets, task graphs are built up through the task pattern in Chomp, where each task can be cached at a fine-grained level. Task dependency inputs can themselves be the result of targets or other tasks. Build order is determined by the graph in this way.
 
 For example, consider a build that compiles with Babel, then builds into a single file with RollupJS.
+
+Rather than using a RollupJS Babel plugin, separating the compilation on the file system enables caching, parallelization, finer-grained generic build control and comprehensive incremental builds with watcher support:
 
 ```toml
 version = 0.1
@@ -238,6 +240,8 @@ version = 0.1
 [[task]]
 name = 'npm:install'
 run = 'npm install'
+target = 'package-lock.json'
+deps = ['package.json']
 
 [[task]]
 name = 'build:babel'
@@ -246,20 +250,194 @@ deps = ['src/#.js', 'npm:install']
 run = 'babel $DEP -p $TARGET --source-maps'
 
 [[task]]
-name = 'rollup'
+name = 'build:rollup'
 deps = 'lib/**/*.js'
 target = 'dist/app.js'
 run = 'rollup lib/app.js -d dist -m'
 ```
+_<div style="text-align: center">Practical example of a Chomp build graph using task dependence from npm install to per-module Babel compilation to Rollup into a single file or set of files.</div>_
 
-In the above, running `chomp rollup` will cause the interpolation to be globbed, 
+Following the task graph from the lowest level to the highest level:
 
-`&next`, `&prev`
+* `npm:install`: If the `package.json` was modified after the `package-lock.json`, `npm install` is run to ensure the installation is up-to-date.
+* `build:babel`: By depending on `npm:install` the previous task is first validated and possibly run to initiate an npm install. Then if for a given source file `src/file.js`, `lib/file.js` does not exist, or the mtime on `src/file.js` was modified after `lib/file.js`. With the task graph, modifying `src/file.js` or `package-lock.json` both cause invalidations resulting in a rebuild.
+* `build:rollup`: Since `build:rollup` depends on all deps in `lib`, this will make it depend on all the separate file builds of `build:babel`, and in turn their dependence. If any file `lib/file.js` has an mtime greater than the main build target file `dist/app.js` then the RollupJS build is retriggered, but not that only the Babel compilations needed are rebuilt in this process.
 
-## Task Invalidation
+When running `chomp rollup --watch` we now get fine-grained incremental build watching, with the watched file invalidations exactly as we defined with the task dependence graph rules above.
 
-## Task Arguments
+Finally, `chomp rollup --serve` will provide a local static server along with the task watcher for the task. A websocket protocol for in-browser hot-reloading is a [planned future addition](https://github.com/guybedford/chomp/issues/61).
 
-## Template Tasks
+Replacing monolithic JS build systems with make-style file caching all the commonly expected features of JS dev workflows can still be maintained.
 
-## Creating Templates
+### Task Invalidation Rules
+
+The default task invalidation is based on the mtime rules per the example above. The invalidation rule is a binary rule indicating whether or not a given task should rerun or be treated as cached.
+
+The explicit rules of invalidation for this `mtime` invalidation are:
+
+* If no targets are defined for a task, it is always invalidated.
+* Otherwise, if no deps are defined for a task, it is invalidated only if the targets do not exist.
+* Otherwise, if the mtime of any dep is greater than the mtime of any target, the task is invalidated.
+
+Task invalidation can be customized with the `invalidation` property on a task:
+
+* `invalidation = 'mtime'` (default): This is the default invalidation, as per the rules described above.
+* `invalidation = 'always'`: The task is always invalidated and rerun, without exception.
+* `invalidation = 'not-found'`: The task is only invalidated when not all targets are defined.
+
+### Task Parallelization
+
+By default all tasks in Chomp are run with full parallelism, which can also be controlled by the [`-j` flag](cli.md#jobs) to choose the maximum number of child processes to spawn.
+
+In addition, task pooling can also be controlled by [extension batching operations](extensions.md#chompregisterbatchername-string-batcher-batch-cmdop-running-batchcmd--batcherresult--undefined).
+
+Dependencies of tasks are always treated as being parallel - to ensure one task always happens before another the best way is usually to treat it as a dependency. For example, the test depends on the build target.
+
+#### Serial Dependencies
+
+In some cases, it can be preferred to write a serial pipeline of steps that should be followed.
+
+This can be achieved by setting `serial = true` on the task:
+
+chompfile.toml
+```toml
+version = 0.1
+
+[[task]]
+name = 'test'
+serial = true
+deps = ['test:a', 'test:b', 'test:c']
+
+[[tas]]
+name = 'test:a'
+run = 'echo a'
+
+[[task]]
+name = 'test:b'
+run = 'echo b'
+
+[[task]]
+name = 'test:c'
+run = 'echo c'
+```
+_<div style="text-align: center">Example of a serial `test` task executing `test:a` then `test:b` then `testc` in sequence.</div>_
+
+Running `chomp test` with the above, will run each of `test:a`, `test:b` and `test:c` one after the other to completion instead of running their dependence graphs in parallel by default, logging `a b c` every time.
+
+## Loading Extensions
+
+Extensions allow encapsulating complex Chompfile configurations.
+
+For example, by encapsulating the Babel and RollupJS compilations as task templates, the main Chompfile
+can be simplified to just include the parameters and not the details of task execution.
+
+To make things simpler - Chomp already includes a default extensions library, [Chomp Templates](https://github.com/guybedford/chomp-templates), for these tasks.
+
+Extensions are loaded via the `extensions` list in the Chompfile:
+
+chompfile.toml
+```toml
+version = 0.1
+
+extensions = ['chomp:npm', 'chomp:babel', 'chomp:rollup']
+
+[[task]]
+name = 'npm:install'
+template = 'npm'
+
+[[task]]
+name = 'build:babel'
+template = 'babel'
+target = 'lib/#.js'
+deps = ['src/#.js', 'npm:install']
+[task.template-options]
+source-maps = true
+
+[[task]]
+name = 'build:rollup'
+template = 'rollup'
+deps = 'lib/**/*.js'
+[task.template-options]
+outdir = 'dist'
+entries = ['lib/app.js']
+```
+_<div style="text-align: center">Using the `chomp:npm`, `chomp:babel` and `chomp:rollup` template extensions allows writing these tasks fully encapsulating their implementations.</div>_
+
+## Writing Extensions
+
+> Read more on writing templates in the [extensions documentation](extensions.md)
+
+Chomp extensions can be loaded from any URL or local file path (`chomp:[x]` is just a shorthand for `https://ga.jspm.io/npm:@chompbuild/templates@latest/[x].js`).
+
+To write custom templates, create a local extension file `local-extension.js` referencing it in the extensions list of the Chompfile:
+
+```toml
+version = 0.1
+
+extensions = ['./local-extension.js']
+
+[[task]]
+name = 'npm:install'
+template = 'npm'
+
+[[task]]
+name = 'build:babel'
+template = 'babel'
+target = 'lib/#.js'
+deps = ['src/#.js', 'npm:install']
+[task.template-options]
+source-maps = true
+
+[[task]]
+name = 'build:rollup'
+template = 'rollup'
+deps = 'lib/**/*.js'
+[task.template-options]
+outdir = 'dist'
+entries = ['lib/app.js']
+```
+_<div style="text-align: center">Example of defining the `npm`, `babel` and `rollup` templates by loading a local extension at `./local-exdtension.js`.</div>_
+
+Here's a simplified example of creating the `npm`, `babel`, and `rollup` templates:
+
+local-extension.js
+```js
+Chomp.registerTemplate('npm', function (task) {
+  return [{
+    name: task.name,
+    run: 'npm install'
+    target: 'package-lock.json'
+    deps: ['package.json']
+  }];
+});
+
+Chomp.registerTemplate('babel', function (task) {
+  const { sourceMaps } = task.templateOptions;
+  return [{
+    name: task.name,
+    target: task.target,
+    deps: task.deps,
+    run: `babel $DEP -o $TARGET${sourceMaps ? ' --source-maps' : ''}`
+  }];
+});
+
+Chomp.registerTemplate('rollup', function (task) {
+  const { outdir, entries } = task.templateOptions;
+  const targets = entries.map(entry => outdir + '/' + entry.split('/').pop());
+  return [{
+    name: task.name,
+    deps: task.deps,
+    targets,
+    run: `rollup ${entries.join(' ')} -d ${outdir} -m`
+  }];
+});
+```
+_<div style="text-align: center">Chomp extension template registration example for the `npm`, `babel` and `rollup` templates.</div>_
+
+Templates are functions on tasks returning a new list of tasks. All TOML properties apply but with camelCase instead of kebab-case.
+
+Templates can be loaded from any file path or URL. PRs to the default Chomp templates library are welcome, or host your own on your own domain or via an npm CDN. For support on the JSPM CDN, add `"type": "script"` to the package.json since template extensions are currently scripts and not modules.
+
+Remote extensions are loaded once and cached locally by Chomp, regardless of cache headers, to ensure the fastest run time. For this reason it is recommended to always use unique URLs with versions when hosting extensions remotely. The remote extension cache can also be cleared by running `chomp --clear-cache`.
+
+And if it ever feels a little too magical, templates can also be ejected by running `chomp --eject`, transforming the Chompfile into the expanded untemplated form without extensions.

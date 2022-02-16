@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 // use crate::ui::ChompUI;
 use async_recursion::async_recursion;
-use capturing_glob::glob;
+use capturing_glob::{glob, Pattern};
 use futures::future::{select_all, Future, FutureExt};
 use notify::DebouncedEvent;
 use notify::RecommendedWatcher;
@@ -936,7 +936,7 @@ impl<'a> Runner<'a> {
             env.insert("MATCH".to_string(), interpolate.to_string());
         }
         let target_index = if job.interpolate.is_some() {
-            match task.deps.iter().enumerate().find(|(_, d)| d.contains('#')) {
+            match task.targets.iter().enumerate().find(|(_, d)| d.contains('#')) {
                 Some(mtch) => mtch.0,
                 None => 0
             }
@@ -1262,7 +1262,7 @@ impl<'a> Runner<'a> {
                             return Err(anyhow!("File {} not found", file.name));
                         } else {
                             // dbg!(file);
-                            panic!("TODO: NON-EXISTING FILE WATCH");
+                            panic!("Watching files not yet created is not yet supported, in depending on {}. This should be supported, please post an issue on GitHub!", file.name);
                         }
                     }
                 }
@@ -1363,28 +1363,20 @@ impl<'a> Runner<'a> {
         None
     }
 
-
     #[async_recursion(?Send)]
     async fn lookup_target(
         &mut self,
         watcher: &mut RecommendedWatcher,
         target: &str,
-        as_task: bool,
     ) -> Result<usize> {
         // First match task by name
-        if as_task {
-            if target.as_bytes()[0] as char == ':' {
-                let name = &target[1..];
-                return match self.task_jobs.get(name) {
-                    Some(&job_num) => Ok(job_num),
-                    None => {
-                        panic!("TODO: TASK NOT FOUND");
-                    }
-                };
-            }
-            match self.task_jobs.get(target) {
-                Some(&job_num) => return Ok(job_num),
-                None => {}
+        if target.as_bytes()[0] as char == ':' {
+            let name = &target[1..];
+            return match self.task_jobs.get(name) {
+                Some(&job_num) => Ok(job_num),
+                None => {
+                    panic!("Internal Error: TASK NOT FOUND");
+                }
             };
         }
 
@@ -1433,11 +1425,124 @@ impl<'a> Runner<'a> {
                             .await?;
                         Ok(num)
                     }
-                    // Otherwise add as a file dependency
-                    None => Ok(self.add_file(String::from(target))?),
+                    None => {
+                        // fallback to task name
+                        match self.task_jobs.get(target) {
+                            Some(&job_num) => Ok(job_num),
+                            // Otherwise add as a file dependency
+                            None => Ok(self.add_file(String::from(target))?)
+                        }
+                    }
                 }
             }
         }
+    }
+
+    #[async_recursion(?Send)]
+    async fn lookup_glob_target(
+        &mut self,
+        watcher: &mut RecommendedWatcher,
+        target: &str,
+    ) -> Result<Vec<usize>> {
+        assert!(has_glob_chars(target));
+        let task_pattern = target.as_bytes()[0] as char == ':';
+        let target_pattern = Pattern::new(if task_pattern { &target[1..] } else { target }).unwrap();
+
+        let mut found = Vec::new();
+
+        // iterate tasks comparing them to the glob
+        if task_pattern {
+            for (task, &job_num) in &self.task_jobs {
+                if target_pattern.matches(task) {
+                    found.push(job_num);
+                    println!("FOUND TASK MATCH {}", task);
+                }
+            }
+            if found.len() == 0 {
+                return Err(anyhow!("No task names found matching the pattern {}", target));
+            }
+        } else {
+            let mut globbed_targets: HashSet<String> = HashSet::new();
+
+            // Determine non-glob prefix and suffix of the target
+            let mut target_prefix_len = 0;
+            let mut target_suffix_len = 0;
+            while target_prefix_len < target.len() && !has_glob_chars(&target[0..target_prefix_len + 1]) {
+                target_prefix_len = target_prefix_len + 1;
+            }
+            while target_suffix_len < target.len() && !has_glob_chars(&target[target.len() - target_suffix_len - 1..]) {
+                target_suffix_len = target_suffix_len + 1;
+            }
+            let target_prefix = &target[0..target_prefix_len];
+            let target_suffix = &target[target.len() - target_suffix_len..];
+
+            // all interpolates which match that non-glob prefix and suffix are then _fully_ expanded
+            let mut expansions = Vec::new();
+            for (interpolate, job_num) in &self.interpolate_nodes {
+                let interpolate_idx = interpolate.find("#").unwrap();
+                let lhs = &interpolate[0..interpolate_idx];
+                let rhs = &interpolate[interpolate_idx + 1..];
+
+                let maybe_intersects = if lhs.len() > target_prefix.len() {
+                    lhs.starts_with(target_prefix)
+                } else {
+                    target_prefix.starts_with(lhs)
+                } && if rhs.len() > target_suffix.len() {
+                    rhs.ends_with(target_suffix)
+                } else {
+                    target_suffix.ends_with(rhs)
+                };
+
+                if !maybe_intersects {
+                    continue;
+                }
+
+                let job = self.get_job(*job_num).unwrap();
+                let task_num = job.task;
+                let interpolate_dep = self.tasks[task_num].deps.iter().find(|&dep| dep.contains('#')).unwrap();
+                expansions.push((String::from(interpolate_dep), *job_num, task_num));
+            }
+
+            for (dep, job_num, task_num) in expansions.drain(..) {
+                self.expand_interpolate(watcher, dep, job_num, task_num).await?;
+            }
+
+            // this picks up both static file targets and interpolates expanded above
+            for (file, &job_num) in &self.file_nodes {
+                if target_pattern.matches(file) {
+                    found.push(job_num);
+                    globbed_targets.insert(String::from(file));
+                    println!("FOUND FILE / INTERPOLATE MATCH {}", file);
+                }
+            }
+
+            // finally we do file system globbing, with defined files above overriding file system matches
+            for entry in glob(&target).expect("Failed to read glob pattern") {
+                match entry {
+                    Ok(entry) => {
+                        let dep_path = String::from(entry.path().to_str().unwrap()).replace('\\', "/");
+                        if !globbed_targets.contains(&dep_path) {
+                            println!("FOUND GLOB {} (ADDED)", &dep_path);
+                            let job_num = self.add_file(dep_path.to_string())?;
+                            found.push(job_num);
+                            globbed_targets.insert(dep_path);
+                        } else {
+                            println!("FOUND GLOB {} (SKIPPED)", &dep_path);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{:?}", e);
+                        return Err(anyhow!("GLOB ERROR"));
+                    }
+                }
+            }
+
+            if found.len() == 0 {
+                return Err(anyhow!("No files or target paths found matching the pattern '{}'.\nTo glob task names, use the task prefix character:\n\n  \x1b[36mchomp :{}\x1b[0m\n", target, target));
+            }
+        }
+
+        Ok(found)
     }
 
     #[async_recursion(?Send)]
@@ -1446,9 +1551,16 @@ impl<'a> Runner<'a> {
         watcher: &mut RecommendedWatcher,
         target: &str,
         drives: Option<usize>
-    ) -> Result<()> {
-        let job_num = self.lookup_target(watcher, target, true).await?;
-        self.expand_job(watcher, job_num, drives).await
+    ) -> Result<Vec<usize>> {
+        let job_nums = if !has_glob_chars(target) {
+            vec![self.lookup_target(watcher, target).await?]
+        } else {
+            self.lookup_glob_target(watcher, target).await?
+        };
+        for job_num in job_nums.iter() {
+            self.expand_job(watcher, *job_num, drives).await?;
+        }
+        Ok(job_nums)
     }
 
     // expand out the full job graph for the given targets
@@ -1475,7 +1587,8 @@ impl<'a> Runner<'a> {
                     }
                     return Ok(());
                 }
-                let mut is_interpolate = false;
+                let mut is_interpolate = None;
+                let display_name = job.display_name(&self.tasks);
 
                 let task_num = job.task;
                 let task = &self.tasks[job.task];
@@ -1483,20 +1596,20 @@ impl<'a> Runner<'a> {
                 let has_targets = task.targets.len() > 0;
                 for target in task.targets.iter() {
                     if has_glob_chars(&target) {
-                        return Err(anyhow!("Error processing target '{}' - glob characters are not supported", &target));
+                        return Err(anyhow!("Error processing target '{}' in task {} - glob characters are not supported", &target, &display_name));
                     }
                     if target.contains('#') {
-                        if is_interpolate {
-                            return Err(anyhow!("Error processing target '{}' - can only have a single interpolation target per task", &target));
+                        if is_interpolate.is_some() {
+                            return Err(anyhow!("Error processing target '{}' in task {} - can only have a single interpolation target per task", &target, &display_name));
                         }
-                        is_interpolate = true;
+                        is_interpolate = Some(target.clone());
                     }
                     job_targets.push(target.to_string());
                 }
-                if task.args.is_some() && is_interpolate {
-                    return Err(anyhow!("Cannot apply args to interpolate tasks."));
+                if task.args.is_some() && is_interpolate.is_some() {
+                    return Err(anyhow!("Invalid task {} - cannot apply args to interpolate tasks.", &display_name));
                 }
-                if !is_interpolate {
+                if is_interpolate.is_none() {
                     job.targets = job_targets;
                 }
 
@@ -1505,14 +1618,13 @@ impl<'a> Runner<'a> {
                 let mut expanded_interpolate = false;
                 let task_id = job.task;
                 let deps = task.deps.clone();
-                let display_name = job.display_name(&self.tasks);
                 for dep in deps {
-                    if has_glob_chars(&dep) {
-                        return Err(anyhow!("Error processing dep '{}' - glob deps are not supported", &dep));
-                    }
                     if dep.contains('#') {
+                        if has_glob_chars(&dep) {
+                            return Err(anyhow!("Error processing dep '{}' in task {} - glob deps are not supported in interpolates", &dep, &display_name));
+                        }
                         if expanded_interpolate {
-                            return Err(anyhow!("Error processing dep '{}' - only one interpolated deps is allowed", &dep));
+                            return Err(anyhow!("Error processing dep '{}' in task {} - only one interpolated deps is allowed", &dep, &display_name));
                         }
                         self.expand_interpolate(watcher, String::from(dep), job_num, task_num)
                             .await?;
@@ -1532,7 +1644,7 @@ impl<'a> Runner<'a> {
                             let dep_num = self.lookup_task(task_id - 1).unwrap();
                             self.expand_job(watcher, dep_num, Some(job_num)).await?;
                         } else {
-                            return Err(anyhow!("Invalid task reference '{}'", &dep));
+                            return Err(anyhow!("Invalid task reference '{}' in task {}", &dep, &display_name));
                         }
                     } else {
                         self.expand_target(watcher, &String::from(dep), Some(job_num))
@@ -1540,11 +1652,11 @@ impl<'a> Runner<'a> {
                     }
                 }
 
-                if expanded_interpolate && has_targets && !is_interpolate {
-                    return Err(anyhow!("Task has interpolation deps, but defined target does not specify an interpolate"));
+                if expanded_interpolate && has_targets && is_interpolate.is_none() {
+                    return Err(anyhow!("Task {} has interpolation deps, but defined target does not specify an interpolate", &display_name));
                 }
-                if is_interpolate && !expanded_interpolate {
-                    return Err(anyhow!("Task defines an interpolation target without an interpolation dep"));
+                if is_interpolate.is_some() && !expanded_interpolate {
+                    return Err(anyhow!("Task {} defines an interpolation target {} without an interpolation dep", &display_name, is_interpolate.unwrap()));
                 }
             }
             Node::File(ref mut file) => {
@@ -1563,7 +1675,7 @@ impl<'a> Runner<'a> {
     ) -> Result<()> {
         let interpolate_idx = dep.find('#').unwrap();
         if dep[interpolate_idx + 1..].find('#').is_some() {
-            return Err(anyhow!("multiple interpolates"));
+            return Err(anyhow!("Multiple interpolates in '{}' not supported", &dep));
         }
         let mut glob_target = String::new();
         glob_target.push_str(&dep[0..interpolate_idx]);
@@ -1642,17 +1754,16 @@ impl<'a> Runner<'a> {
         let parent_task_deps = self.tasks[parent_task].deps.clone();
         for dep in parent_task_deps {
             if !dep.contains('#') {
-                let dep_job = self.lookup_target(watcher, &dep, true).await?;
-                self.expand_job(watcher, dep_job, Some(job_num)).await?;
+                self.expand_target(watcher, &dep, Some(job_num)).await?;
             }
         }
         Ok(job_num)
     }
 
     // find the job for the target, and drive its completion
-    async fn drive_targets(
+    async fn drive_jobs(
         &mut self,
-        targets: &Vec<String>,
+        jobs: &HashSet<usize>,
         force: bool,
         watcher: Option<&Receiver<DebouncedEvent>>,
     ) -> Result<()> {
@@ -1670,24 +1781,7 @@ impl<'a> Runner<'a> {
         // }
 
         // first try named target, then fall back to file name check
-        for target in targets {
-            let name = if target.as_bytes()[0] as char == ':' {
-                &target[1..]
-            } else {
-                &target
-            };
-
-            let job_num = match self.task_jobs.get(name) {
-                Some(&job_num) => job_num,
-                None => match self.file_nodes.get(name) {
-                    Some(&job_num) => job_num,
-                    None => {
-                        println!("{}", name);
-                        panic!("TODO: target not found error");
-                    }
-                },
-            };
-
+        for &job_num in jobs {
             // if a job, make it live
             if let Some(ref mut job) = self.get_job_mut(job_num) {
                 job.live = true;
@@ -1764,7 +1858,7 @@ impl<'a> Runner<'a> {
             | DebouncedEvent::Create(path)
             | DebouncedEvent::Write(path)
             | DebouncedEvent::Rename(_, path) => self.invalidate_path(path, queued, redrives),
-            DebouncedEvent::Rescan => panic!("TODO: Watcher rescan"),
+            DebouncedEvent::Rescan => panic!("Watcher rescan"),
             DebouncedEvent::Error(err, maybe_path) => {
                 panic!("WATCHER ERROR {:?} {:?}", err, maybe_path)
             }
@@ -1789,7 +1883,7 @@ pub async fn run<'a>(
     let normalized_targets: Vec<String> = if opts.targets.len() == 0 {
         match &chompfile.default_task {
             Some(default_task) => vec![default_task.clone()],
-            None => return Err(anyhow!("No default task provided. Set:\x1b[33m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
+            None => return Err(anyhow!("No default task provided. Set:\x1b[36m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
         }
     } else {
         opts.targets
@@ -1805,17 +1899,21 @@ pub async fn run<'a>(
             .collect()
     };
 
-    for target in normalized_targets.clone() {
-        runner.expand_target(&mut watcher, &target, None).await?;
+    let mut job_nums = HashSet::new();
+    for target in normalized_targets {
+        let jobs = runner.expand_target(&mut watcher, &target, None).await?;
+        for job in jobs {
+            job_nums.insert(job);
+        }
     }
 
     // When running with arguments, mutate the task environment to include the arguments
     // Arguments tasks cannot be cached
     if let Some(args) = opts.args {
-        if normalized_targets.len() > 1 {
+        if job_nums.len() > 1 {
             return Err(anyhow!("Custom args are only supported when running a single command."));
         }
-        let job_num = runner.lookup_target(&mut watcher, &normalized_targets[0], true).await?;
+        let &job_num = job_nums.iter().next().unwrap();
         let task_num = runner.get_job(job_num).unwrap().task;
         let task = &mut runner.tasks[task_num];
         let task_args_len = match &task.args {
@@ -1834,21 +1932,17 @@ pub async fn run<'a>(
     }
 
     runner
-    .drive_targets(
-        &normalized_targets,
+    .drive_jobs(
+        &job_nums,
         opts.force,
         if opts.watch { Some(&rx) } else { None },
     )
     .await?;
 
-    // if all targets completed successfully, exit code is 0, otherwise its an error
+    // if all jobs completed successfully, exit code is 0, otherwise its an error
     let mut all_ok = true;
-    for target in normalized_targets {
-        let job_num = runner.lookup_target(&mut watcher, &target, true).await?;
-        let job = match runner.get_job(job_num) {
-            Some(job) => job,
-            None => return Err(anyhow!("Unable to build target {}", &target)),
-        };
+    for &job_num in job_nums.iter() {
+        let job = runner.get_job(job_num).unwrap();
         if !matches!(job.state, JobState::Fresh) {
             all_ok = false;
             break;

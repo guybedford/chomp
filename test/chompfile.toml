@@ -3,15 +3,22 @@ debug = true
 
 extensions = ['./assert.js', 'chomp:npm']
 
+default-task = 'test'
+
+[[task]]
+name = 'test'
+serial = true
+deps = ['test:clean', 'test:run']
+
 [[task]]
 name = 'test:clean'
 run = 'rm fixtures/*'
 
 [[task]]
-name = 'test'
-deps = ['test1', 'test2', 'test3']
+name = 'test:run'
+deps = [':test[0-9]*']
 
-# Test1
+# -- Test --
 [[task]]
 name = 'test1'
 target = 'fixtures/test1.txt'
@@ -20,7 +27,7 @@ template = 'assert'
 [task.template-options]
 expect-equals = 'Chomp Chomp'
 
-# Test2
+# -- Test --
 [[task]]
 name = 'test2'
 target = 'fixtures/test2.txt'
@@ -35,7 +42,7 @@ ANOTHER = '$VAR MM'
 [task.template-options]
 expect-equals = 'Chomp Chomp MM'
 
-# Test3
+# -- Test --
 [[task]]
 name = 'test3'
 target = 'fixtures/test3.js'
@@ -74,3 +81,8 @@ template = 'npm'
 [task.template-options]
 packages = ['@babel/core', '@babel/preset-env']
 auto-install = true
+
+# -- Test --
+[[task]]
+name = 'test4'
+run = 'echo babel'

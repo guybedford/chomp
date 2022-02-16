@@ -1,7 +1,6 @@
 Chomp.registerTemplate('assert', function (task) {
   let env = {};
   if (task.templateOptions.expectEquals) {
-    console.log(task.name);
     env['EXPECT_EQUALS'] = task.templateOptions.expectEquals;
     if (task.targets.length === 0)
       throw new Error('Assertion tests must have a target to assert.');
