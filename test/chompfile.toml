@@ -1,5 +1,4 @@
 version = 0.1
-debug = true
 
 extensions = ['./assert.js', 'chomp:npm']
 
@@ -12,7 +11,7 @@ deps = ['test:clean', 'test:run']
 
 [[task]]
 name = 'test:clean'
-run = 'rm fixtures/*'
+run = 'rm fixtures/* ; echo recover'
 
 [[task]]
 name = 'test:run'
