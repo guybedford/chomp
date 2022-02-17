@@ -238,12 +238,16 @@ version = 0.1
 
 [[task]]
 name = 'test:unit:#'
+display = 'status'
+stdio = 'stderr-only'
 dep = ['test/unit/#.js', 'dist/build.js']
 run = 'node $DEP'
 ```
 _<div style="text-align: center">Task interpolation without a target runs the task over all dependencies, and is always invalidated, exactly what is needed for a test runner.</div>_
 
 In the above, all files `test/unit/**/*.js` will be expanded by the `test:unit` test resulting in a separate task run for each file. Since no `targets` are defined, the task is always invalidated and re-run.
+
+Using the `display` and `stdio` options it is also possible to hide any test output and the command init logs in the reporter.
 
 By using `#` in the `name` of the task, individual test or test patterns can be run by name or using glob patterns:
 

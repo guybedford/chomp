@@ -106,15 +106,9 @@ expect-equals = '''UNIT OK
 [[task]]
 name = 'unittest:#'
 display = 'none'
+stdio = 'stderr-only'
 dep = 'unit/#.mjs'
 run = 'node $DEP'
 [task.template-options]
 expect-equals = '''UNIT OK
 '''
-
-[[task]]
-name = 'unittest:#'
-display = 'none'
-dep = 'unit/#.mjs'
-run = 'node $DEP'
-

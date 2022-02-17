@@ -1034,12 +1034,12 @@ impl<'a> Runner<'a> {
         let engine = task.engine;
         let debug = self.chompfile.debug;
         let cmd_num = {
+            let stdio = task.stdio;
             let display_name = if matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || debug {
                 Some(job.display_name(&self.tasks))
             } else {
                 None
             };
-            let stdio = task.stdio;
             let cwd = match &task.cwd {
                 Some(cwd) => {
                     let cwd_path = PathBuf::from(cwd);
