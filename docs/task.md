@@ -406,7 +406,7 @@ _<div style="text-align: center">Using the `chomp:npm`, `chomp:babel` and `chomp
 
 > Read more on writing templates in the [extensions documentation](extensions.md)
 
-Chomp extensions can be loaded from any URL or local file path (`chomp:[x]` is just a shorthand for `https://ga.jspm.io/npm:@chompbuild/templates@latest/[x].js`).
+Chomp extensions can be loaded from any URL or local file path (`chomp:[x]` is just a shorthand for `https://ga.jspm.io/npm:@chompbuild/templates@x.y.z/[x].js`).
 
 To write custom templates, create a local extension file `local-extension.js` referencing it in the extensions list of the Chompfile:
 

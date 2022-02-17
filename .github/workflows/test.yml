@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        submodules: 'recursive'
+        submodules: recursive
     - name: Build
       run: cargo build --verbose
     - name: Set PATH
@@ -23,7 +23,7 @@ jobs:
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
-        CHOMP_CORE="../chomp-templates"
+        CHOMP_CORE: ../chomp-templates
     - name: Run Template Tests
       run: chomp -c chomp-templates/chompfile.toml test
 
@@ -32,7 +32,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        submodules: 'recursive'
+        submodules: recursive
     - name: Install latest nightly
       uses: actions-rs/toolchain@v1
       with:
@@ -46,6 +46,6 @@ jobs:
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
-        CHOMP_CORE="../chomp-templates"
+        CHOMP_CORE: ../chomp-templates
     - name: Run Template Tests
       run: chomp -c chomp-templates/chompfile.toml test

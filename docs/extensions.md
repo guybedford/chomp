@@ -13,6 +13,25 @@ hook registrations via the `Chomp` global made after this initialization phase w
 
 Registrations made by Chomp extensions can then hook into phases of the Chomp task running lifecycle including the process of task list population, template expansion and batching of tasks.
 
+### Publishing Extensions
+
+When developing extensions, it is recommended to load them by relative file paths:
+
+chompfile.toml
+```toml
+version = 0.1
+
+extensions = ['./local-extension.js']
+```
+
+When sharing the extension between projects, hosting it on any remote URL is supported by Chomp.
+
+Note that remote URLs are cached indefinitely regardless of cache headers for performance so it is recommended to include the version in the URL. `chomp --cache-clear` can be used to clear this remote cache.
+
+If publishing to npm, templates will be available on any npm CDN like `unpkg.com` or `ga.jspm.io`.
+
+If publishing to JSPM, set the `package.json` property `"type": "script"` to inform JSPM the `.js` files are scripts and not modules to avoid incorrect processing.
+
 ## API
 
 JavaScript extensions register hooks via the `Chomp` global scripting interface.
@@ -27,6 +46,16 @@ The following Chomp-specific environment variables are also defined:
 
 * `ENV.CHOMP_EJECT`: When `--eject` is passed for template injection this is set to `"1"`.
 * `ENV.CHOMP_POOL_SIZE`: Set to the maximum number of jobs for Chomp, which is usually the CPU count, or the value passed to the `-j` flag when running Chomp.
+
+### Core Templates
+
+Some [Chomp templates](https://github.com/guybedford/chomp-templates) are provided for the JS ecosystem, and PRs to this repo are very welcome.
+
+These templates can be loaded via the `chomp:[name]` extension names.
+
+By default these templates are loaded from the JSPM CDN at `https://ga.jspm.io/npm:@chompbuild/templates@x.y.z/[name].js`.
+
+This path can be overridden to an alternative remote URL or local path by setting the `CHOMP_CORE` environment variable.
 
 ### Chomp.addExtension(extension: string)
 
