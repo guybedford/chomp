@@ -8,7 +8,7 @@ Custom configuration can be used via `chomp -c custom.toml` or `chomp -c ./neste
 
 All paths within a Chompfile are relative to the Chompfile itself regardless of the invocation CWD.
 
-### Example
+## Example
 
 To create a new Chomp project, create a new file called `chompfile.toml` and add the following lines:
 
@@ -36,6 +36,8 @@ Chomp Chomp
 to get the runner output.
 
 Every Chompfile must start with the `version = 0.1` version number, at least until the project stabilizes.
+
+See the [task documentation](tasks.md) for defining tasks.
 
 ## Chompfile Definitions
 
@@ -69,7 +71,7 @@ port = 1010
 
 # Default template options by registered template name
 # When multiple tasks use the same template, this avoids duplicated `[template-options]` at the task level
-[template-options.TEMPLATE_NAME]
+[template-options.<template name>]
 key = value
 
 # Task definitions

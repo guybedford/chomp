@@ -13,9 +13,9 @@ name = 'echo'
 run = 'echo "Chomp"'
 ```
 
-_<div style="text-align: center">An example Chompfile</div>_
+_<div style="text-align: center">An example Chompfile.</div>_
 
-`chomp echo` or `chomp` will output the echo command.
+Running `chomp echo` or `chomp` will output the echo command.
 
 ## Task API
 
@@ -44,8 +44,8 @@ Chomp tasks are primarily characterized by their `"run"` and `"engine"` pair, `"
 
 There are two ways to execute in Chomp:
 
-* Execute a task by name - `chomp [name]` or `chomp :[name]` where `[name]` is the `name` field of the task being run.
-* Execute a task by filename - `chomp [path]` where `[path]` is the local target path relative to the Chompfile being generated.
+* Execute a task by _name_ - `chomp [name]` or `chomp :[name]` where `[name]` is the `name` field of the task being run.
+* Execute a task by _target_ file path - `chomp [target]` where `[target]` is the local file path to generate relative to the Chompfile being run.
 
 _chompfile.toml_
 ```toml
@@ -150,7 +150,7 @@ The `"node"` engine allows writing a Node.js program in the `run` field of a tas
 
 For example, the same SWC task in Node.js can be written:
 
-_chompfile.toml_
+_chompfile.toml_ls
 ```toml
 version = 0.1
 
@@ -168,7 +168,7 @@ run = '''
 
   const { code, map } = await swc.transform(input, {
     filename: process.env.DEP,
-    sourceMaps: true
+    sourceMaps: true,
     jsc: {
       parser: {
         syntax: "typescript",
@@ -319,6 +319,32 @@ Following the task graph from the top, since `build:rollup` depends on all deps 
 
 Task dependency inputs can themselves be the result of targets of other tasks. Build order is fully determined by the graph in this way.
 
+## Watched Rebuilds
+
+Taking the [previous example](#task-dependence) and running:
+
+```sh
+$ chomp build:rollup --watch
+```
+_<div style="text-align: center">Fine-grained watched rebuilds are a first-class feature in Chomp.</div>_
+
+will build the `dist/app.js` file and then continue watching all of the input files in `src/**/*.ts` as well as the `package.json`. A change to any of these files will then trigger a granular live rebuild of only the changed TypeScript file or files.
+
+## Static Server
+
+As a convenience a simple local static file server is also provided:
+
+```sh
+$ chomp build-rollup --serve
+```
+_<div style="text-align: center">Running the Chomp static server.</div>_
+
+This behaves identically to the watched rebuilds above, but will also serve the folder on localhost for browser and URL tests. This may seem outside of the expected features for a task runner, but it is actually closely associated with the watched rebuild events - a websocket protocol for in-browser hot-reloading is a [planned future addition](https://github.com/guybedford/chomp/issues/61).
+
+Server configuration can be controlled via the [`serve`](cli.md#serve) options in the Chompfile or the [`--server-root`](cli.md#server-root) and [`--port`](cli.md#port) flags.
+
+By separating monolithic builds into sub-compilations on the file system this enables caching, parallelization, finer-grained generic build control and comprehensive incremental builds with watcher support. Replacing monolithic JS build systems with make-style file caching all the commonly expected features of JS dev workflows can still be maintained.
+
 ## Task Caching
 
 Tasks are cached when the _modified time_ of their `targets` is more recent than the modified time of their `deps` per standard Make-style semantics.
@@ -351,18 +377,6 @@ Task invalidation can be customized with the `invalidation` property on a task:
 * `invalidation = 'mtime'` _(default)_: This is the default invalidation, as per the rules described above.
 * `invalidation = 'always'`: The task is always invalidated and rerun, without exception.
 * `invalidation = 'not-found'`: The task is only invalidated when not all targets are defined.
-
-## Watched Rebuilds
-
-Running `chomp build:rollup --watch` provides fine-grained incremental build watching, with the watched file invalidations exactly as we defined with the task dependence graph rules above.
-
-### Watched Serving
-
-Finally, `chomp build:rollup --serve` will provide a local static server along with the task watcher for the task. A websocket protocol for in-browser hot-reloading is a [planned future addition](https://github.com/guybedford/chomp/issues/61).
-
-Replacing monolithic JS build systems with make-style file caching all the commonly expected features of JS dev workflows can still be maintained.
-
-Separating large builds into sub-compilations on the file system enables caching, parallelization, finer-grained generic build control and comprehensive incremental builds with watcher support.
 
 ## Serial Dependencies
 
@@ -473,7 +487,7 @@ Chomp.registerTemplate('swc', function (task) {
   const { sourceMaps } = task.templateOptions;
   return [{
     name: task.name,
-    target: task.target,
+    targets: task.targets,
     deps: task.deps,
     run: `swc $DEP -o $TARGET${sourceMaps ? ' --source-maps' : ''}`
   }];

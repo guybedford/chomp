@@ -13,7 +13,7 @@ hook registrations via the `Chomp` global made after this initialization phase w
 
 Registrations made by Chomp extensions can then hook into phases of the Chomp task running lifecycle including the process of task list population, template expansion and batching of tasks.
 
-### Publishing Extensions
+## Publishing Extensions
 
 When developing extensions, it is recommended to load them by relative file paths:
 

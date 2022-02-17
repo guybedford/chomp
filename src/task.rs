@@ -911,10 +911,7 @@ impl<'a> Runner<'a> {
                                 let invalidated = match &self.tasks[dep.task].invalidation {
                                     InvalidationCheck::NotFound => false,
                                     InvalidationCheck::Always | InvalidationCheck::Mtime => match dep.mtime {
-                                        Some(dep_mtime) => {
-                                            println!("{:?} {:?} {} {:?}", mtime, dep_mtime, dep_mtime > mtime, &dep);
-                                            dep_mtime > mtime
-                                        },
+                                        Some(dep_mtime) => dep_mtime > mtime,
                                         None => true,
                                     },
                                 };

@@ -49,52 +49,47 @@ expect-equals = 'Chomp Chomp MM'
 name = 'test3'
 display = 'none'
 target = 'output/test3.js'
-deps = ['app.js', 'babel:install']
+deps = ['fixtures/app.js', 'install:swc']
 engine = 'node'
 run = '''
-  import babel from '@babel/core';
+  import swc from '@swc/core';
   import { readFileSync, writeFileSync } from 'fs';
   import { basename } from 'path';
 
   const input = readFileSync(process.env.DEP, 'utf8');
-  const { code, map } = babel.transformSync(input, {
+
+  const { code, map } = await swc.transform(input, {
     filename: process.env.DEP,
-    babelrc: false,
-    configFile: false,
     sourceMaps: true,
-    presets: [['@babel/preset-env', {
-      targets: {
-        esmodules: true
+    jsc: {
+      parser: {
+        syntax: "typescript",
       },
-      modules: false
-    }]],
+      transform: {},
+    },
   });
+
   writeFileSync(process.env.TARGET, code + '\n//# sourceMappingURL=' + basename(process.env.TARGET) + '.map');
   writeFileSync(process.env.TARGET + '.map', JSON.stringify(map));
 '''
 template = 'assert'
 [task.template-options]
 expect-equals = '''export var p = 5;
+
 //# sourceMappingURL=test3.js.map
 '''
 
 [[task]]
-name = 'babel:install'
+name = 'install:swc'
 display = 'none'
 template = 'npm'
 [task.template-options]
-packages = ['@babel/core', '@babel/preset-env']
+packages = ['@swc/core', '@swc/cli']
 auto-install = true
 
 # -- Test --
 [[task]]
-display = 'status-only'
 name = 'test4'
-run = 'echo babel'
-
-# -- Test --
-[[task]]
-name = 'test5'
 display = 'none'
 target = 'output/unittest.txt'
 deps = [':unittest:ok-*']
@@ -112,3 +107,38 @@ run = 'node $DEP'
 [task.template-options]
 expect-equals = '''UNIT OK
 '''
+
+# -- Test --
+[[task]]
+name = 'test5'
+stdio = 'none'
+display = 'none'
+deps = ['output/lib/**/*.js', 'install:rollup']
+target = 'output/dist/app.js'
+run = 'rollup output/lib/app.js -d output/dist -m'
+template = 'assert'
+[task.template-options]
+expect-equals = '''var dep = 'dep';
+
+console.log(dep);
+var p = 5;
+
+export { p };
+//# sourceMappingURL=app.js.map
+'''
+
+[[task]]
+name = 'install:rollup'
+display = 'none'
+template = 'npm'
+[task.template-options]
+packages = ['rollup']
+auto-install = true
+
+[[task]]
+name = 'build:swc'
+display = 'none'
+stdio = 'stderr-only'
+target = 'output/lib/#.js'
+deps = ['fixtures/src/#.ts', 'install:swc']
+run = 'swc $DEP -o $TARGET --source-maps'
