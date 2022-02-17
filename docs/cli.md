@@ -67,6 +67,8 @@ Note this command will overwrite the existing `chompfile.toml` with the new form
 
 This command is compatible with the [`--config`](#config) flag to choosing the Chompfile to operate on.
 
+Due to limitations with the Rust TOML implementation, comments are currently stripped by this operation.
+
 ## Help
 
 CLI help is available via `chomp -h`.

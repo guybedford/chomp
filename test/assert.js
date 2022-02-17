@@ -17,6 +17,7 @@ Chomp.registerTemplate('assert', function (task) {
     dep: '&next',
     engine: 'node',
     env,
+    display: 'status-only',
     run: `
       import { strictEqual } from 'assert';
       import { readFileSync } from 'fs';

@@ -1,7 +1,5 @@
 version = 0.1
-
 extensions = ['./assert.js', 'chomp:npm']
-
 default-task = 'test'
 
 [[task]]
@@ -11,15 +9,19 @@ deps = ['test:clean', 'test:run']
 
 [[task]]
 name = 'test:clean'
+display = 'status-only'
+stdio = 'none'
 run = 'rm output/* ; echo recover'
 
 [[task]]
 name = 'test:run'
+display = 'none'
 deps = [':test[0-9]*']
 
 # -- Test --
 [[task]]
 name = 'test1'
+display = 'none'
 target = 'output/test1.txt'
 run = 'echo "Chomp Chomp" > $TARGET'
 template = 'assert'
@@ -29,6 +31,7 @@ expect-equals = 'Chomp Chomp'
 # -- Test --
 [[task]]
 name = 'test2'
+display = 'none'
 target = 'output/test2.txt'
 run = '''
   echo "$VAR $ANOTHER" > $TARGET
@@ -44,6 +47,7 @@ expect-equals = 'Chomp Chomp MM'
 # -- Test --
 [[task]]
 name = 'test3'
+display = 'none'
 target = 'output/test3.js'
 deps = ['app.js', 'babel:install']
 engine = 'node'
@@ -76,6 +80,7 @@ expect-equals = '''export var p = 5;
 
 [[task]]
 name = 'babel:install'
+display = 'none'
 template = 'npm'
 [task.template-options]
 packages = ['@babel/core', '@babel/preset-env']
@@ -83,12 +88,14 @@ auto-install = true
 
 # -- Test --
 [[task]]
+display = 'status-only'
 name = 'test4'
 run = 'echo babel'
 
 # -- Test --
 [[task]]
 name = 'test5'
+display = 'none'
 target = 'output/unittest.txt'
 deps = [':unittest:ok-*']
 template = 'assert'
@@ -98,6 +105,16 @@ expect-equals = '''UNIT OK
 
 [[task]]
 name = 'unittest:#'
+display = 'none'
+dep = 'unit/#.mjs'
+run = 'node $DEP'
+[task.template-options]
+expect-equals = '''UNIT OK
+'''
+
+[[task]]
+name = 'unittest:#'
+display = 'none'
 dep = 'unit/#.mjs'
 run = 'node $DEP'
 

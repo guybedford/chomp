@@ -1,3 +1,4 @@
+use std::process::Stdio;
 use crate::engines::BatchCmd;
 use tokio::process::{Child, Command};
 use regex::Regex;
@@ -5,6 +6,29 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use crate::engines::replace_env_vars;
+use crate::chompfile::TaskStdio;
+
+fn set_cmd_stdio (command: &mut Command, stdio: TaskStdio) {
+    match stdio {
+        TaskStdio::All => {},
+        TaskStdio::StderrOnly => {
+            command.stdin(Stdio::null());
+            command.stdout(Stdio::null());
+        },
+        TaskStdio::StdoutOnly => {
+            command.stdin(Stdio::null());
+            command.stderr(Stdio::null());
+        },
+        TaskStdio::NoStdin => {
+            command.stdin(Stdio::null());
+        },
+        TaskStdio::None => {
+            command.stdin(Stdio::null());
+            command.stdout(Stdio::null());
+            command.stderr(Stdio::null());
+        }
+    };
+}
 
 #[cfg(target_os = "windows")]
 pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
@@ -89,8 +113,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                     command.arg(arg_str);
                 }
             }
-            // Support a tty: true / false configuration?
-            // command.stdin(Stdio::null());
+            set_cmd_stdio(&mut command, batch_cmd.stdio.unwrap_or_default());
             match command.spawn() {
                 Ok(child) => return Some(child),
                 Err(_) => {
@@ -114,7 +137,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                             command.arg(arg_str);
                         }
                     }
-                    // command.stdin(Stdio::null());
+                    set_cmd_stdio(&mut command, batch_cmd.stdio.unwrap_or_default());
                     match command.spawn() {
                         Ok(child) => return Some(child),
                         Err(_) => {
@@ -160,7 +183,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         command.env(name, value);
     }
     command.current_dir(cwd);
-    // command.stdin(Stdio::null());
+    set_cmd_stdio(&mut command, batch_cmd.stdio.unwrap_or_default());
     Some(command.spawn().unwrap())
 }
 
@@ -238,7 +261,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                     command.arg(arg_str);
                 }
             }
-            // command.stdin(Stdio::null());
+            set_cmd_stdio(&mut command, batch_cmd.stdio);
             match command.spawn() {
                 Ok(child) => return Some(child),
                 Err(_) => {
@@ -258,6 +281,6 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
     command.current_dir(cwd);
     command.arg("-c");
     command.arg(&run);
-    // command.stdin(Stdio::null());
+    set_cmd_stdio(&mut command, batch_cmd.stdio);
     Some(command.spawn().unwrap())
 }

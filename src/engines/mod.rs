@@ -2,6 +2,7 @@ mod cmd;
 mod node;
 mod deno;
 
+use crate::chompfile::TaskStdio;
 use crate::extensions::BatcherResult;
 use crate::ExtensionEnvironment;
 use std::rc::Rc;
@@ -75,6 +76,7 @@ pub struct CmdOp {
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
     pub engine: ChompEngine,
+    pub stdio: TaskStdio,
     pub targets: Vec<String>,
 }
 
@@ -85,6 +87,7 @@ pub struct BatchCmd {
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
     pub engine: ChompEngine,
+    pub stdio: Option<TaskStdio>,
     pub ids: Vec<usize>,
 }
 
@@ -235,6 +238,7 @@ impl<'a> CmdPool<'a> {
                         cwd: cmd.cwd.clone(),
                         engine: cmd.engine,
                         env: cmd.env.clone(),
+                        stdio: Some(cmd.stdio.clone()),
                         ids: vec![cmd.id],
                     });
                 }
@@ -308,6 +312,7 @@ impl<'a> CmdPool<'a> {
         env: BTreeMap<String, String>,
         cwd: Option<String>,
         engine: ChompEngine,
+        stdio: TaskStdio,
     ) -> usize {
         let id = self.cmd_num;
         self.cmds.insert(
@@ -319,6 +324,7 @@ impl<'a> CmdPool<'a> {
                 run,
                 env,
                 engine,
+                stdio,
                 targets,
             },
         );

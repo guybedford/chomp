@@ -9,6 +9,37 @@ pub enum ChompEngine {
     Deno,
 }
 
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TaskDisplay {
+    None,
+    InitStatus,
+    StatusOnly,
+    InitOnly,
+}
+
+impl Default for TaskDisplay {
+    fn default () -> Self {
+        TaskDisplay::InitStatus
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TaskStdio {
+    All,
+    NoStdin,
+    StdoutOnly,
+    StderrOnly,
+    None,
+}
+
+impl Default for TaskStdio {
+    fn default () -> Self {
+        TaskStdio::All
+    }
+}
+
 impl Default for ChompEngine {
     fn default () -> Self {
         ChompEngine::Shell
@@ -78,7 +109,8 @@ pub struct ChompTaskMaybeTemplated {
     pub args: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
-    pub display: Option<bool>,
+    pub display: Option<TaskDisplay>,
+    pub stdio: Option<TaskStdio>,
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
     pub cwd: Option<String>,
@@ -159,7 +191,8 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub args: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
-    pub display: Option<bool>,
+    pub display: Option<TaskDisplay>,
+    pub stdio: Option<TaskStdio>,
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
     pub cwd: Option<String>,

@@ -1,3 +1,5 @@
+use crate::chompfile::TaskDisplay;
+use crate::chompfile::TaskStdio;
 use crate::chompfile::ChompTask;
 use std::fs::canonicalize;
 use crate::chompfile::ChompTaskMaybeTemplated;
@@ -44,7 +46,8 @@ pub struct Task {
     deps: Vec<String>,
     args: Option<Vec<String>>,
     serial: bool,
-    display: bool,
+    display: TaskDisplay,
+    stdio: TaskStdio,
     env: BTreeMap<String, String>,
     cwd: Option<String>,
     run: Option<String>,
@@ -78,8 +81,6 @@ struct Job {
     interpolate: Option<String>,
     task: usize,
     deps: Vec<usize>,
-    display: bool,
-    serial: bool,
     parents: Vec<usize>,
     live: bool,
     state: JobState,
@@ -156,13 +157,11 @@ struct Runner<'a> {
 }
 
 impl<'a> Job {
-    fn new(task: usize, serial: bool, display: bool, interpolate: Option<String>) -> Job {
+    fn new(task: usize, interpolate: Option<String>) -> Job {
         Job {
             interpolate,
             task,
             deps: Vec::new(),
-            serial,
-            display,
             live: false,
             parents: Vec::new(),
             state: JobState::Uninitialized,
@@ -387,7 +386,8 @@ pub fn expand_template_tasks(
             dep: None,
             deps: Some(task.deps_vec()),
             args: task.args.clone(),
-            display: Some(task.display.unwrap_or(true)),
+            display: Some(task.display.unwrap_or_default()),
+            stdio: Some(task.stdio.unwrap_or_default()),
             serial: task.serial,
             env: Some(task.env),
             env_default: Some(task.env_default),
@@ -445,6 +445,7 @@ pub fn expand_template_tasks(
                 target,
                 targets,
                 display: template_task.display,
+                stdio: template_task.stdio,
                 invalidation: template_task.invalidation.take(),
                 dep,
                 deps,
@@ -579,7 +580,8 @@ impl<'a> Runner<'a> {
                 deps,
                 args: task.args.clone(),
                 serial: task.serial.unwrap_or(false),
-                display: task.display.unwrap_or(true),
+                display: task.display.unwrap_or_default(),
+                stdio: task.stdio.unwrap_or_default(),
                 engine: task.engine.unwrap_or_default(),
                 env,
                 run: task.run.clone(),
@@ -601,7 +603,8 @@ impl<'a> Runner<'a> {
                 deps,
                 args: task.args.clone(),
                 serial: task.serial.unwrap_or(false),
-                display: task.display.unwrap_or(true),
+                display: task.display.unwrap_or_default(),
+                stdio: task.stdio.unwrap_or_default(),
                 engine: task.engine.unwrap_or_default(),
                 env,
                 run: task.run.clone(),
@@ -651,8 +654,6 @@ impl<'a> Runner<'a> {
 
         let mut job = Job::new(
             task_num,
-            task.serial,
-            task.display,
             interpolate.clone(),
         );
 
@@ -764,7 +765,8 @@ impl<'a> Runner<'a> {
             };
         }
         let job = self.get_job(job_num).unwrap();
-        if job.display || self.chompfile.debug {
+        let task = &self.tasks[job.task];
+        if failed || matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::StatusOnly) || self.chompfile.debug {
             let mut name = job.display_name(&self.tasks);
             let primary = job.parents.len() == 0;
             if primary {
@@ -893,7 +895,7 @@ impl<'a> Runner<'a> {
             let can_skip = !force && task.args.is_none() && match task.invalidation {
                 InvalidationCheck::NotFound => true,
                 InvalidationCheck::Always => {
-                    if job.display || self.chompfile.debug {
+                    if matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || self.chompfile.debug {
                         println!(
                             "  \x1b[1m{}\x1b[0m invalidated",
                             job.display_name(&self.tasks),
@@ -916,7 +918,7 @@ impl<'a> Runner<'a> {
                                         None => true,
                                     },
                                 };
-                                if invalidated && (job.display || self.chompfile.debug) {
+                                if invalidated && (matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || self.chompfile.debug) {
                                     println!(
                                         "  \x1b[1m{}\x1b[0m invalidated by {}",
                                         job.display_name(&self.tasks),
@@ -930,7 +932,7 @@ impl<'a> Runner<'a> {
                                     Some(dep_mtime) => dep_mtime > mtime,
                                     None => true,
                                 };
-                                if invalidated && (job.display || self.chompfile.debug) {
+                                if invalidated && (matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || self.chompfile.debug) {
                                     println!(
                                         "  \x1b[1m{}\x1b[0m invalidated by {}",
                                         job.display_name(&self.tasks),
@@ -1032,11 +1034,12 @@ impl<'a> Runner<'a> {
         let engine = task.engine;
         let debug = self.chompfile.debug;
         let cmd_num = {
-            let display_name = if job.display || debug {
+            let display_name = if matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || debug {
                 Some(job.display_name(&self.tasks))
             } else {
                 None
             };
+            let stdio = task.stdio;
             let cwd = match &task.cwd {
                 Some(cwd) => {
                     let cwd_path = PathBuf::from(cwd);
@@ -1063,7 +1066,7 @@ impl<'a> Runner<'a> {
                 },
                 None => None
             };
-            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, cwd, engine);
+            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, cwd, engine, stdio);
             let job = self.get_job_mut(job_num).unwrap();
             job.state = JobState::Running;
             job.cmd_num = Some(cmd_num);
@@ -1145,7 +1148,7 @@ impl<'a> Runner<'a> {
                     JobState::Pending => {
                         let mut all_completed = true;
                         let job = self.get_job(job_num).unwrap();
-                        let serial = job.serial;
+                        let serial = self.tasks[job.task].serial;
                         let deps = job.deps.clone();
 
                         for dep in deps {

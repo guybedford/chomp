@@ -296,6 +296,7 @@ async fn main() -> Result<()> {
             if !has_templates {
                 return Err(anyhow!("\x1b[1m{}\x1b[0m has no template usage to eject", cfg_file.to_str().unwrap()));
             }
+            chompfile.extensions = Vec::new();
         }
 
         if matches.is_present("list") {
@@ -317,7 +318,6 @@ async fn main() -> Result<()> {
             }
             return Ok(());
         } else {
-            chompfile.extensions = Vec::new();
             fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
             if matches.is_present("eject_templates") {
                 println!("\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected", cfg_file.to_str().unwrap());
