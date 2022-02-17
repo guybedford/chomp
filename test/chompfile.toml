@@ -1,5 +1,5 @@
 version = 0.1
-extensions = ['./assert.js', 'chomp:npm']
+extensions = ['chomp:assert', 'chomp:npm']
 default-task = 'test'
 
 [[task]]
