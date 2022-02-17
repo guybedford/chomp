@@ -261,7 +261,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                     command.arg(arg_str);
                 }
             }
-            set_cmd_stdio(&mut command, batch_cmd.stdio);
+            set_cmd_stdio(&mut command, batch_cmd.stdio.unwrap_or_default());
             match command.spawn() {
                 Ok(child) => return Some(child),
                 Err(_) => {
@@ -281,6 +281,6 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
     command.current_dir(cwd);
     command.arg("-c");
     command.arg(&run);
-    set_cmd_stdio(&mut command, batch_cmd.stdio);
+    set_cmd_stdio(&mut command, batch_cmd.stdio.unwrap_or_default());
     Some(command.spawn().unwrap())
 }
