@@ -11,7 +11,7 @@ deps = ['test:clean', 'test:run']
 
 [[task]]
 name = 'test:clean'
-run = 'rm fixtures/* ; echo recover'
+run = 'rm output/* ; echo recover'
 
 [[task]]
 name = 'test:run'
@@ -20,7 +20,7 @@ deps = [':test[0-9]*']
 # -- Test --
 [[task]]
 name = 'test1'
-target = 'fixtures/test1.txt'
+target = 'output/test1.txt'
 run = 'echo "Chomp Chomp" > $TARGET'
 template = 'assert'
 [task.template-options]
@@ -29,7 +29,7 @@ expect-equals = 'Chomp Chomp'
 # -- Test --
 [[task]]
 name = 'test2'
-target = 'fixtures/test2.txt'
+target = 'output/test2.txt'
 run = '''
   echo "$VAR $ANOTHER" > $TARGET
 '''
@@ -44,7 +44,7 @@ expect-equals = 'Chomp Chomp MM'
 # -- Test --
 [[task]]
 name = 'test3'
-target = 'fixtures/test3.js'
+target = 'output/test3.js'
 deps = ['app.js', 'babel:install']
 engine = 'node'
 run = '''
@@ -85,3 +85,19 @@ auto-install = true
 [[task]]
 name = 'test4'
 run = 'echo babel'
+
+# -- Test --
+[[task]]
+name = 'test5'
+target = 'output/unittest.txt'
+deps = [':unittest:ok-*']
+template = 'assert'
+[task.template-options]
+expect-equals = '''UNIT OK
+'''
+
+[[task]]
+name = 'unittest:#'
+dep = 'unit/#.mjs'
+run = 'node $DEP'
+

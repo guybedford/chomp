@@ -226,6 +226,40 @@ run = 'babel $DEP -p $TARGET --source-maps'
 ```
 _<div style="text-align: center">`$DEP` and `$TARGET` will always be the interpolation dependency and target. Additional dependencies and targets can always be defined.</div>_
 
+### Test Pattern
+
+While Chomp is not designed to be a test runner, it can easily provide many the features of one.
+
+Tests can be run with interpolation. Since interpolation expands a glob of dependencies to operate on, this same technique can be used to create targetless tests:
+
+```toml
+version = 0.1
+
+[[task]]
+name = 'test:unit:#'
+dep = ['test/unit/#.js', 'dist/build.js']
+run = 'node $DEP'
+```
+_<div style="text-align: center">Task interpolation without a target runs the task over all dependencies, and is always invalidated, exactly what is needed for a test runner.</div>_
+
+In the above, all files `test/unit/**/*.js` will be expanded by the `test:unit` test resulting in a separate task run for each file. Since no `targets` are defined, the task is always invalidated and re-run.
+
+By using `#` in the `name` of the task, individual test or test patterns can be run by name or using glob patterns:
+
+```sh
+$ chomp --watch test:unit:some-test test:unit:some-suite-*
+```
+
+The above would run the tests `test/unit/some-test.js`, and all `test/unit/some-suite-*.js`, watching the full build graph and every unit test file for changes and rerunning the tests on change.
+
+Alternatively all unit tests can be run by passing the empty string replacement:
+
+```sh
+$ chomp test:unit:
+$ chomp test:unit:**/*
+```
+_<div style="text-align: center">Both lines above are equivalent given the task name `test:unit:#`, running all the unit tests.</div>_
+
 ## Task Dependence
 
 Using dependencies and targets, task graphs are built up through the task pattern in Chomp, where each task can be cached at a fine-grained level. Task dependency inputs can themselves be the result of targets or other tasks. Build order is determined by the graph in this way.

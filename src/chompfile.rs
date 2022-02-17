@@ -118,6 +118,9 @@ impl ChompTaskMaybeTemplated {
 impl ChompTaskMaybeTemplatedNoDefault {
     pub fn targets_vec (&self) -> Vec<String> {
         if let Some(ref target) = self.target {
+            if self.targets.is_some() {
+                
+            }
             vec![target.to_string()]
         }
         else if let Some(ref targets) = self.targets {
