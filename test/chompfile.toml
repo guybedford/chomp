@@ -11,7 +11,7 @@ deps = ['test:clean', 'test:run']
 name = 'test:clean'
 display = 'status-only'
 stdio = 'none'
-run = 'rm output/* ; echo recover'
+run = 'rm -r output ; echo recover'
 
 [[task]]
 name = 'test:run'

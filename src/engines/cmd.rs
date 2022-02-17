@@ -167,7 +167,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
         let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';");
         // we also set _custom_ variables as local variables for easy substitution
         for (name, value) in &batch_cmd.env {
-            run_str.push_str(&format!("${}=\"{}\";", name, value));
+            run_str.push_str(&format!("${}='{}';", name, value.replace("'", "''")));
         }
         run_str.push('\n');
         run_str.push_str(&run);

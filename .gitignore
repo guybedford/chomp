@@ -3,4 +3,4 @@ target
 package.json
 package-lock.json
 sandbox
-output
+test/output

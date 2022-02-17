@@ -46,7 +46,7 @@ pub struct Task {
     deps: Vec<String>,
     args: Option<Vec<String>>,
     serial: bool,
-    display: TaskDisplay,
+    display: Option<TaskDisplay>,
     stdio: TaskStdio,
     env: BTreeMap<String, String>,
     cwd: Option<String>,
@@ -386,7 +386,7 @@ pub fn expand_template_tasks(
             dep: None,
             deps: Some(task.deps_vec()),
             args: task.args.clone(),
-            display: Some(task.display.unwrap_or_default()),
+            display: task.display,
             stdio: Some(task.stdio.unwrap_or_default()),
             serial: task.serial,
             env: Some(task.env),
@@ -580,7 +580,7 @@ impl<'a> Runner<'a> {
                 deps,
                 args: task.args.clone(),
                 serial: task.serial.unwrap_or(false),
-                display: task.display.unwrap_or_default(),
+                display: task.display,
                 stdio: task.stdio.unwrap_or_default(),
                 engine: task.engine.unwrap_or_default(),
                 env,
@@ -603,7 +603,7 @@ impl<'a> Runner<'a> {
                 deps,
                 args: task.args.clone(),
                 serial: task.serial.unwrap_or(false),
-                display: task.display.unwrap_or_default(),
+                display: task.display,
                 stdio: task.stdio.unwrap_or_default(),
                 engine: task.engine.unwrap_or_default(),
                 env,
@@ -766,7 +766,7 @@ impl<'a> Runner<'a> {
         }
         let job = self.get_job(job_num).unwrap();
         let task = &self.tasks[job.task];
-        if failed || matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::StatusOnly) || self.chompfile.debug {
+        if failed || matches!(task.display, Some(TaskDisplay::InitStatus) | Some(TaskDisplay::StatusOnly) | None) || self.chompfile.debug {
             let mut name = job.display_name(&self.tasks);
             let primary = job.parents.len() == 0;
             if primary {
@@ -895,7 +895,7 @@ impl<'a> Runner<'a> {
             let can_skip = !force && task.args.is_none() && match task.invalidation {
                 InvalidationCheck::NotFound => true,
                 InvalidationCheck::Always => {
-                    if matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || self.chompfile.debug {
+                    if matches!(task.display, Some(TaskDisplay::InitStatus) | Some(TaskDisplay::InitOnly) | None) || self.chompfile.debug {
                         println!(
                             "  \x1b[1m{}\x1b[0m invalidated",
                             job.display_name(&self.tasks),
@@ -915,7 +915,7 @@ impl<'a> Runner<'a> {
                                         None => true,
                                     },
                                 };
-                                if invalidated && (matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || self.chompfile.debug) {
+                                if invalidated && (matches!(task.display, Some(TaskDisplay::InitStatus) | Some(TaskDisplay::InitOnly) | None) || self.chompfile.debug) {
                                     println!(
                                         "  \x1b[1m{}\x1b[0m invalidated by {}",
                                         job.display_name(&self.tasks),
@@ -929,7 +929,7 @@ impl<'a> Runner<'a> {
                                     Some(dep_mtime) => dep_mtime > mtime,
                                     None => true,
                                 };
-                                if invalidated && (matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || self.chompfile.debug) {
+                                if invalidated && (matches!(task.display, Some(TaskDisplay::InitStatus) | Some(TaskDisplay::InitOnly) | None) || self.chompfile.debug) {
                                     println!(
                                         "  \x1b[1m{}\x1b[0m invalidated by {}",
                                         job.display_name(&self.tasks),
@@ -1032,7 +1032,7 @@ impl<'a> Runner<'a> {
         let debug = self.chompfile.debug;
         let cmd_num = {
             let stdio = task.stdio;
-            let display_name = if matches!(task.display, TaskDisplay::InitStatus | TaskDisplay::InitOnly) || debug {
+            let display_name = if matches!(task.display, Some(TaskDisplay::InitStatus) | Some(TaskDisplay::InitOnly) | None) || debug {
                 Some(job.display_name(&self.tasks))
             } else {
                 None
