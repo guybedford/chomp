@@ -2,7 +2,7 @@
 
 The [`chompfile.toml`](chompfile.md) defines Chomp tasks as a list of Task objects of the form:
 
-**chompfile.toml**
+_chompfile.toml_
 ```toml
 version = 0.1
 
@@ -22,7 +22,7 @@ _<div style="text-align: center">An example Chompfile</div>_
 Tasks support the following optional properties:
 
 * **name**: `String`, the unique task name string.
-* **target**: `String`, the file path created or modified by this task. Singular form of `targets`. Singular sugar for a single `targets: [String]`.
+* **target**: `String`, the file path created or modified by this task. Singular sugar for a single `targets: [String]`.
 * **targets**: `String[]`, the list of file paths created or modified by this task, identical to `target` when there is a single target.
 * **dep**: `String`, the task names or file paths this task [depends on](#task-dependence). Singular sugar for a single `deps: [String]`.
 * **deps**: `String[]`, the task names of file paths this task [depends on](#task-dependence), identical to `dep` when there is a single dependency.
@@ -45,9 +45,9 @@ Chomp tasks are primarily characterized by their `"run"` and `"engine"` pair, `"
 There are two ways to execute in Chomp:
 
 * Execute a task by name - `chomp [name]` or `chomp :[name]` where `[name]` is the `name` field of the task being run.
-* Execute a task by filename - `chomp [path]` where `[path]` is the local path relative to the Chompfile being generated.
+* Execute a task by filename - `chomp [path]` where `[path]` is the local target path relative to the Chompfile being generated.
 
-**chompfile.toml**
+_chompfile.toml_
 ```toml
 version = 0.1
 
@@ -87,105 +87,110 @@ The default `engine` is the shell environment - PowerShell on Windows or `sh` on
 
 Common commands like `echo`, `pwd`, `cat`, `rm`, `cp`, `cd`, as well as operators like `$(cmd)`, `>`, `>>`, `|` form a subset of shared behaviours that can work when scripting between all platforms. With some care and testing, it is possible to write cross-platform shell task scripts. For PowerShell 5, Chomp will execute PowerShell in UTF-8 mode (applying to `>`, `>>` and `|`), although a BOM will still be output when writing a new file with `>`.
 
-#### Environment Variables
+For example, here is an SWC task (assuming Babel is installed via `npm install @swc/core @swc/cli -D`):
+
+_chompfile.toml_
+```toml
+version = 0.1
+
+[[task]]
+name = 'build:swc'
+target = 'lib/app.js'
+dep = 'src/app.ts'
+run = 'swc $DEP -o $TARGET --source-maps'
+```
+
+_<div style="text-align: center">SWC task compiling the TypeScript module `src/app.ts` into a JS module `lib/app.js`, and supporting configuration in an `.swcrc` file.</div>_
+
+The above works without a `node_modules/.bin` prefix since `node_modules/.bin` is automatically included in the Chomp spawned `PATH`.
+
+### Environment Variables
 
 In addition to the `run` property, two other useful task properties are `env` and `cwd` which allow customizing the exact execution environment.
 
 In PowerShell, defined environment variables in the task `env` are in addition made available as local variables supporting output via `$NAME` instead of `$Env:Name` for better cross-compatibility with posix shells. This process is explicit only - system-level environment variables are not given this treatment though.
 
-**chompfile.toml**
+_chompfile.toml_
 ```toml
 version = 0.1
 
 [[task]]
 name = 'env-vars'
 run = '''
-  echo $VAR $Env:VAR
+  echo $VAR1 $VAR2
 '''
 [task.env]
-VAR = 'Chomp'
+VAR1 = 'Chomp'
 
 [task.default-env]
-ANOTHER = '$VAR'
+VAR2 = '$VAR1'
 ```
 
 _<div style="text-align: center">Custom environment variables are also exposed as local variables in PowerShell.</div>_
 
-On Windows, `chomp env-vars` will output: `Chomp Chomp Chomp`.
+On both Posix and Windows, `chomp env-vars` will output: `Chomp Chomp`.
 
-`ANOTHER = "$VAR"` works as a convenience feature in Chomp for substituting environment variables in other environment variables.
+`VAR2 = "$VAR1"` works as a convenience feature in Chomp for substituting environment variables in other environment variables.
 
 `default-env` permits the definition of default environment variables which are only set to the default values if these environment variables are not already set in the system environment or via the global Chompfile environment variables. Just like `env`, all variables in `default-env` are also defined as PowerShell local variables, even when they are already set in the environment and the default does not apply.
 
 The following task-level environment variables are always defined:
 
-* `TARGET`: The path to the current target (relative to the Chompfile / default CWD).
+* `TARGET`: The path to the primary target.
 * `TARGETS`: The comma-separated list of target paths for multiple targets.
-* `DEP`: The path to the dependency (relative to the Chompfile / default CWD).
+* `DEP`: The path to the primary dependency.
 * `DEPS`: The comma-separated list of dependency paths for multiple dependencies.
 * `MATCH` When using [task interpolation](#task-interpolation) this provides the matched interpolation replacement value (although the `TARGET` will always be the fully substituted interpolation target for interpolation tasks).
 
 The `PATH` environment variable is automatically extended to include `.bin` in the current folder as well as `node_modules/.bin` in the Chompfile folder.
 
-For example, here is a Babel task (assuming Babel is installed via `npm install @babel/core @babel/cli`):
-
-```toml
-version = 0.1
-
-[[task]]
-name = 'build:babel'
-target = 'lib/app.js'
-dep = 'src/app.js'
-run = 'babel $DEP -p $TARGET --source-maps'
-```
-
-_<div style="text-align: center">Babel task compiling `src/app.js` into `lib/app.js`, and supporting configuration in a `.babelrc` file.</div>_
-
 ### Node.js Engine
 
 The `"node"` engine allows writing a Node.js program in the `run` field of a task. This is a useful way to encapsulate cross-platform build scripts which aren't possible with cross-platform shell scripting.
 
-For example, the Babel task in Node.js can be written:
+For example, the same SWC task in Node.js can be written:
 
-chompfile.toml
+_chompfile.toml_
 ```toml
 version = 0.1
 
 [[task]]
-name = 'build:babel'
+name = 'build:swc'
 target = 'lib/app.js'
-dep = 'src/app.js'
+dep = 'src/app.ts'
 engine = 'node'
 run = '''
-  import babel from '@babel/core';
+  import swc from '@swc/core';
   import { readFileSync, writeFileSync } from 'fs';
   import { basename } from 'path';
 
   const input = readFileSync(process.env.DEP, 'utf8');
-  const { code, map } = babel.transformSync(input, {
+
+  const { code, map } = await swc.transform(input, {
     filename: process.env.DEP,
-    babelrc: false,
-    configFile: false,
-    sourceMaps: true,
-    presets: [['@babel/preset-env', {
-      targets: {
-        esmodules: true
+    sourceMaps: true
+    jsc: {
+      parser: {
+        syntax: "typescript",
       },
-      modules: false
-    }]],
+      transform: {},
+    },
   });
+
   writeFileSync(process.env.TARGET, code + '\n//# sourceMappingURL=' + basename(process.env.TARGET) + '.map');
   writeFileSync(process.env.TARGET + '.map', JSON.stringify(map));
 '''
 ```
 
-It is usually preferable to write tasks using shell scripts since they are generally much faster than bootstrapping Node.js or Deno, and can more easily support batching of the same commands.
+It is usually preferable to write tasks using shell scripts since they can be much faster than bootstrapping Node.js or Deno, and can more easily support [batching](extensions.md#chompregisterbatchername-string-batcher-batch-cmdop-running-batchcmd--batcherresult--undefined).
+
+> It is usually easier to use the existing [`chomp:swc` template extension](#using-extensions) instead of writing your own custom task for SWC.
 
 ### Deno Engine
 
 Just like the `"node"` engine, the `"deno"` engine permits using JS to create build scripts.
 
-The primary benefits being URL import support (no need for package management for tasks) and TypeScript type support (although unfortunately no editor plugins for Chompfiles means it doesn't translate to author time currently). Using a CDN like [JSPM.dev](https://jspm.org/docs/cdn#jspmdev) (importing eg `https://jspm.dev/@babel/core` etc) can be useful for these scripts to load npm packages.
+The primary benefits being URL import support (no need for package management for tasks) and TypeScript type support (although unfortunately no editor plugins for Chompfiles means it doesn't translate to author time currently). Using a CDN like [JSPM.dev](https://jspm.org/docs/cdn#jspmdev) (importing eg `https://jspm.dev/[pkg]` etc) can be useful for these scripts to load npm packages.
 
 By default the Deno engine will run with full permissions since that is generally the nature of build scripts.
 
@@ -193,25 +198,34 @@ By default the Deno engine will run with full permissions since that is generall
 
 Chomp works best when each task builds a single file target, instead of having a large monolithic build.
 
-The Babel task in the previous section takes as input `src/app.js` and outputs `lib/app.js`. When `lib/app.js` has a modified time on the file system greater than the modified time of `src/app.js` then the task is fresh and doesn't need to be rebuilt until `src/app.js` is changed.
+To extend the previous example to build all of `src` into `lib`, we use **task interpolation** with the `#` which means the same thing as a `**/*` glob, but it retains the important property of being a reversible mapping which is necessary for tracing task invalidations.
 
-To extend this build process from a single file to an entire folder of files Chomp provides task interpolation using the `#` symbol, which acts as a deep glob. The reason arbitrary globs are not supported is due to the requirement of 1-1 reversible mapping between the input and output of the interpolation.
+Replacing `app` with `#` in the previous [SWC Shell example](#shell-tasks), we can achieve the full folder build:
 
-Here's the shell Babel task using interpolation to build a folder of sources:
-
+_chompfile.toml_
 ```toml
 version = 0.1
 
 [[task]]
-name = 'build:babel'
+name = 'build:swc'
 target = 'lib/#.js'
-dep = 'src/#.js'
-run = 'babel $DEP -p $TARGET --source-maps'
+dep = 'src/#.ts'
+run = 'swc $DEP -o $TARGET --source-maps'
 ```
-_<div style="text-align: center">`src/**/*.js` is globbed, outputting a corresponding file in `lib`. By treating each file as a separate build, we get natural build parallelization and caching where only files changed in `src` cause rebuilds.</div>_
+_<div style="text-align: center">Chomp task compiling all `.ts` files in `src` into JS modules in `lib`.</div>_
 
-Only a single interpolation `dep` and `target` can be defined, although additional dependencies or targets may be defined in addition by using the `deps` array instead, for example:
+By treating each file as a separate build, we get natural build parallelization and caching where only files changed in `src` cause rebuilds.
 
+Just like any other target, interpolation targets can be built directly (or even with globbing):
+
+```sh
+$ chomp lib/app.js
+```
+_<div style="text-align: center">When building an exact interpolation target, only the minimum work is done to build `lib/app.js` - no other files in `src` need to be checked other than `src/app.js`.</div>_
+
+Only a single interpolation `dep` and `target` can be defined (with the `#` interpolation character), although additional dependencies or targets may be defined in addition by using the `deps` array instead, for example to make each compilation depend on the npm install:
+
+_chompfile.toml_
 ```toml
 version = 0.1
 
@@ -220,19 +234,20 @@ name = 'npm:install'
 run = 'npm install'
 
 [[task]]
-name = 'build:babel'
+name = 'build:swc'
 target = 'lib/#.js'
 deps = ['src/#.js', 'npm:install']
-run = 'babel $DEP -p $TARGET --source-maps'
+run = 'swc $DEP -o $TARGET --source-maps'
 ```
-_<div style="text-align: center">`$DEP` and `$TARGET` will always be the interpolation dependency and target. Additional dependencies and targets can always be defined.</div>_
+_<div style="text-align: center">`$DEP` and `$TARGET` will always be the primary dependency and target (the interpolation item or the first in the list). Additional dependencies and targets can always be defined.</div>_
 
-### Test Pattern
+### Testing
 
 While Chomp is not designed to be a test runner, it can easily provide many the features of one.
 
 Tests can be run with interpolation. Since interpolation expands a glob of dependencies to operate on, this same technique can be used to create targetless tests:
 
+_chompfile.toml_
 ```toml
 version = 0.1
 
@@ -267,12 +282,50 @@ _<div style="text-align: center">Both lines above are equivalent given the task 
 
 ## Task Dependence
 
-Using dependencies and targets, task graphs are built up through the task pattern in Chomp, where each task can be cached at a fine-grained level. Task dependency inputs can themselves be the result of targets or other tasks. Build order is determined by the graph in this way.
+Using the `deps` and `targets` properties (which are interchangeable with their singular forms `dep` and `target` for a single list item), task dependence graphs are built.
 
-For example, consider a build that compiles with Babel, then builds into a single file with RollupJS.
+When processing a task, the task graph is constructed and processed in graph order where a task will not begin until its dependencies have completed processing.
 
-Rather than using a RollupJS Babel plugin, separating the compilation on the file system enables caching, parallelization, finer-grained generic build control and comprehensive incremental builds with watcher support:
+Dependencies of tasks are always treated as being parallel - to ensure one task always happens before another the best way is usually to treat it as a dependency. For example by having a test task depend on the build target.
 
+Task parallelization can be controlled by the [`-j` flag](cli.md#jobs) to set the maximum number of parallel child processes to spawn.
+
+For example, here is a build that compiles with SWC, then builds into a single file with RollupJS:
+
+_chompfile.toml_
+```toml
+version = 0.1
+
+[[task]]
+name = 'npm:install'
+run = 'npm install'
+
+[[task]]
+name = 'build:swc'
+target = 'lib/#.js'
+deps = ['src/#.js', 'npm:install']
+run = 'swc $DEP -o $TARGET --source-maps'
+
+[[task]]
+name = 'build:rollup'
+dep = 'lib/**/*.js'
+target = 'dist/app.js'
+run = 'rollup lib/app.js -d dist -m'
+```
+
+_<div style="text-align: center">Practical example of a Chomp build graph using task dependence from the npm install to per-file SWC compilation to Rollup into a single file or set of files.</div>_
+
+Following the task graph from the top, since `build:rollup` depends on all deps in `lib`, this will make it depend on all the separate file interpolation jobs of `build:swc` and in turn their dependence. With each of the `build:swc` tasks depending on `npm:install`, this task is always run first. Then only once the `npm install` is completed successfully, the compilation of all `src/**/*.ts` into `lib/#.js` will happen with full parallelization in the task graph.
+
+Task dependency inputs can themselves be the result of targets of other tasks. Build order is fully determined by the graph in this way.
+
+## Task Caching
+
+Tasks are cached when the _modified time_ of their `targets` is more recent than the modified time of their `deps` per standard Make-style semantics.
+
+For example, if we change the npm task definition from the previous example to define the `dep` as the `package.json` and the `target` as the `package-lock.json`:
+
+_chompfile.toml_
 ```toml
 version = 0.1
 
@@ -280,37 +333,12 @@ version = 0.1
 name = 'npm:install'
 run = 'npm install'
 target = 'package-lock.json'
-deps = ['package.json']
-
-[[task]]
-name = 'build:babel'
-target = 'lib/#.js'
-deps = ['src/#.js', 'npm:install']
-run = 'babel $DEP -p $TARGET --source-maps'
-
-[[task]]
-name = 'build:rollup'
-deps = 'lib/**/*.js'
-target = 'dist/app.js'
-run = 'rollup lib/app.js -d dist -m'
+dep = 'package.json'
 ```
-_<div style="text-align: center">Practical example of a Chomp build graph using task dependence from npm install to per-module Babel compilation to Rollup into a single file or set of files.</div>_
 
-Following the task graph from the lowest level to the highest level:
+The `npm install` operation will now be treated as cached and skipped, unless the `package.json` has been more recently modified than the `package-lock.json`.
 
-* `npm:install`: If the `package.json` was modified after the `package-lock.json`, `npm install` is run to ensure the installation is up-to-date.
-* `build:babel`: By depending on `npm:install` the previous task is first validated and possibly run to initiate an npm install. Then if for a given source file `src/file.js`, `lib/file.js` does not exist, or the mtime on `src/file.js` was modified after `lib/file.js`. With the task graph, modifying `src/file.js` or `package-lock.json` both cause invalidations resulting in a rebuild.
-* `build:rollup`: Since `build:rollup` depends on all deps in `lib`, this will make it depend on all the separate file builds of `build:babel`, and in turn their dependence. If any file `lib/file.js` has an mtime greater than the main build target file `dist/app.js` then the RollupJS build is retriggered, but not that only the Babel compilations needed are rebuilt in this process.
-
-When running `chomp rollup --watch` we now get fine-grained incremental build watching, with the watched file invalidations exactly as we defined with the task dependence graph rules above.
-
-Finally, `chomp rollup --serve` will provide a local static server along with the task watcher for the task. A websocket protocol for in-browser hot-reloading is a [planned future addition](https://github.com/guybedford/chomp/issues/61).
-
-Replacing monolithic JS build systems with make-style file caching all the commonly expected features of JS dev workflows can still be maintained.
-
-### Task Invalidation Rules
-
-The default task invalidation is based on the mtime rules per the example above. The invalidation rule is a binary rule indicating whether or not a given task should rerun or be treated as cached.
+The invalidation rule is a binary rule indicating whether or not a given task should rerun or be treated as cached.
 
 The explicit rules of invalidation for this `mtime` invalidation are:
 
@@ -320,25 +348,29 @@ The explicit rules of invalidation for this `mtime` invalidation are:
 
 Task invalidation can be customized with the `invalidation` property on a task:
 
-* `invalidation = 'mtime'` (default): This is the default invalidation, as per the rules described above.
+* `invalidation = 'mtime'` _(default)_: This is the default invalidation, as per the rules described above.
 * `invalidation = 'always'`: The task is always invalidated and rerun, without exception.
 * `invalidation = 'not-found'`: The task is only invalidated when not all targets are defined.
 
-### Task Parallelization
+## Watched Rebuilds
 
-By default all tasks in Chomp are run with full parallelism, which can also be controlled by the [`-j` flag](cli.md#jobs) to choose the maximum number of child processes to spawn.
+Running `chomp build:rollup --watch` provides fine-grained incremental build watching, with the watched file invalidations exactly as we defined with the task dependence graph rules above.
 
-In addition, task pooling can also be controlled by [extension batching operations](extensions.md#chompregisterbatchername-string-batcher-batch-cmdop-running-batchcmd--batcherresult--undefined).
+### Watched Serving
 
-Dependencies of tasks are always treated as being parallel - to ensure one task always happens before another the best way is usually to treat it as a dependency. For example, the test depends on the build target.
+Finally, `chomp build:rollup --serve` will provide a local static server along with the task watcher for the task. A websocket protocol for in-browser hot-reloading is a [planned future addition](https://github.com/guybedford/chomp/issues/61).
 
-#### Serial Dependencies
+Replacing monolithic JS build systems with make-style file caching all the commonly expected features of JS dev workflows can still be maintained.
+
+Separating large builds into sub-compilations on the file system enables caching, parallelization, finer-grained generic build control and comprehensive incremental builds with watcher support.
+
+## Serial Dependencies
 
 In some cases, it can be preferred to write a serial pipeline of steps that should be followed.
 
 This can be achieved by setting `serial = true` on the task:
 
-chompfile.toml
+_chompfile.toml_
 ```toml
 version = 0.1
 
@@ -363,30 +395,27 @@ _<div style="text-align: center">Example of a serial `test` task executing `test
 
 Running `chomp test` with the above, will run each of `test:a`, `test:b` and `test:c` one after the other to completion instead of running their dependence graphs in parallel by default, logging `a b c` every time.
 
-## Loading Extensions
+## Extensions
 
-Extensions allow encapsulating complex Chompfile configurations.
+Extensions are loaded via the `extensions` list in the Chompfile, and can define custom task templates, which can encapsulate the details of a task execution into a simpler definition.
 
-For example, by encapsulating the Babel and RollupJS compilations as task templates, the main Chompfile
-can be simplified to just include the parameters and not the details of task execution.
+For convenience Chomp provides a default extensions library, [Chomp Templates](https://github.com/guybedford/chomp-templates).
 
-To make things simpler - Chomp already includes a default extensions library, [Chomp Templates](https://github.com/guybedford/chomp-templates), for these tasks.
+For example, to replace the npm, SWC and RollupJS compilations from the previous examples with their extension templates:
 
-Extensions are loaded via the `extensions` list in the Chompfile:
-
-chompfile.toml
+_chompfile.toml_
 ```toml
 version = 0.1
 
-extensions = ['chomp:npm', 'chomp:babel', 'chomp:rollup']
+extensions = ['chomp:npm', 'chomp:swc', 'chomp:rollup']
 
 [[task]]
 name = 'npm:install'
 template = 'npm'
 
 [[task]]
-name = 'build:babel'
-template = 'babel'
+name = 'build:swc'
+template = 'swc'
 target = 'lib/#.js'
 deps = ['src/#.js', 'npm:install']
 [task.template-options]
@@ -400,46 +429,36 @@ deps = 'lib/**/*.js'
 outdir = 'dist'
 entries = ['lib/app.js']
 ```
-_<div style="text-align: center">Using the `chomp:npm`, `chomp:babel` and `chomp:rollup` template extensions allows writing these tasks fully encapsulating their implementations.</div>_
+_<div style="text-align: center">Using the `chomp:npm`, `chomp:swc` and `chomp:rollup` template extensions allows writing these tasks encapsulated from their implementations.</div>_
 
-## Writing Extensions
+Templates can be loaded from any file path or URL.
+
+### Remote Extensions
+
+Extensions support any `https://` URLs or local file paths.
+
+Remote extensions are loaded once and cached locally by Chomp, regardless of cache headers, to ensure the fastest run time.
+
+The remote extension cache can be cleared by running `chomp --clear-cache`.
+
+### Ejection
+
+`chomp --eject` transforms the Chompfile into the expanded untemplated form without extensions, allowing an opt-out from extension template workflows if it ever feels too magical. In this way templates become a sort of task construction utility.
+
+### Writing Templates
 
 > Read more on writing templates in the [extensions documentation](extensions.md)
 
-Chomp extensions can be loaded from any URL or local file path (`chomp:[x]` is just a shorthand for `https://ga.jspm.io/npm:@chompbuild/templates@x.y.z/[x].js`).
+Chomp extensions can be loaded from any URL or local file path. To write custom templates, create a local extension file `local-extension.js` referencing it in the extensions list of the Chompfile:
 
-To write custom templates, create a local extension file `local-extension.js` referencing it in the extensions list of the Chompfile:
-
+_chompfile.toml_
 ```toml
 version = 0.1
 
 extensions = ['./local-extension.js']
-
-[[task]]
-name = 'npm:install'
-template = 'npm'
-
-[[task]]
-name = 'build:babel'
-template = 'babel'
-target = 'lib/#.js'
-deps = ['src/#.js', 'npm:install']
-[task.template-options]
-source-maps = true
-
-[[task]]
-name = 'build:rollup'
-template = 'rollup'
-deps = 'lib/**/*.js'
-[task.template-options]
-outdir = 'dist'
-entries = ['lib/app.js']
 ```
-_<div style="text-align: center">Example of defining the `npm`, `babel` and `rollup` templates by loading a local extension at `./local-exdtension.js`.</div>_
 
-Here's a simplified example of creating the `npm`, `babel`, and `rollup` templates:
-
-local-extension.js
+_local-extension.js_
 ```js
 Chomp.registerTemplate('npm', function (task) {
   return [{
@@ -450,13 +469,13 @@ Chomp.registerTemplate('npm', function (task) {
   }];
 });
 
-Chomp.registerTemplate('babel', function (task) {
+Chomp.registerTemplate('swc', function (task) {
   const { sourceMaps } = task.templateOptions;
   return [{
     name: task.name,
     target: task.target,
     deps: task.deps,
-    run: `babel $DEP -o $TARGET${sourceMaps ? ' --source-maps' : ''}`
+    run: `swc $DEP -o $TARGET${sourceMaps ? ' --source-maps' : ''}`
   }];
 });
 
@@ -471,12 +490,12 @@ Chomp.registerTemplate('rollup', function (task) {
   }];
 });
 ```
-_<div style="text-align: center">Chomp extension template registration example for the `npm`, `babel` and `rollup` templates.</div>_
+_<div style="text-align: center">Chomp extension template registration example loaded via a local extension at `local-extension.js` for the `npm`, `swc` and `rollup` templates.</div>_
 
-Templates are functions on tasks returning a new list of tasks. All TOML properties apply but with camelCase instead of kebab-case.
+Templates are functions on tasks returning a new list of tasks. All TOML properties apply but with _camelCase_ instead of _kebab-case_.
 
-Templates can be loaded from any file path or URL. PRs to the default Chomp templates library are welcome, or host your own on your own domain or via an npm CDN. For support on the JSPM CDN, add `"type": "script"` to the package.json since template extensions are currently scripts and not modules.
+PRs to the default Chomp templates library are welcome, or host your own on your own domain or via an npm CDN. For support on the JSPM CDN, add `"type": "script"` to the `package.json` of the package to avoid incorrect processing since template extensions are currently scripts and not modules.
 
-Remote extensions are loaded once and cached locally by Chomp, regardless of cache headers, to ensure the fastest run time. For this reason it is recommended to always use unique URLs with versions when hosting extensions remotely. The remote extension cache can also be cleared by running `chomp --clear-cache`.
+Because remote templates are cached, it is recommended to always use unique URLs with versions when hosting extensions remotely. 
 
-And if it ever feels a little too magical, templates can also be ejected by running `chomp --eject`, transforming the Chompfile into the expanded untemplated form without extensions.
+See the extensions documentation for the full [extensions API](extensions.md#api).
