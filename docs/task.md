@@ -413,7 +413,7 @@ Running `chomp test` with the above, will run each of `test:a`, `test:b` and `te
 
 Extensions are loaded via the `extensions` list in the Chompfile, and can define custom task templates, which can encapsulate the details of a task execution into a simpler definition.
 
-For convenience Chomp provides a default extensions library, [Chomp Templates](https://github.com/guybedford/chomp-templates).
+For convenience Chomp provides an experimental [core extensions library](https://github.com/guybedford/chomp-extensions).
 
 For example, to replace the npm, SWC and RollupJS compilations from the previous examples with their extension templates:
 
@@ -443,7 +443,7 @@ deps = 'lib/**/*.js'
 outdir = 'dist'
 entries = ['lib/app.js']
 ```
-_<div style="text-align: center">Using the `chomp:npm`, `chomp:swc` and `chomp:rollup` [experimental template extensions](https://github.com/guybedford/chomp-templates) allows writing these tasks encapsulated from their implementations.</div>_
+_<div style="text-align: center">Using the `chomp:npm`, `chomp:swc` and `chomp:rollup` [experimental core extensions](https://github.com/guybedford/chomp-extensions) allows writing these tasks encapsulated from their implementations.</div>_
 
 Templates can be loaded from any file path or URL.
 
@@ -461,7 +461,7 @@ The remote extension cache can be cleared by running `chomp --clear-cache`.
 
 ### Writing Templates
 
-> Read more on writing templates in the [extensions documentation](extensions.md)
+> Read more on writing extensions in the [extensions documentation](extensions.md)
 
 Chomp extensions can be loaded from any URL or local file path. To write custom templates, create a local extension file `local-extension.js` referencing it in the extensions list of the Chompfile:
 
@@ -508,8 +508,8 @@ _<div style="text-align: center">Chomp extension template registration example l
 
 Templates are functions on tasks returning a new list of tasks. All TOML properties apply but with _camelCase_ instead of _kebab-case_.
 
-PRs to the default Chomp templates library are welcome, or host your own on your own domain or via an npm CDN. For support on the JSPM CDN, add `"type": "script"` to the `package.json` of the package to avoid incorrect processing since template extensions are currently scripts and not modules.
+PRs to the default Chomp extensions library are welcome, or host your own on your own domain or via an npm CDN. For support on the JSPM CDN, add `"type": "script"` to the `package.json` of the package to avoid incorrect processing since template extensions are currently scripts and not modules.
 
-Because remote templates are cached, it is recommended to always use unique URLs with versions when hosting extensions remotely. 
+Because remote extensions are cached, it is recommended to always use unique URLs with versions when hosting extensions remotely. 
 
 See the extensions documentation for the full [extensions API](extensions.md#api).
