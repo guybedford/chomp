@@ -35,8 +35,8 @@ Tasks support the following optional properties:
 * **cwd**: `String`, the working directory to use for the `engine` execution.
 * **env**: `{ [key: String]: String }`, custom environment variables to set for the `engine` execution.
 * **env-default**: `{ [key: String]: String }`, custom default environment variables to set for the `engine` execution, only if not already present in the system environment.
-* **template**: `String`, a registered template name to use for task generation as a [template task](#template-tasks).
-* **template-options**: `{ [option: String]: any }`, the dictionary of options to apply to the `template` [template generation](#template-tasks), as defined by the template itself.
+* **template**: `String`, a registered template name to use for task generation as a [template task](#extensions).
+* **template-options**: `{ [option: String]: any }`, the dictionary of options to apply to the `template` [template generation](#extensions), as defined by the template itself.
 
 ## Task Execution
 
