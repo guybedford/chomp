@@ -23,9 +23,9 @@ jobs:
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
-        CHOMP_CORE: ../chomp-templates
+        CHOMP_CORE: ../chomp-extensions
     - name: Run Template Tests
-      run: chomp -c chomp-templates/chompfile.toml test
+      run: chomp -c chomp-extensions/chompfile.toml test
 
   build-windows:
     runs-on: windows-latest
@@ -46,6 +46,6 @@ jobs:
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
-        CHOMP_CORE: ../chomp-templates
+        CHOMP_CORE: ../chomp-extensions
     - name: Run Template Tests
-      run: chomp -c chomp-templates/chompfile.toml test
+      run: chomp -c chomp-extensions/chompfile.toml test

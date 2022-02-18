@@ -49,7 +49,7 @@ The following Chomp-specific environment variables are also defined:
 
 ### Core Templates
 
-Some [Chomp templates](https://github.com/guybedford/chomp-templates) are provided for the JS ecosystem, and PRs to this repo are very welcome.
+Some [experimental Chomp templates](https://github.com/guybedford/chomp-templates) are provided for the JS ecosystem, and PRs to this repo are very welcome.
 
 These templates can be loaded via the `chomp:[name]` extension names.
 

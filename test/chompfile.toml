@@ -1,5 +1,5 @@
 version = 0.1
-extensions = ['chomp:assert', 'chomp:npm']
+extensions = ['chomp@0.1:assert', 'chomp@0.1:npm']
 default-task = 'test'
 
 [[task]]

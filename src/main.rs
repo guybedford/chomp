@@ -205,7 +205,10 @@ async fn main() -> Result<()> {
     let mut extensions = chompfile.extensions.clone();
     let mut i = 0;
     while i < extensions.len() {
-        let ext = if extensions[i].starts_with("chomp:") {
+        if extensions[i].starts_with("chomp:") {
+            return Err(anyhow!("Chomp core extensions must be versioned - try \x1b[36m'chomp@0.1:{}'\x1b[0m instead", &extensions[i][6..]));
+        }
+        let ext = if extensions[i].starts_with("chomp@0.1:") {
             let mut s: String = match global_env.get("CHOMP_CORE") {
                 Some(path) => String::from(path),
                 None => String::from(CHOMP_CORE),
@@ -213,7 +216,7 @@ async fn main() -> Result<()> {
             if !s.ends_with("/") && !s.ends_with("\\") {
                 s.push_str("/");
             }
-            s.push_str(&extensions[i][6..]);
+            s.push_str(&extensions[i][10..]);
             s.push_str(".js");
             s
         } else {
