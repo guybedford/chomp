@@ -139,24 +139,6 @@ async fn main() -> Result<()> {
     }
 
     let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
-    let canonical_file = {
-        let unc_path = match canonicalize(&cfg_file) {
-            Ok(path) => path,
-            Err(_) => {
-                return Err(anyhow!(
-                    "Unable to load the Chomp configuration {}.\nMake sure it exists in the current directory, or use --config to set a custom path.",
-                    &cfg_file.to_str().unwrap()
-                ));
-            }
-        };
-        let unc_str = unc_path.to_str().unwrap();
-        if unc_str.starts_with(r"\\?\") {
-            PathBuf::from(String::from(&unc_path.to_str().unwrap()[4..]))
-        } else {
-            unc_path
-        }
-    };
-    let cwd = canonical_file.parent().unwrap();
 
     let chompfile_source = match fs::read_to_string(&cfg_file).await {
         Ok(source) => source,
@@ -175,12 +157,37 @@ async fn main() -> Result<()> {
         ));
     }
 
+    let canonical_file = {
+        let unc_path = match canonicalize(&cfg_file) {
+            Ok(path) => path,
+            Err(_) => {
+                return Err(anyhow!(
+                    "Unable to load the Chomp configuration {}.\nMake sure it exists in the current directory, or use --config to set a custom path.",
+                    &cfg_file.to_str().unwrap()
+                ));
+            }
+        };
+        let unc_str = unc_path.to_str().unwrap();
+        if unc_str.starts_with(r"\\?\") {
+            PathBuf::from(String::from(&unc_path.to_str().unwrap()[4..]))
+        } else {
+            unc_path
+        }
+    };
+    let cwd = canonical_file.parent().unwrap();
+    assert!(env::set_current_dir(&cwd).is_ok());
+
     if matches.is_present("clear_cache") {
         println!("Clearing URL extension cache...");
         http_client::clear_cache().await?;
     }
 
     init_js_platform();
+
+    let pool_size = match matches.value_of("jobs") {
+        Some(jobs) => jobs.parse()?,
+        None => num_cpus::get(),
+    };
 
     let mut global_env = HashMap::new();
     for (key, value) in env::vars() {
@@ -189,6 +196,7 @@ async fn main() -> Result<()> {
     if matches.is_present("eject_templates") {
         global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
     }
+    global_env.insert("CHOMP_POOL_SIZE".to_string(), pool_size.to_string());
 
     let mut extension_env = ExtensionEnvironment::new(&global_env);
 
@@ -197,7 +205,10 @@ async fn main() -> Result<()> {
     let mut extensions = chompfile.extensions.clone();
     let mut i = 0;
     while i < extensions.len() {
-        let ext = if extensions[i].starts_with("chomp:") {
+        if extensions[i].starts_with("chomp:") {
+            return Err(anyhow!("Chomp core extensions must be versioned - try \x1b[36m'chomp@0.1:{}'\x1b[0m instead", &extensions[i][6..]));
+        }
+        let ext = if extensions[i].starts_with("chomp@0.1:") {
             let mut s: String = match global_env.get("CHOMP_CORE") {
                 Some(path) => String::from(path),
                 None => String::from(CHOMP_CORE),
@@ -205,7 +216,7 @@ async fn main() -> Result<()> {
             if !s.ends_with("/") && !s.ends_with("\\") {
                 s.push_str("/");
             }
-            s.push_str(&extensions[i][6..]);
+            s.push_str(&extensions[i][10..]);
             s.push_str(".js");
             s
         } else {
@@ -288,6 +299,7 @@ async fn main() -> Result<()> {
             if !has_templates {
                 return Err(anyhow!("\x1b[1m{}\x1b[0m has no template usage to eject", cfg_file.to_str().unwrap()));
             }
+            chompfile.extensions = Vec::new();
         }
 
         if matches.is_present("list") {
@@ -309,7 +321,6 @@ async fn main() -> Result<()> {
             }
             return Ok(());
         } else {
-            chompfile.extensions = Vec::new();
             fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
             if matches.is_present("eject_templates") {
                 println!("\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected", cfg_file.to_str().unwrap());
@@ -322,17 +333,11 @@ async fn main() -> Result<()> {
         }
     }
 
-    let pool_size = match matches.value_of("jobs") {
-        Some(jobs) => jobs.parse()?,
-        None => num_cpus::get(),
-    };
-
     let ok = task::run(&chompfile, &mut extension_env, task::RunOptions {
         watch: matches.is_present("serve") || matches.is_present("watch"),
         force: matches.is_present("force"),
         args: if args.len() > 0 { Some(args) } else { None },
         pool_size,
-        cwd: cwd.to_str().unwrap().to_string(),
         targets,
         cfg_file,
     }).await?;

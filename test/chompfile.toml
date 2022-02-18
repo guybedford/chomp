@@ -1,105 +1,144 @@
 version = 0.1
-
-extensions = [
-  'chomp:prettier',
-  'chomp:jspm',
-  'chomp:svelte',
-  'chomp:swc',
-  'chomp:babel'
-]
-
-[template-options.npm]
-  auto-install = true
+extensions = ['chomp@0.1:assert', 'chomp@0.1:npm']
+default-task = 'test'
 
 [[task]]
-  name = "test"
-  serial = true
-  deps = ["test:init", "fail", "prettier", "jspm", "svelte", "swc", "babel", "unit", "check"]
+name = 'test'
+serial = true
+deps = ['test:clean', 'test:run']
 
 [[task]]
-  name = "fail"
-  run = """
-    chomp test:fail
-    echo "recover"
-  """
+name = 'test:clean'
+display = 'status-only'
+stdio = 'none'
+run = 'rm -r output ; echo recover'
 
 [[task]]
-  name = "unit"
-  dep = "unit/#.js"
-  run = "node $DEP >> testlog.txt"
+name = 'test:run'
+display = 'none'
+deps = [':test[0-9]*']
 
-# verify that a serial failure stops the build and logs correctly
+# -- Test --
 [[task]]
-  name = "test:fail"
-  serial = true
-  deps = ["test:init", "prettier", "jspm", "failtask", "test:never"]
+name = 'test1'
+display = 'none'
+target = 'output/test1.txt'
+run = 'echo "Chomp Chomp" > $TARGET'
+template = 'assert'
+[task.template-options]
+expect-equals = 'Chomp Chomp'
 
-# never task -> writes never.txt which is caught by check
+# -- Test --
 [[task]]
-  name = "test:never"
-  run = "echo \"FAILURE\" > testlog.txt"
+name = 'test2'
+display = 'none'
+target = 'output/test2.txt'
+run = '''
+  echo "$VAR $ANOTHER" > $TARGET
+'''
+template = 'assert'
+[task.env]
+VAR = 'Chomp'
+[task.env-default]
+ANOTHER = '$VAR MM'
+[task.template-options]
+expect-equals = 'Chomp Chomp MM'
 
+# -- Test --
 [[task]]
-  name = "failtask"
-  run = "none"
+name = 'test3'
+display = 'none'
+target = 'output/test3.js'
+deps = ['fixtures/app.js', 'install:swc']
+engine = 'node'
+run = '''
+  import swc from '@swc/core';
+  import { readFileSync, writeFileSync } from 'fs';
+  import { basename } from 'path';
 
-[[task]]
-  name = "check"
-  deps = ["app-build.html", "lib-swc/test.js", "test-babel.js"]
-  engine = "node"
-  run = '''
-    import { readFileSync } from 'fs';
-    import assert from 'assert';
+  const input = readFileSync(process.env.DEP, 'utf8');
 
-    const log = readFileSync('testlog.txt', 'utf8').trim().split(/\r?\n/);
-    assert.equal(log.length, 2);
-    assert(log.indexOf('unit test a') !== -1);
-    assert(log.indexOf('unit test b') !== -1);
+  const { code, map } = await swc.transform(input, {
+    filename: process.env.DEP,
+    sourceMaps: true,
+    jsc: {
+      parser: {
+        syntax: "typescript",
+      },
+      transform: {},
+    },
+  });
 
-    console.log('TESTS OK');
-  '''
+  writeFileSync(process.env.TARGET, code + '\n//# sourceMappingURL=' + basename(process.env.TARGET) + '.map');
+  writeFileSync(process.env.TARGET + '.map', JSON.stringify(map));
+'''
+template = 'assert'
+[task.template-options]
+expect-equals = '''export var p = 5;
 
-[[task]]
-  name = "test:init"
-  run = """
-    rm testlog.txt
-    rm -r node_modules
-    rm package.json
-    rm package-lock.json
-    rm -r lib-swc
-    rm -r lib
-    rm app-build.html
-    rm test-babel.js
-    rm test-babel.js.map
-    echo "export var p:number=5;" > test.ts
-  """
-
-[[task]]
-  name = "prettier"
-  template = "prettier"
-
-[[task]]
-  name = "jspm"
-  template = "jspm"
-  target = "app-build.html"
-  deps = ["app.html"]
-
-[[task]]
-  name = "svelte"
-  template = "svelte"
-  target = "lib/test.js"
-  deps = ["src/test.svelte"]
-
-[[task]]
-  name = "swc"
-  template = "swc"
-  target = "lib-swc/#.js"
-  dep = "src-swc/#.ts"
+//# sourceMappingURL=test3.js.map
+'''
 
 [[task]]
-  name = "babel"
-  template = "babel"
-  target = "test-babel.js"
-  deps = ["test.ts"]
-  [task.template-options]
-    presets = ['@babel/preset-typescript']
+name = 'install:swc'
+display = 'none'
+template = 'npm'
+[task.template-options]
+packages = ['@swc/core', '@swc/cli']
+auto-install = true
+
+# -- Test --
+[[task]]
+name = 'test4'
+display = 'none'
+target = 'output/unittest.txt'
+deps = [':unittest:ok-*']
+template = 'assert'
+[task.template-options]
+expect-equals = '''UNIT OK
+'''
+
+[[task]]
+name = 'unittest:#'
+display = 'none'
+stdio = 'stderr-only'
+dep = 'unit/#.mjs'
+run = 'node $DEP'
+[task.template-options]
+expect-equals = '''UNIT OK
+'''
+
+# -- Test --
+[[task]]
+name = 'test5'
+stdio = 'none'
+display = 'none'
+deps = ['output/lib/**/*.js', 'install:rollup']
+target = 'output/dist/app.js'
+run = 'rollup output/lib/app.js -d output/dist -m'
+template = 'assert'
+[task.template-options]
+expect-equals = '''var dep = 'dep';
+
+console.log(dep);
+var p = 5;
+
+export { p };
+//# sourceMappingURL=app.js.map
+'''
+
+[[task]]
+name = 'install:rollup'
+display = 'none'
+template = 'npm'
+[task.template-options]
+packages = ['rollup']
+auto-install = true
+
+[[task]]
+name = 'build:swc'
+display = 'none'
+stdio = 'stderr-only'
+target = 'output/lib/#.js'
+deps = ['fixtures/src/#.ts', 'install:swc']
+run = 'swc $DEP -o $TARGET --source-maps'

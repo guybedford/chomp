@@ -10,11 +10,20 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
 use v8;
+use serde::Deserialize;
 
 pub struct ExtensionEnvironment {
     isolate: v8::OwnedIsolate,
     has_extensions: bool,
     global_context: v8::Global<v8::Context>,
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatcherResult {
+    pub defer: Option<Vec<usize>>,
+    pub exec: Option<Vec<BatchCmd>>,
+    pub completion_map: Option<BTreeMap<usize, usize>>,
 }
 
 struct Extensions {
@@ -52,7 +61,8 @@ fn chomp_log(
     let len = args.length();
     let mut i = 0;
     while i < len {
-        let arg = args.get(i).to_string(scope).unwrap();
+        // TODO: better object logging - currently throws on objects
+        let arg: v8::Local<v8::Value> = args.get(i).try_into().unwrap();
         if i > 0 {
             msg.push_str(", ");
         }
@@ -194,7 +204,7 @@ impl ExtensionEnvironment {
             let include_fn = v8::FunctionTemplate::new(scope, chomp_include)
                 .get_function(scope)
                 .unwrap();
-            let include_key = v8::String::new(scope, "include").unwrap();
+            let include_key = v8::String::new(scope, "addExtension").unwrap();
             chomp_val.set(scope, include_key.into(), include_fn.into());
 
             let env_key = v8::String::new(scope, "ENV").unwrap();
@@ -333,11 +343,11 @@ impl ExtensionEnvironment {
         batch: &HashSet<&CmdOp>,
         running: &HashSet<&BatchCmd>,
     ) -> Result<(
-        (Vec<usize>, Vec<BatchCmd>, BTreeMap<usize, usize>),
+        BatcherResult,
         Option<usize>,
     )> {
 
-        let (_name, batcher, batchers_len) = {
+        let (name, batcher, batchers_len) = {
             let extensions = self.get_extensions().borrow();
             let (name, batcher) = extensions.batchers[idx].clone();
             (name, batcher, extensions.batchers.len())
@@ -358,14 +368,14 @@ impl ExtensionEnvironment {
             None => return Err(v8_exception(tc_scope)),
         };
 
-        let result: (Vec<usize>, Vec<BatchCmd>, BTreeMap<usize, usize>) = from_v8(tc_scope, result)
-            .expect("Unable to deserialize batch due to invalid structure");
+        let result: Option<BatcherResult> = from_v8(tc_scope, result)
+            .expect(&format!("Unable to deserialize batch for {} due to invalid structure", name));
         let next = if idx < batchers_len - 1 {
             Some(idx + 1)
         } else {
             None
         };
-        Ok((result, next))
+        Ok((result.unwrap_or(BatcherResult { defer: None, exec: None, completion_map: None }), next))
     }
 }
 

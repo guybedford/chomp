@@ -1,0 +1,3 @@
+[submodule "chomp-extensions"]
+	path = chomp-extensions
+	url = git@github.com:guybedford/chomp-extensions

@@ -2,6 +2,8 @@ mod cmd;
 mod node;
 mod deno;
 
+use crate::chompfile::TaskStdio;
+use crate::extensions::BatcherResult;
 use crate::ExtensionEnvironment;
 use std::rc::Rc;
 use futures::future::Shared;
@@ -22,6 +24,34 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::time::sleep;
 use anyhow::Result;
+
+pub fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
+    let mut out_arg = arg.to_string();
+    if out_arg.find('$').is_none() {
+        return out_arg;
+    }
+    for (name, value) in env {
+        let mut env_str = String::from("$");
+        env_str.push_str(name);
+        if out_arg.contains(&env_str) {
+            out_arg = out_arg.replace(&env_str, value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+    }
+    for (name, value) in std::env::vars() {
+        let mut env_str = String::from("$");
+        env_str.push_str(&name.to_uppercase());
+        if out_arg.contains(&env_str) {
+            out_arg = out_arg.replace(&env_str, &value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+    }
+    out_arg
+}
 
 pub struct CmdPool<'a> {
     cmd_num: usize,
@@ -46,6 +76,7 @@ pub struct CmdOp {
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
     pub engine: ChompEngine,
+    pub stdio: TaskStdio,
     pub targets: Vec<String>,
 }
 
@@ -56,6 +87,7 @@ pub struct BatchCmd {
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
     pub engine: ChompEngine,
+    pub stdio: Option<TaskStdio>,
     pub ids: Vec<usize>,
 }
 
@@ -77,15 +109,15 @@ pub struct Exec<'a> {
 }
 
 impl<'a> CmdPool<'a> {
-    pub fn new(pool_size: usize, extension_env: &'a mut ExtensionEnvironment, cwd: String, debug: bool) -> CmdPool<'a> {
+    pub fn new(pool_size: usize, cwd: String, extension_env: &'a mut ExtensionEnvironment, debug: bool) -> CmdPool<'a> {
         CmdPool {
             cmd_num: 0,
+            cwd,
             cmds: BTreeMap::new(),
             exec_num: 0,
             exec_cnt: 0,
             execs: BTreeMap::new(),
             pool_size,
-            cwd,
             extension_env,
             batching: BTreeSet::new(),
             cmd_execs: BTreeMap::new(),
@@ -120,7 +152,7 @@ impl<'a> CmdPool<'a> {
                     let result = exec.future.clone().await;
                     if result.is_none() {
                         return Err(Rc::new(match exec.cmd.engine {
-                            ChompEngine::Cmd => anyhow!("Unable to initialize shell command engine"),
+                            ChompEngine::Shell => anyhow!("Unable to initialize shell command engine"),
                             ChompEngine::Node => anyhow!("Unable to initialize the Node.js Chomp engine.\n\x1b[33mMake sure Node.js is correctly installed and the \x1b[1mnode\x1b[0m\x1b[33m command bin is in the environment PATH.\x1b[0m\n\nSee \x1b[36;4mhttps://nodejs.org/en/download/\x1b[0m\n"),
                             ChompEngine::Deno => anyhow!("Unable to initialize the Deno Chomp engine.\n\x1b[33mMake sure Deno is correctly installed and the \x1b[1mdeno\x1b[0m\x1b[33m bin is in the environment PATH.\x1b[0m\n\nSee \x1b[36;4mhttps://deno.land/#installation\x1b[0m\n"),
                         }));
@@ -160,21 +192,27 @@ impl<'a> CmdPool<'a> {
                 let mut batcher = 0;
                 if this.extension_env.has_batchers() {
                     'outer: loop {
-                        let ((queued, mut exec, completion_map), next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
-                        for (cmd_num, exec_num) in completion_map {
-                            batch.remove(&cmds[&cmd_num]);
-                            this.batching.remove(&cmd_num);
-                            global_completion_map.push((cmd_num, exec_num));
-                        }
-                        for cmd_num in queued {
-                            batch.remove(&cmds[&cmd_num]);
-                        }
-                        for cmd in exec.drain(..) {
-                            for cmd_num in cmd.ids.iter() {
+                        let (BatcherResult { defer: mut queue, mut exec, mut completion_map }, next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
+                        if let Some(completion_map) = completion_map.take() {
+                            for (cmd_num, exec_num) in completion_map {
+                                batch.remove(&cmds[&cmd_num]);
                                 this.batching.remove(&cmd_num);
+                                global_completion_map.push((cmd_num, exec_num));
+                            }
+                        }
+                        if let Some(queue) = queue.take() {
+                            for cmd_num in queue {
                                 batch.remove(&cmds[&cmd_num]);
                             }
-                            batched.push(cmd);
+                        }
+                        if let Some(mut exec) = exec.take() {
+                            for cmd in exec.drain(..) {
+                                for cmd_num in cmd.ids.iter() {
+                                    this.batching.remove(&cmd_num);
+                                    batch.remove(&cmds[&cmd_num]);
+                                }
+                                batched.push(cmd);
+                            }
                         }
                         match next {
                             Some(num) => { batcher = num },
@@ -200,6 +238,7 @@ impl<'a> CmdPool<'a> {
                         cwd: cmd.cwd.clone(),
                         engine: cmd.engine,
                         env: cmd.env.clone(),
+                        stdio: Some(cmd.stdio.clone()),
                         ids: vec![cmd.id],
                     });
                 }
@@ -230,7 +269,7 @@ impl<'a> CmdPool<'a> {
         let pool = self as *mut CmdPool;
 
         match cmd.engine {
-            ChompEngine::Cmd => {
+            ChompEngine::Shell => {
                 let start_time = Instant::now();
                 self.exec_cnt = self.exec_cnt + 1;
                 let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&self.cwd), &cmd, debug, true);
@@ -273,6 +312,7 @@ impl<'a> CmdPool<'a> {
         env: BTreeMap<String, String>,
         cwd: Option<String>,
         engine: ChompEngine,
+        stdio: TaskStdio,
     ) -> usize {
         let id = self.cmd_num;
         self.cmds.insert(
@@ -284,6 +324,7 @@ impl<'a> CmdPool<'a> {
                 run,
                 env,
                 engine,
+                stdio,
                 targets,
             },
         );
