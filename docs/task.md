@@ -494,6 +494,8 @@ Chomp.registerTemplate('swc', function (task) {
 });
 
 Chomp.registerTemplate('rollup', function (task) {
+  if (task.targets.length > 0)
+    throw new Error('Targets is not supported by the Rollup template, use the "outdir" and "entries" template options instead.');
   const { outdir, entries } = task.templateOptions;
   const targets = entries.map(entry => outdir + '/' + entry.split('/').pop());
   return [{
