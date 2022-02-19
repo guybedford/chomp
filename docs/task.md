@@ -477,8 +477,8 @@ _local-extension.js_
 Chomp.registerTemplate('npm', function (task) {
   return [{
     name: task.name,
-    run: 'npm install'
-    target: 'package-lock.json'
+    run: 'npm install',
+    target: 'package-lock.json',
     deps: ['package.json']
   }];
 });
