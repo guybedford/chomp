@@ -322,9 +322,9 @@ impl ExtensionEnvironment {
                     if name == "babel" || name == "cargo" || name == "jspm" || name == "npm" ||
                         name == "prettier" || name == "svelte" || name == "swc" {
                         if self.has_extensions {
-                            Err(anyhow!("Template '{}' has not been registered. To include the core template, add \x1b[1m'chomp:{}'\x1b[0m to the extensions list:\x1b[36m\n\n  extensions = [..., 'chomp:{}']\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m.", &name, &name, &name))
+                            Err(anyhow!("Template '{}' has not been registered. To include the core template, add \x1b[1m'chomp@0.1:{}'\x1b[0m to the extensions list:\x1b[36m\n\n  extensions = [..., 'chomp@0.1:{}']\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m.", &name, &name, &name))
                         } else {
-                            Err(anyhow!("Template '{}' has not been registered. To include the core template, add:\x1b[36m\n\n  extensions = ['chomp:{}']\n\n\x1b[0mto the \x1b[1mchompfile.toml\x1b[0m.", &name, &name))
+                            Err(anyhow!("Template '{}' has not been registered. To include the core template, add:\x1b[36m\n\n  extensions = ['chomp@0.1:{}']\n\n\x1b[0mto the \x1b[1mchompfile.toml\x1b[0m.", &name, &name))
                         }
                     } else {
                         Err(anyhow!("Template '{}' has not been registered. Make sure it is included in the \x1b[1mchompfile.toml\x1b[0m extensions.", &name))
