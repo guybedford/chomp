@@ -179,6 +179,27 @@ $ chomp lib/*.js
 $ chomp :build:*
 ```
 
+To remove the template magic, run `chomp --eject` to convert the `chompfile.toml` into its untemplated form:
+
+```sh
+$ chomp --eject
+
+√ chompflie.toml template tasks ejected
+```
+
+Resulting in the updated _chompfile.toml_:
+
+```toml
+version = 0.1
+
+[[task]]
+name = 'build:typescript'
+target = 'lib/#.js'
+dep = 'src/#.ts'
+stdio = 'stderr-only'
+run = 'node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET --no-swcrc --source-maps -C jsc.parser.syntax=typescript -C jsc.parser.importAssertions=true -C jsc.parser.topLevelAwait=true -C jsc.parser.importMeta=true -C jsc.parser.privateMethod=true -C jsc.parser.dynamicImport=true -C jsc.target=es2016 -C jsc.experimental.keepImportAssertions=true'
+```
+
 # License
 
 GPLv3
