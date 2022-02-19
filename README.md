@@ -4,6 +4,8 @@
 
 ## Install
 
+Make sure you have [Cargo installed](https://rustup.rs/), then run:
+
 ```
 cargo install chompbuild
 ```
