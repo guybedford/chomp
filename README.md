@@ -43,7 +43,7 @@ Then use `chomp <name>` instead of `npm run <name>`, and enjoy the new features 
 
 ### Hello World
 
-`chomp` works against a `chompfile.toml` in the same directory as the `chomp` command is run.
+`chomp` works against a `chompfile.toml` [TOML configuration](https://toml.io/) in the same directory as the `chomp` command is run.
 
 For example:
 
@@ -111,6 +111,8 @@ Hello Chomp
 Array `deps` can be defined for targets, whose targets will then be run first with invalidation based on target / deps mtime comparisons per the standard Makefile approach.
 
 In Windows, Powershell is used and Bash on posix systems. Since both `echo` and `>` are defined on both systems the above works cross-platform (Powershell is automatically put into UTF-8 mode for `>` to work similarly).
+
+Note that `&&` and `||` are not supported in Powershell, so multiline scripts and `;` are preferred instead.
 
 Alternatively use `engine = 'node'` or `engine = 'deno'` to write JavaScript in the `run` function instead:
 
