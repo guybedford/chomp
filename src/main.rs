@@ -131,11 +131,13 @@ async fn main() -> Result<()> {
         )
         .arg(
             Arg::with_name("init")
+                .short("i")
                 .long("init")
                 .help("Initialize a new chompfile.toml if it does not exist"),
         )
         .arg(
             Arg::with_name("import_scripts")
+                .short("I")
                 .long("import-scripts")
                 .help("Import from npm \"scripts\" into the chompfile.toml"),
         )

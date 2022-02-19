@@ -23,6 +23,24 @@ cargo install chompbuild
 
 ## Getting Started
 
+### Migrating from npm Scripts
+
+To convert an existing project using npm `"scripts"` to Chomp, run:
+
+```sh
+$ chomp --init --import-scripts
+√ chompfile.toml created with 2 package.json script tasks imported.
+```
+
+or the shorter version:
+
+```sh
+$ chomp -Ii
+√ chompfile.toml created with 2 package.json script tasks imported.
+```
+
+Then use `chomp <name>` instead of `npm run <name>`, and enjoy the new features of task dependence, incremental builds and parallelism!
+
 ### Hello World
 
 `chomp` works against a `chompfile.toml` in the same directory as the `chomp` command is run.
