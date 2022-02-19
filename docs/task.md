@@ -184,7 +184,7 @@ run = '''
 
 It is usually preferable to write tasks using shell scripts since they can be much faster than bootstrapping Node.js or Deno, and can more easily support [batching](extensions.md#chompregisterbatchername-string-batcher-batch-cmdop-running-batchcmd--batcherresult--undefined).
 
-> It is usually easier to use the existing [`chomp:swc` experimental template extension](#using-extensions) instead of writing your own custom task for SWC.
+> It is usually easier to use the existing [`chomp:swc` experimental template extension](#extensions) instead of writing your own custom task for SWC.
 
 ### Deno Engine
 
