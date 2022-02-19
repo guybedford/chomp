@@ -1,5 +1,9 @@
 # CHOMP
 
+[![Crates.io](https://img.shields.io/badge/crates.io-chompbuild-green.svg)](https://crates.io/crates/chompbuild)
+[![Discord](https://img.shields.io/badge/chat-on%20disord-green.svg?logo=discord)](https://discord.com/channels/944414343045455892/944414343045455896)
+
+
 > 'JS Make' - parallel task runner for the frontend ecosystem with a JS extension system.
 
 ## Install
