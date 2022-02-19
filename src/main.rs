@@ -17,32 +17,44 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
-use std::collections::HashSet;
+use crate::chompfile::ChompTaskMaybeTemplated;
+use crate::chompfile::Chompfile;
+use crate::extensions::init_js_platform;
 use crate::extensions::ExtensionEnvironment;
 use crate::task::expand_template_tasks;
-use crate::chompfile::Chompfile;
+use anyhow::{anyhow, Result};
 use clap::{App, Arg};
-use anyhow::{Result, anyhow};
-use tokio::fs;
 use std::collections::HashMap;
-use crate::extensions::init_js_platform;
+use std::collections::HashSet;
+use tokio::fs;
 extern crate num_cpus;
 use hyper::Uri;
 use std::env;
 use std::fs::canonicalize;
 
-mod task;
 mod chompfile;
 mod engines;
 mod extensions;
 mod http_client;
 mod serve;
+mod task;
 
 use std::path::PathBuf;
 
 const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.5/";
 
-fn uri_parse (uri_str: &str) -> Option<Uri> {
+const CHOMP_INIT: &str = r#"version = 0.1
+
+default_task = 'build'
+
+[[task]]
+name = 'build'
+run = 'echo \"Build script goes here\"'
+"#;
+
+const CHOMP_INIT_SCRIPTS: &str = "version = 0.1\n";
+
+fn uri_parse(uri_str: &str) -> Option<Uri> {
     match uri_str.parse::<Uri>() {
         Ok(uri) => match uri.scheme_str() {
             Some(_) => Some(uri),
@@ -102,20 +114,30 @@ async fn main() -> Result<()> {
         )
         .arg(
             Arg::with_name("list")
-            .short("l")
-            .long("list")
-            .help("List the available chompfile tasks")
+                .short("l")
+                .long("list")
+                .help("List the available chompfile tasks"),
         )
         .arg(
             Arg::with_name("format")
                 .short("F")
                 .long("format")
-                .help("Format and save the chompfile.toml")
+                .help("Format and save the chompfile.toml"),
         )
         .arg(
             Arg::with_name("eject_templates")
                 .long("eject")
-                .help("Ejects templates into tasks saving the rewritten chompfile.toml")
+                .help("Ejects templates into tasks saving the rewritten chompfile.toml"),
+        )
+        .arg(
+            Arg::with_name("init")
+                .long("init")
+                .help("Initialize a new chompfile.toml if it does not exist"),
+        )
+        .arg(
+            Arg::with_name("import_scripts")
+                .long("import-scripts")
+                .help("Import from npm \"scripts\" into the chompfile.toml"),
         )
         .arg(
             Arg::with_name("clear_cache")
@@ -133,14 +155,14 @@ async fn main() -> Result<()> {
             Arg::with_name("target")
                 .value_name("TARGET")
                 .help("Generate a target or list of targets")
-                .multiple(true)
+                .multiple(true),
         )
         .arg(
             Arg::with_name("arg")
                 .last(true)
                 .value_name("ARGS")
                 .help("Custom task args")
-                .multiple(true)
+                .multiple(true),
         )
         .get_matches();
 
@@ -150,19 +172,29 @@ async fn main() -> Result<()> {
             for item in target {
                 targets.push(String::from(item));
             }
-        },
+        }
         None => {}
     }
 
     let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
 
+    let mut created = false;
     let chompfile_source = match fs::read_to_string(&cfg_file).await {
         Ok(source) => source,
         Err(_) => {
-            return Err(anyhow!(
-                "Unable to load the Chomp configuration {}.",
-                &cfg_file.to_str().unwrap()
-            ));
+            if matches.is_present("init") {
+                created = true;
+                if matches.is_present("import_scripts") {
+                    String::from(CHOMP_INIT_SCRIPTS)
+                } else {
+                    String::from(CHOMP_INIT)
+                }
+            } else {
+                return Err(anyhow!(
+                    "Unable to load the Chomp configuration {}. Pass the \x1b[1m--init\x1b[0m flag to create one, or try:\n\n\x1b[36mchomp --init --import-scripts\x1b[0m\n\nto create one and import from existing package.json scripts.",
+                    &cfg_file.to_str().unwrap()
+                ));
+            }
         }
     };
     let mut chompfile: Chompfile = toml::from_str(&chompfile_source)?;
@@ -173,8 +205,12 @@ async fn main() -> Result<()> {
         ));
     }
 
-    let canonical_file = {
-        let unc_path = match canonicalize(&cfg_file) {
+    let cwd = {
+        let mut parent: PathBuf = PathBuf::from(cfg_file.parent().unwrap());
+        if parent.to_str().unwrap().len() == 0 {
+            parent = env::current_dir()?;
+        }
+        let unc_path = match canonicalize(&parent) {
             Ok(path) => path,
             Err(_) => {
                 return Err(anyhow!(
@@ -190,7 +226,6 @@ async fn main() -> Result<()> {
             unc_path
         }
     };
-    let cwd = canonical_file.parent().unwrap();
     assert!(env::set_current_dir(&cwd).is_ok());
 
     if matches.is_present("clear_cache") {
@@ -242,11 +277,14 @@ async fn main() -> Result<()> {
             Some(uri) => {
                 if !extension_set.contains(&ext) {
                     extension_set.insert(ext.to_string());
-                    (extension_set.get(&ext).unwrap(), Some(http_client::fetch_uri_cached(&ext, uri).await?))
+                    (
+                        extension_set.get(&ext).unwrap(),
+                        Some(http_client::fetch_uri_cached(&ext, uri).await?),
+                    )
                 } else {
                     (extension_set.get(&ext).unwrap(), None)
                 }
-            },
+            }
             None => {
                 let canonical_str: String = match canonicalize(&ext) {
                     Ok(canonical) => canonical.to_str().unwrap().replace("\\", "/"),
@@ -256,11 +294,14 @@ async fn main() -> Result<()> {
                 };
                 if !extension_set.contains(&canonical_str) {
                     extension_set.insert(canonical_str.to_string());
-                    (extension_set.get(&canonical_str).unwrap(), Some(fs::read_to_string(&ext).await?))
+                    (
+                        extension_set.get(&canonical_str).unwrap(),
+                        Some(fs::read_to_string(&ext).await?),
+                    )
                 } else {
                     (extension_set.get(&canonical_str).unwrap(), None)
                 }
-            },
+            }
         };
         if let Some(extension_source) = extension_source {
             match extension_env.add_extension(&extension_source, canonical)? {
@@ -268,14 +309,15 @@ async fn main() -> Result<()> {
                     for ext in new_includes.drain(..) {
                         // relative includes are relative to the parent
                         if ext.starts_with("./") {
-                            let mut resolved_str = canonical[0..canonical.rfind("/").unwrap() + 1].to_string();
+                            let mut resolved_str =
+                                canonical[0..canonical.rfind("/").unwrap() + 1].to_string();
                             resolved_str.push_str(&ext[2..]);
                             extensions.push(resolved_str);
                         } else {
                             extensions.push(ext);
                         }
                     }
-                },
+                }
                 None => {}
             }
         }
@@ -308,12 +350,20 @@ async fn main() -> Result<()> {
         }
     }
 
-    if matches.is_present("format") || matches.is_present("eject_templates") || matches.is_present("list") {
+    if matches.is_present("format")
+        || matches.is_present("eject_templates")
+        || matches.is_present("list")
+        || matches.is_present("import_scripts")
+    {
         if matches.is_present("eject_templates") {
-            let (has_templates, template_tasks) = expand_template_tasks(&chompfile, &mut extension_env)?;
+            let (has_templates, template_tasks) =
+                expand_template_tasks(&chompfile, &mut extension_env)?;
             chompfile.task = template_tasks;
             if !has_templates {
-                return Err(anyhow!("\x1b[1m{}\x1b[0m has no template usage to eject", cfg_file.to_str().unwrap()));
+                return Err(anyhow!(
+                    "\x1b[1m{}\x1b[0m has no template usage to eject",
+                    cfg_file.to_str().unwrap()
+                ));
             }
             chompfile.extensions = Vec::new();
         }
@@ -329,7 +379,9 @@ async fn main() -> Result<()> {
                             }
                         }
                         matches_some_target
-                    } else { true };
+                    } else {
+                        true
+                    };
                     if matches_some_target {
                         println!(" \x1b[1m▪\x1b[0m {}", name);
                     }
@@ -337,11 +389,76 @@ async fn main() -> Result<()> {
             }
             return Ok(());
         } else {
+            let mut script_tasks = 0;
+            if matches.is_present("import_scripts") {
+                let pjson_source = match fs::read_to_string("package.json").await {
+                    Ok(source) => source,
+                    Err(_) => {
+                        return Err(anyhow!(
+                            "No package.json to import found in the current project directory."
+                        ));
+                    }
+                };
+
+                let pjson: serde_json::Value = serde_json::from_str(&pjson_source)?;
+                match &pjson["scripts"] {
+                    serde_json::Value::Object(scripts) => {
+                        for (name, val) in scripts.iter() {
+                            if let serde_json::Value::String(run) = &val {
+                                script_tasks = script_tasks + 1;
+                                chompfile.task.push(ChompTaskMaybeTemplated {
+                                    name: Some(name.to_string()),
+                                    run: Some(run.to_string()),
+                                    args: None,
+                                    cwd: None,
+                                    deps: None,
+                                    dep: None,
+                                    targets: None,
+                                    target: None,
+                                    display: None,
+                                    engine: None,
+                                    env: HashMap::new(),
+                                    env_default: HashMap::new(),
+                                    invalidation: None,
+                                    serial: None,
+                                    stdio: None,
+                                    template: None,
+                                    template_options: None,
+                                })
+                            }
+                        }
+                    }
+                    _ => return Err(anyhow!("Unexpected \"scripts\" type in package.json.")),
+                };
+            }
             fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
             if matches.is_present("eject_templates") {
-                println!("\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected", cfg_file.to_str().unwrap());
+                println!(
+                    "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected.",
+                    cfg_file.to_str().unwrap()
+                );
+            } else if matches.is_present("import_scripts") {
+                println!(
+                    "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m {}.",
+                    cfg_file.to_str().unwrap(),
+                    if created {
+                        format!(
+                            "created with {} package.json script tasks imported",
+                            script_tasks
+                        )
+                    } else {
+                        format!(
+                            "updated with {} package.json script tasks imported",
+                            script_tasks
+                        )
+                    }
+                );
             } else {
-                println!("\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m formatted", cfg_file.to_str().unwrap());
+                println!(
+                    "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m {}.",
+                    cfg_file.to_str().unwrap(),
+                    if created { "created" } else { "updated" }
+                );
             }
             if matches.is_present("eject_templates") || targets.len() == 0 {
                 return Ok(());
@@ -349,14 +466,19 @@ async fn main() -> Result<()> {
         }
     }
 
-    let ok = task::run(&chompfile, &mut extension_env, task::RunOptions {
-        watch: matches.is_present("serve") || matches.is_present("watch"),
-        force: matches.is_present("force"),
-        args: if args.len() > 0 { Some(args) } else { None },
-        pool_size,
-        targets,
-        cfg_file,
-    }).await?;
+    let ok = task::run(
+        &chompfile,
+        &mut extension_env,
+        task::RunOptions {
+            watch: matches.is_present("serve") || matches.is_present("watch"),
+            force: matches.is_present("force"),
+            args: if args.len() > 0 { Some(args) } else { None },
+            pool_size,
+            targets,
+            cfg_file,
+        },
+    )
+    .await?;
 
     if !ok {
         eprintln!("Unable to complete all tasks.");
