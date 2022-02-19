@@ -102,7 +102,7 @@ run = 'swc $DEP -o $TARGET --source-maps'
 
 _<div style="text-align: center">SWC task compiling the TypeScript module `src/app.ts` into a JS module `lib/app.js`, and supporting configuration in an `.swcrc` file.</div>_
 
-The above works without a `node_modules/.bin` prefix since `node_modules/.bin` is automatically included in the Chomp spawned `PATH`.
+The above works without having to reference the full `node_modules/.bin/swc` command prefix since `node_modules/.bin` is automatically included in the Chomp spawned `PATH`.
 
 ### Environment Variables
 

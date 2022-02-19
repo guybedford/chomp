@@ -129,4 +129,6 @@ Automatic batching of builds into SWC commands is also handled by the extenion v
 
 # License
 
-MIT
+GPLv3
+
+For licensing discussion, see https://github.com/guybedford/chomp/issues/62.
