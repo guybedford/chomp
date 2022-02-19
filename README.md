@@ -1,12 +1,19 @@
 # CHOMP
 
-> 'JS Make'
+> 'JS Make' - parallel task runner for the frontend ecosystem with a JS extension system.
 
 ## Install
 
 ```
 cargo install chompbuild
 ```
+
+## Documentation
+
+* [CLI Usage](https://github.com/guybedford/chomp/blob/main/docs/cli.md)
+* [Chompfile Definitions](https://github.com/guybedford/chomp/blob/main/docs/chompfile.md)
+* [Task Definitions](https://github.com/guybedford/chomp/blob/main/docs/task.md)
+* [Extensions](https://github.com/guybedford/chomp/blob/main/docs/extensions.md)
 
 ## Getting Started
 
@@ -21,35 +28,92 @@ chompfile.toml
 version = 0.1
 
 [[task]]
-name = 'hello:world'
-target = 'hello-world.txt'
+target = 'name.txt'
 run = '''
-  echo "Hello World" > hello-world.txt
+  echo "No name.txt, writing one."
+  echo "World" > name.txt
+'''
+
+[[task]]
+name = 'hello'
+target = 'hello.txt'
+dep = 'name.txt'
+run = '''
+  echo "Hello $(cat name.txt)" > hello.txt
 '''
 ```
 
 with this file saved, running:
 
 ```sh
-chomp hello:world
+$ chomp hello
 
-🞂 hello-world.txt
-√ hello-world.txt [3.8352ms]
+🞂 name.txt
+No name.txt, writing one.
+√ name.txt [4.4739ms]
+🞂 hello.txt
+√ hello.txt [5.8352ms]
 ```
 
-will populate the `hello-world.txt` file.
+will populate the `hello.txt` file.
 
 Subsequent runs, will see that the target is defined, and skip running the command again:
 
 ```sh
-chomp hello:world
+chomp hello
 
-● hello-world.txt [cached]
+● name.txt [cached]
+● hello.txt [cached]
+```
+
+Changing `name.txt` to use a different name will invalidate the `hello.txt` target only:
+
+```sh
+$ echo "Chomp" > name.txt
+$ chomp hello
+
+● name.txt [cached]
+  hello.txt invalidated by name.txt
+🞂 hello.txt
+√ hello.txt [5.7243ms]
 ```
 
 Array `deps` can be defined for targets, whose targets will then be run first with invalidation based on target / deps mtime comparisons per the standard Makefile approach.
 
 In Windows, Powershell is used and Bash on posix systems. Since both `echo` and `>` are defined on both systems the above works cross-platform (Powershell is automatically put into UTF-8 mode for `>` to work similarly).
+
+Alternatively use `engine = 'node'` or `engine = 'deno'` to write JavaScript in the `run` function instead:
+
+chompfile.toml
+```toml
+version = 0.1
+
+[[task]]
+target = 'name.txt'
+engine = 'node'
+run = '''
+  import { writeFileSync } from 'fs';
+  console.log("No name.txt, writing one.");
+  writeFileSync(process.env.TARGET, 'World');
+'''
+
+[[task]]
+name = 'hello'
+target = 'hello.txt'
+deps = ['name.txt']
+engine = 'node'
+run = '''
+  import { readFileSync, writeFileSync } from 'fs';
+  const name = readFileSync(process.env.DEP, 'utf8').trim();
+  writeFileSync(process.env.TARGET, `Hello ${name}`);
+'''
+```
+
+Tasks are run with full parallelism permitted by the task graph, which can be controlled via the `-j` flag to limit the number of simultaneous executions.
+
+Using the `--watch` flag watches all dependencies and applies incremental rebuilds over invalidations only.
+
+Or using `chomp hello --serve` runs a static file server with watched rebuilds.
 
 ### Extensions
 
@@ -68,64 +132,50 @@ extensions = [
 A core extensions library is provided with useful templates for the JS ecosystem, with
 the short protocol `chomp:ext`, a shorthand for the `@chompbuild/extensions` package contents.
 
-Some short examples of extension templates are provided below. See the [@chompbuild/extensions package](https://github.com/guybedford/chomp-extensions) for extension descriptions and examples.
+A simple example is included below.
 
-#### npm install
+_See the [@chompbuild/extensions package](https://github.com/guybedford/chomp-extensions) for extension descriptions and examples._
 
-For example, to install an npm library, rather than manually writing an `npm install` call, you can use the `npm` template:
-
-```chompfile.toml
-version = 0.1
-extensions = ['chomp:npm']
-
-[[task]]
-name = 'Install Mocha'
-template = 'npm'
-
-[task.options]
-auto-install = true
-packages = ['mocha']
-dev = true
-```
-
-The template includes conveniences to skip the install if the package is already present, and also ensure a package.json file is initialized if it does not exist.
-
-#### TypeScript with SWC
+#### Example: TypeScript with SWC
 
 To compile TypeScript with the SWC template:
 
 ```toml
 version = 0.1
-extensions = ['chomp:swc']
+extensions = ['chomp@0.1:swc']
+
+# Automatically install SWC if not present
+[template-options.npm]
+auto-install = true
 
 [[task]]
-name = 'typescript'
+name = 'build:typescript'
 template = 'swc'
 target = 'lib/#.js'
 deps = ['src/#.ts']
-
-# Installs SWC automatically if needed
-[task.options]
-auto-install = true
 ```
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.
 
 Only files not existing or whose `src` mtimes are invalidated (or SWC itself is updated) will be rebuilt.
 
-Specific files only can be build directly by name as well, skipping all other build work:
+Specific files or patterns can be built directly by name as well, skipping all other build work:
 
 ```sh
 chomp lib/main.js lib/dep.js
 
 🞂 lib/dep.js
 🞂 lib/app.js
-Successfully compiled 2 files with swc.
 √ lib/dep.js [317.2838ms]
 √ lib/app.js [310.0831ms]
 ```
 
-Automatic batching of builds into SWC commands is also handled by the extenion via the batching hook.
+Patterns are also supported for building tasks by name or filename (the below two commands are equivalent):
+
+```sh
+$ chomp lib/*.js
+$ chomp :build:*
+```
 
 # License
 

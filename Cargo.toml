@@ -1,11 +1,14 @@
 [package]
 name = "chompbuild"
 version = "0.1.0"
+authors = ["Guy Bedford <guybedford@gmail.com>"]
 edition = "2021"
 license = "GPL-3.0"
 repository = "https://github.com/guybedford/chomp/"
+keywords = ["make", "task", "runner", "javascript", "web"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
 readme = "README.md"
-description = "Make-like task runner with extension system"
+description = "Make-like parallel task runner with a JS extension system"
 
 [[bin]]
 name = "chomp"

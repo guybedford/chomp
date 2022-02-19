@@ -754,14 +754,6 @@ impl<'a> Runner<'a> {
         }
     }
 
-    #[inline]
-    fn get_file(&mut self, num: usize) -> Option<&File> {
-        match self.nodes[num] {
-            Node::File(ref file) => Some(file),
-            _ => None,
-        }
-    }
-
     fn mark_complete(
         &mut self,
         job_num: usize,
@@ -1467,6 +1459,7 @@ impl<'a> Runner<'a> {
         &mut self,
         watcher: &mut RecommendedWatcher,
         target: &str,
+        glob_files: bool,
     ) -> Result<usize> {
         // First match task by name
         if target.as_bytes()[0] as char == ':' {
@@ -1528,7 +1521,11 @@ impl<'a> Runner<'a> {
                         match self.lookup_task_name(watcher, target).await? {
                             Some(job_num) => Ok(job_num),
                             // Otherwise add as a file dependency
-                            None => Ok(self.add_file(String::from(target))?)
+                            None => if glob_files {
+                                Ok(self.add_file(String::from(target))?)
+                            } else {
+                                Err(anyhow!("No target task '{}' defined in the Chompfile. \nRun \x1b[36mchomp --list\x1b[0m to see the available named targets.", target))
+                            }
                         }
                     }
                 }
@@ -1541,6 +1538,7 @@ impl<'a> Runner<'a> {
         &mut self,
         watcher: &mut RecommendedWatcher,
         target: &str,
+        glob_files: bool,
     ) -> Result<Vec<usize>> {
         assert!(has_glob_chars(target));
         let task_pattern = target.as_bytes()[0] as char == ':';
@@ -1652,19 +1650,21 @@ impl<'a> Runner<'a> {
             }
 
             // finally we do file system globbing, with defined files above overriding file system matches
-            for entry in glob(&target).expect("Failed to read glob pattern") {
-                match entry {
-                    Ok(entry) => {
-                        let dep_path = String::from(entry.path().to_str().unwrap()).replace('\\', "/");
-                        if !globbed_targets.contains(&dep_path) {
-                            let job_num = self.add_file(dep_path.to_string())?;
-                            found.push(job_num);
-                            globbed_targets.insert(dep_path);
+            if glob_files {
+                for entry in glob(&target).expect("Failed to read glob pattern") {
+                    match entry {
+                        Ok(entry) => {
+                            let dep_path = String::from(entry.path().to_str().unwrap()).replace('\\', "/");
+                            if !globbed_targets.contains(&dep_path) {
+                                let job_num = self.add_file(dep_path.to_string())?;
+                                found.push(job_num);
+                                globbed_targets.insert(dep_path);
+                            }
                         }
-                    }
-                    Err(e) => {
-                        eprintln!("{:?}", e);
-                        return Err(anyhow!("GLOB ERROR"));
+                        Err(e) => {
+                            eprintln!("{:?}", e);
+                            return Err(anyhow!("GLOB ERROR"));
+                        }
                     }
                 }
             }
@@ -1682,12 +1682,13 @@ impl<'a> Runner<'a> {
         &mut self,
         watcher: &mut RecommendedWatcher,
         target: &str,
-        drives: Option<usize>
+        glob_files: bool,
+        drives: Option<usize>,
     ) -> Result<Vec<usize>> {
         let job_nums = if !has_glob_chars(target) {
-            vec![self.lookup_target(watcher, target).await?]
+            vec![self.lookup_target(watcher, target, glob_files).await?]
         } else {
-            self.lookup_glob_target(watcher, target).await?
+            self.lookup_glob_target(watcher, target, glob_files).await?
         };
         for job_num in job_nums.iter() {
             self.expand_job(watcher, *job_num, drives).await?;
@@ -1778,7 +1779,7 @@ impl<'a> Runner<'a> {
                             return Err(anyhow!("Invalid task reference '{}' in task {}", &dep, &display_name));
                         }
                     } else {
-                        self.expand_target(watcher, &String::from(dep), Some(job_num))
+                        self.expand_target(watcher, &String::from(dep), true, Some(job_num))
                             .await?;
                     }
                 }
@@ -1882,7 +1883,7 @@ impl<'a> Runner<'a> {
         let parent_task_deps = self.tasks[parent_task].deps.clone();
         for dep in parent_task_deps {
             if !dep.contains('#') {
-                self.expand_target(watcher, &dep, Some(job_num)).await?;
+                self.expand_target(watcher, &dep, true, Some(job_num)).await?;
             }
         }
         Ok(job_num)
@@ -2029,7 +2030,7 @@ pub async fn run<'a>(
 
     let mut job_nums = HashSet::new();
     for target in normalized_targets {
-        let jobs = runner.expand_target(&mut watcher, &target, None).await?;
+        let jobs = runner.expand_target(&mut watcher, &target, false, None).await?;
         for job in jobs {
             job_nums.insert(job);
         }
@@ -2070,12 +2071,7 @@ pub async fn run<'a>(
     // if all jobs completed successfully, exit code is 0, otherwise its an error
     let mut all_ok = true;
     for &job_num in job_nums.iter() {
-        let job = match runner.get_job(job_num) {
-            Some(job_num) => job_num,
-            None => {
-                return Err(anyhow!("'{}' is not defined as a build target in the Chompfile.\nRun \x1b[36mchomp --list\x1b[0m to see the available named targets.", runner.get_file(job_num).unwrap().name));
-            }
-        };
+        let job = runner.get_job(job_num).unwrap();
         if !matches!(job.state, JobState::Fresh) {
             all_ok = false;
             break;
