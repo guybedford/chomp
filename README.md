@@ -1,7 +1,7 @@
 # CHOMP
 
 [![Crates.io](https://img.shields.io/badge/crates.io-chompbuild-green.svg)](https://crates.io/crates/chompbuild)
-[![Discord](https://img.shields.io/badge/chat-on%20disord-green.svg?logo=discord)](https://discord.com/channels/944414343045455892/944414343045455896)
+[![Discord](https://img.shields.io/badge/chat-on%20disord-green.svg?logo=discord)](https://discord.gg/5E9zrhguTy)
 
 
 > 'JS Make' - parallel task runner for the frontend ecosystem with a JS extension system.
@@ -59,6 +59,9 @@ No name.txt, writing one.
 √ name.txt [4.4739ms]
 🞂 hello.txt
 √ hello.txt [5.8352ms]
+
+$ cat hello.txt
+Hello World
 ```
 
 will populate the `hello.txt` file.
@@ -82,6 +85,9 @@ $ chomp hello
   hello.txt invalidated by name.txt
 🞂 hello.txt
 √ hello.txt [5.7243ms]
+
+$ cat hello.txt
+Hello Chomp
 ```
 
 Array `deps` can be defined for targets, whose targets will then be run first with invalidation based on target / deps mtime comparisons per the standard Makefile approach.
