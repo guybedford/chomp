@@ -34,6 +34,7 @@ notify = "4.0.17"
 num_cpus = "1.13.0"
 regex = "1.5"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 serde_v8 = "0.22.0"
 sha2 = "0.10.1"
 tokio = { version = "1", features = ["full"] }

@@ -15,6 +15,8 @@ Chomp takes the following arguments and flags:
 * [`-f, --force`](#force): Force rebuild targets
 * [`-F, --format`](#format): Format and save the chompfile.toml
 * [`-h, --help`](#help): Prints help information
+* [`-I, --import-scripts`](#import-scripts): Import npm package.json "scripts" into the chompfile.toml
+* [`-i, --init`](#init): Initialize the chompfile.toml if it does not exist
 * [`-j, --jobs`](#jobs): Maximum number of jobs to run in parallel
 * [`-l, --list`](#list): List the available chompfile tasks
 * [`-p, --port`](#port): Custom port to serve

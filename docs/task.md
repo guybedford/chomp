@@ -85,7 +85,7 @@ $ chomp my-task
 
 The default `engine` is the shell environment - PowerShell on Windows or `sh` on posix machines.
 
-Common commands like `echo`, `pwd`, `cat`, `rm`, `cp`, `cd`, as well as operators like `$(cmd)`, `>`, `>>`, `|` form a subset of shared behaviours that can work when scripting between all platforms. With some care and testing, it is possible to write cross-platform shell task scripts. For PowerShell 5, Chomp will execute PowerShell in UTF-8 mode (applying to `>`, `>>` and `|`), although a BOM will still be output when writing a new file with `>`.
+Common commands like `echo`, `pwd`, `cat`, `rm`, `cp`, `cd`, as well as operators like `$(cmd)`, `>`, `>>`, `|` form a subset of shared behaviours that can work when scripting between all platforms. With some care and testing, it is possible to write cross-platform shell task scripts. For PowerShell 5, Chomp will execute PowerShell in UTF-8 mode (applying to `>`, `>>` and `|`), although a BOM will still be output when writing a new file with `>`. Since `&&` and `||` are not supported in Powershell, multiline scripts and `;` are preferred instead.
 
 For example, here is an SWC task (assuming Babel is installed via `npm install @swc/core @swc/cli -D`):
 
