@@ -5,7 +5,7 @@
 ## Install
 
 ```
-cargo install chomp-build
+cargo install chompbuild
 ```
 
 ## Getting Started
