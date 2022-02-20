@@ -147,10 +147,10 @@ On both Posix and Windows, `chomp env-vars` will output: `Chomp Chomp`, unless t
 
 The following task-level environment variables are always defined:
 
-* `TARGET`: The path to the primary target.
+* `TARGET`: The path to the primary target (the interpolation target or first target).
 * `TARGETS`: The comma-separated list of target paths for multiple targets.
-* `DEP`: The path to the primary dependency.
-* `DEPS`: The comma-separated list of dependency paths for multiple dependencies.
+* `DEP`: The path to the primary dependency (the interpolation dependency or first dependency file).
+* `DEPS`: The `:`-separated list of expanded dependency paths.
 * `MATCH` When using [task interpolation](#task-interpolation) this provides the matched interpolation replacement value (although the `TARGET` will always be the fully substituted interpolation target for interpolation tasks).
 
 The `PATH` environment variable is automatically extended to include `.bin` in the current folder as well as `node_modules/.bin` in the Chompfile folder.
