@@ -34,15 +34,16 @@ name = 'test2'
 display = 'none'
 target = 'output/test2.txt'
 run = '''
-  echo "$VAR $ANOTHER" > $TARGET
+  ${{ECHO}} "$VAR $ANOTHER" > $TARGET
 '''
 template = 'assert'
 [task.env]
 VAR = 'Chomp'
+ECHO = 'echo'
 [task.env-default]
-ANOTHER = '$VAR MM'
+ANOTHER = '${{VAR}} ${{UNKNOWN}} ${{ VAR }} ${{--INVALID--}} $NOREPLACE MM'
 [task.template-options]
-expect-equals = 'Chomp Chomp MM'
+expect-equals = 'Chomp Chomp  Chomp  $NOREPLACE MM'
 
 # -- Test --
 [[task]]

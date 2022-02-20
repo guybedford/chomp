@@ -130,6 +130,7 @@ pub struct ChompTaskMaybeTemplated {
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
     pub cwd: Option<String>,
+    pub env_replace: Option<bool>,
     pub template: Option<String>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
     #[serde(default, skip_serializing_if = "is_default")]
@@ -212,6 +213,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
     pub cwd: Option<String>,
+    pub env_replace: Option<bool>,
     pub template: Option<String>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
     pub env: Option<HashMap<String, String>>,
