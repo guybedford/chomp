@@ -880,6 +880,34 @@ impl<'a> Runner<'a> {
         }
     }
 
+    fn expand_job_deps(&self, job_num: usize, deps: &mut Vec<String>) {
+        let job = self.get_job(job_num).unwrap();
+        for &dep in job.deps.iter() {
+            match &self.nodes[dep] {
+                Node::Job(job) => {
+                    if job.interpolate.is_none() {
+                        let task = &self.tasks[job.task];
+                        let has_interpolation = task.deps.iter().find(|&d| d.contains('#')).is_some();
+                        if has_interpolation {
+                            self.expand_job_deps(dep, deps);
+                        }
+                    }
+                    for target in job.targets.iter() {
+                        if !deps.iter().find(|&dep| dep == target).is_some() {
+                            deps.push(target.to_string());
+                        }
+                    }
+                },
+                Node::File(file) => {
+                    let name = &file.name;
+                    if !deps.iter().find(|&dep| dep == name).is_some() {
+                        deps.push(name.to_string());
+                    }
+                }
+            };
+        }
+    }
+
     fn run_job(
         &mut self,
         job_num: usize,
@@ -997,39 +1025,19 @@ impl<'a> Runner<'a> {
             }
         }
 
-        let dep_index = if job.interpolate.is_some() {
-            task.deps
-                .iter()
-                .enumerate()
-                .find(|(_, d)| d.contains('#'))
-                .unwrap()
-                .0
+        let mut deps: Vec<String> = if let Some(ref interpolate) = job.interpolate {
+            let interpolate_index = task.deps.iter().enumerate().find(|(_, d)| d.contains('#')).unwrap().0;
+            vec![task.deps[interpolate_index].replace('#', interpolate)]
         } else {
-            0
+            vec![]
         };
-        let dep = if task.deps.len() == 0 {
-            "".to_string()
-        } else if let Some(interpolate) = &job.interpolate {
-            task.deps[dep_index].replace('#', interpolate)
-        } else {
-            task.deps[dep_index].clone()
-        };
-        let mut deps = String::new();
-        for (idx, t) in task.deps.iter().enumerate() {
-            if idx > 0 {
-                deps.push_str(",");
-            }
-            if idx == dep_index {
-                deps.push_str(&dep);
-            } else {
-                deps.push_str(t);
-            }
-        }
+
+        self.expand_job_deps(job_num, &mut deps);
 
         env.insert("TARGET".to_string(), target);
         env.insert("TARGETS".to_string(), targets);
-        env.insert("DEP".to_string(), dep);
-        env.insert("DEPS".to_string(), deps);
+        env.insert("DEP".to_string(), deps[0].to_string());
+        env.insert("DEPS".to_string(), deps.join(";"));
 
         if task.args.is_some() {
             for arg in task.args.as_ref().unwrap() {

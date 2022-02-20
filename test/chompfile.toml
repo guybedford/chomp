@@ -143,3 +143,13 @@ stdio = 'stderr-only'
 target = 'output/lib/#.js'
 deps = ['fixtures/src/#.ts', 'install:swc']
 run = 'swc $DEP -o $TARGET --source-maps'
+
+# -- Test --
+[[task]]
+name = 'test6'
+target = 'output/deps.txt'
+deps = ['output/lib/**/*.js.map', 'build:swc']
+run = 'echo "$DEPS" > output/deps.txt'
+template = 'assert'
+[task.template-options]
+expect-equals = 'output/lib/app.js.map,output/lib/dep.js.map,output/lib/app.js,output/lib/dep.js'
