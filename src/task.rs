@@ -1171,7 +1171,7 @@ impl<'a> Runner<'a> {
                 None => String::from(""),
             },
         );
-        env.insert("DEPS".to_string(), deps.join(";"));
+        env.insert("DEPS".to_string(), deps.join(":"));
 
         if task.args.is_some() {
             for arg in task.args.as_ref().unwrap() {
