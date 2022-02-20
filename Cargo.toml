@@ -1,10 +1,11 @@
 [package]
 name = "chompbuild"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Guy Bedford <guybedford@gmail.com>"]
 edition = "2021"
 license = "GPL-3.0"
 repository = "https://github.com/guybedford/chomp/"
+homepage = "https://chompbuild.com/"
 keywords = ["make", "task", "runner", "javascript", "web"]
 categories = ["command-line-utilities", "development-tools", "web-programming"]
 readme = "README.md"

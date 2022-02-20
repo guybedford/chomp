@@ -214,7 +214,7 @@ To remove the template magic, run `chomp --eject` to convert the `chompfile.toml
 ```sh
 $ chomp --eject
 
-√ chompflie.toml template tasks ejected
+√ chompfile.toml template tasks ejected
 ```
 
 Resulting in the updated _chompfile.toml_:
