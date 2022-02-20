@@ -35,7 +35,7 @@ Tasks support the following optional properties:
 * **cwd**: `String`, the working directory to use for the `engine` execution.
 * **env**: `{ [key: String]: String }`, custom environment variables to set for the `engine` execution.
 * **env-default**: `{ [key: String]: String }`, custom default environment variables to set for the `engine` execution, only if not already present in the system environment.
-* **env-replace**: `Boolean`, defaults to `true`. Whether to support `${{VAR}}` style static environment variable replacements in the `env` and `env-default` environment variable declarations.
+* **env-replace**: `Boolean`, defaults to `true`. Whether to support `${{VAR}}` style static environment variable replacements in the `env` and `env-default` environment variable declarations and the `run` script of Shell engine tasks.
 * **template**: `String`, a registered template name to use for task generation as a [template task](#extensions).
 * **template-options**: `{ [option: String]: any }`, the dictionary of options to apply to the `template` [template generation](#extensions), as defined by the template itself.
 
