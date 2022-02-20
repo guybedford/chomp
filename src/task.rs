@@ -531,23 +531,23 @@ fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile, replacements: 
 fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile, replacements: bool) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
     for (item, value) in &chompfile.env {
-        env.insert(item.to_uppercase(), if replacements { replace_env_vars(value, &env) } else { value.to_string() });
+        env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
     }
     if let Some(task_env) = task.env() {
         for (item, value) in task_env {
-            env.insert(item.to_uppercase(), if replacements { replace_env_vars(value, &env) } else { value.to_string() });
+            env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
         }
     }
     if let Some(task_env_default) = task.env_default() {
         for (item, value) in task_env_default {
             if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                env.insert(item.to_uppercase(), if replacements { replace_env_vars(value, &env) } else { value.to_string() });
+                env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
             }
         }
     }
     for (item, value) in &chompfile.env_default {
         if !env.contains_key(item) && std::env::var_os(item).is_none() {
-            env.insert(item.to_uppercase(), if replacements { replace_env_vars(value, &env) } else { value.to_string() });
+            env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
         }
     }
     env
