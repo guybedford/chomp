@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::collections::BTreeMap;
 use std::process::Stdio;
 use crate::engines::BatchCmd;
 use tokio::process::{Child, Command};
@@ -21,8 +22,35 @@ use regex::Regex;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::engines::replace_env_vars;
 use crate::chompfile::TaskStdio;
+
+fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
+    let mut out_arg = arg.to_string();
+    if out_arg.find('$').is_none() {
+        return out_arg;
+    }
+    for (name, value) in env {
+        let mut env_str = String::from("$");
+        env_str.push_str(name);
+        if out_arg.contains(&env_str) {
+            out_arg = out_arg.replace(&env_str, value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+    }
+    for (name, value) in std::env::vars() {
+        let mut env_str = String::from("$");
+        env_str.push_str(&name.to_uppercase());
+        if out_arg.contains(&env_str) {
+            out_arg = out_arg.replace(&env_str, &value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+    }
+    out_arg
+}
 
 fn set_cmd_stdio (command: &mut Command, stdio: TaskStdio) {
     match stdio {

@@ -35,6 +35,7 @@ Tasks support the following optional properties:
 * **cwd**: `String`, the working directory to use for the `engine` execution.
 * **env**: `{ [key: String]: String }`, custom environment variables to set for the `engine` execution.
 * **env-default**: `{ [key: String]: String }`, custom default environment variables to set for the `engine` execution, only if not already present in the system environment.
+* **env-replace**: `Boolean`, defaults to `true`. Whether to support `${{VAR}}` style static environment variable replacements in the `env` and `env-default` environment variable declarations and the `run` script of Shell engine tasks.
 * **template**: `String`, a registered template name to use for task generation as a [template task](#extensions).
 * **template-options**: `{ [option: String]: any }`, the dictionary of options to apply to the `template` [template generation](#extensions), as defined by the template itself.
 
@@ -119,6 +120,8 @@ In addition to the `run` property, two other useful task properties are `env` an
 
 In PowerShell, defined environment variables in the task `env` are in addition made available as local variables supporting output via `$NAME` instead of `$Env:Name` for better cross-compatibility with posix shells. This process is explicit only - system-level environment variables are not given this treatment though.
 
+In addition, static environment variable replacements are available via `${{VAR}}`, with optional spacing. Replacements that cannot be resolved to a known environment variable will be replaced with an empty string. Static replacements are available for environment variables and the shell engine run command. Set `env-replace = false` to disable static environment variable replacement for a given task.
+
 _chompfile.toml_
 ```toml
 version = 0.1
@@ -126,20 +129,19 @@ version = 0.1
 [[task]]
 name = 'env-vars'
 run = '''
-  echo $VAR1 $VAR2
+  ${{ECHO}} $PARAM1 $PARAM2
 '''
 [task.env]
-VAR1 = 'Chomp'
+PARAM1 = 'Chomp'
 
 [task.default-env]
-VAR2 = '$VAR1'
+ECHO = 'echo'
+PARAM2 = '${{ PARAM1 }}'
 ```
 
-_<div style="text-align: center">Custom environment variables are also exposed as local variables in PowerShell.</div>_
+_<div style="text-align: center">Custom environment variables are also exposed as local variables in PowerShell, while `${{VAR}}` provides static replacements.</div>_
 
-On both Posix and Windows, `chomp env-vars` will output: `Chomp Chomp`.
-
-`VAR2 = "$VAR1"` works as a convenience feature in Chomp for substituting environment variables in other environment variables.
+On both Posix and Windows, `chomp env-vars` will output: `Chomp Chomp`, unless the system has overrides of the `CMD` or `PARAM2` environment variables to alternative values.
 
 `default-env` permits the definition of default environment variables which are only set to the default values if these environment variables are not already set in the system environment or via the global Chompfile environment variables. Just like `env`, all variables in `default-env` are also defined as PowerShell local variables, even when they are already set in the environment and the default does not apply.
 

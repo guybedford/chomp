@@ -49,7 +49,7 @@ use derivative::Derivative;
 use futures::executor;
 use tokio::fs;
 use tokio::time;
-use crate::engines::replace_env_vars;
+use crate::engines::replace_env_vars_static;
 
 use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
@@ -65,6 +65,7 @@ pub struct Task {
     display: Option<TaskDisplay>,
     stdio: TaskStdio,
     env: BTreeMap<String, String>,
+    env_replace: bool,
     cwd: Option<String>,
     run: Option<String>,
     engine: ChompEngine,
@@ -405,6 +406,7 @@ pub fn expand_template_tasks(
             display: task.display,
             stdio: Some(task.stdio.unwrap_or_default()),
             serial: task.serial,
+            env_replace: task.env_replace,
             env: Some(task.env),
             env_default: Some(task.env_default),
             run: task.run,
@@ -466,6 +468,7 @@ pub fn expand_template_tasks(
                 dep,
                 deps,
                 serial: template_task.serial,
+                env_replace: template_task.env_replace,
                 env: template_task.env.unwrap_or_default(),
                 env_default: template_task.env_default.unwrap_or_default(),
                 run: template_task.run,
@@ -491,14 +494,14 @@ fn now () -> std::time::Duration {
 // env vars since these are specifically promoted to local variables
 // for the powershell exec
 #[cfg(target_os = "windows")]
-fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile) -> BTreeMap<String, String> {
+fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile, replacements: bool) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
     for (item, value) in &chompfile.env {
-        env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+        env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
     }
     if let Some(task_env) = task.env() {
         for (item, value) in task_env {
-            env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+            env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
         }
     }
     if let Some(task_env_default) = task.env_default() {
@@ -507,7 +510,7 @@ fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile) -> BTreeMap<St
                 if let Some(val) = std::env::var_os(item) {
                     env.insert(item.to_uppercase(), String::from(val.to_str().unwrap()));
                 } else {
-                    env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+                    env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
                 }
             }
         }
@@ -517,7 +520,7 @@ fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile) -> BTreeMap<St
             if let Some(val) = std::env::var_os(item) {
                 env.insert(item.to_uppercase(), String::from(val.to_str().unwrap()));
             } else {
-                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+                env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
             }
         }
     }
@@ -525,26 +528,26 @@ fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile) -> BTreeMap<St
 }
 
 #[cfg(not(target_os = "windows"))]
-fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile) -> BTreeMap<String, String> {
+fn create_task_env (task: &impl ChompTask, chompfile: &Chompfile, replacements: bool) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
     for (item, value) in &chompfile.env {
-        env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+        env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
     }
     if let Some(task_env) = task.env() {
         for (item, value) in task_env {
-            env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+            env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
         }
     }
     if let Some(task_env_default) = task.env_default() {
         for (item, value) in task_env_default {
             if !env.contains_key(item) && std::env::var_os(item).is_none() {
-                env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+                env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
             }
         }
     }
     for (item, value) in &chompfile.env_default {
         if !env.contains_key(item) && std::env::var_os(item).is_none() {
-            env.insert(item.to_uppercase(), replace_env_vars(value, &env));
+            env.insert(item.to_uppercase(), if replacements { replace_env_vars_static(value, &env) } else { value.to_string() });
         }
     }
     env
@@ -589,7 +592,7 @@ impl<'a> Runner<'a> {
         for task in template_tasks.drain(..) {
             let targets = task.targets_vec();
             let deps = task.deps_vec();
-            let env = create_task_env(&task, &chompfile);
+            let env = create_task_env(&task, &chompfile, task.env_replace.unwrap_or(true));
             let task = Task {
                 name: task.name,
                 targets,
@@ -600,6 +603,7 @@ impl<'a> Runner<'a> {
                 stdio: task.stdio.unwrap_or_default(),
                 engine: task.engine.unwrap_or_default(),
                 env,
+                env_replace: task.env_replace.unwrap_or(true),
                 run: task.run.clone(),
                 cwd: task.cwd,
                 invalidation: task.invalidation.unwrap_or_default(),
@@ -612,7 +616,7 @@ impl<'a> Runner<'a> {
         for task in tasks.drain(..) {
             let targets = task.targets_vec();
             let deps = task.deps_vec();
-            let env = create_task_env(&task, &chompfile);
+            let env = create_task_env(&task, &chompfile, task.env_replace.unwrap_or(true));
             let task = Task {
                 name: task.name,
                 targets,
@@ -623,6 +627,7 @@ impl<'a> Runner<'a> {
                 stdio: task.stdio.unwrap_or_default(),
                 engine: task.engine.unwrap_or_default(),
                 env,
+                env_replace: task.env_replace.unwrap_or(true),
                 run: task.run.clone(),
                 cwd: task.cwd,
                 invalidation: task.invalidation.unwrap_or_default(),
@@ -1037,6 +1042,7 @@ impl<'a> Runner<'a> {
 
         let targets = job.targets.clone();
         let engine = task.engine;
+        let env_replace = task.env_replace;
         let debug = self.chompfile.debug;
         let cmd_num = {
             let stdio = task.stdio;
@@ -1071,7 +1077,7 @@ impl<'a> Runner<'a> {
                 },
                 None => None
             };
-            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, cwd, engine, stdio);
+            let cmd_num = self.cmd_pool.batch(display_name, run, targets, env, env_replace, cwd, engine, stdio);
             let job = self.get_job_mut(job_num).unwrap();
             job.state = JobState::Running;
             job.cmd_num = Some(cmd_num);

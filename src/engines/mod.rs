@@ -15,57 +15,59 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 mod cmd;
-mod node;
 mod deno;
+mod node;
 
-use crate::chompfile::TaskStdio;
-use crate::extensions::BatcherResult;
-use crate::ExtensionEnvironment;
-use std::rc::Rc;
-use futures::future::Shared;
 use crate::chompfile::ChompEngine;
-use crate::engines::node::node_runner;
+use crate::chompfile::TaskStdio;
 use crate::engines::deno::deno_runner;
+use crate::engines::node::node_runner;
+use crate::extensions::BatcherResult;
 use crate::task::check_target_mtimes;
+use crate::ExtensionEnvironment;
+use anyhow::Result;
 use anyhow::{anyhow, Error};
-use tokio::process::Child;
 use cmd::create_cmd;
+use futures::future::Shared;
 use futures::future::{Future, FutureExt};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::time::Duration;
 use std::time::Instant;
+use tokio::process::Child;
 use tokio::time::sleep;
-use anyhow::Result;
 
-pub fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
-    let mut out_arg = arg.to_string();
-    if out_arg.find('$').is_none() {
-        return out_arg;
-    }
-    for (name, value) in env {
-        let mut env_str = String::from("$");
-        env_str.push_str(name);
-        if out_arg.contains(&env_str) {
-            out_arg = out_arg.replace(&env_str, value);
-            if out_arg.find('$').is_none() {
-                return out_arg;
+pub fn replace_env_vars_static(arg: &str, env: &BTreeMap<String, String>) -> String {
+    let mut out_arg = String::new();
+    let mut pos = 0;
+    while let Some(idx) = arg[pos..].find("${{") {
+        let close_idx = match arg[pos + idx + 3..].find("}}") {
+            Some(idx) => idx,
+            None => {
+                out_arg.push_str("${{");
+                pos = pos + idx + 3;
+                continue;
+            }
+        } + pos
+            + idx
+            + 3;
+
+        let var_str = arg[pos + idx + 3..close_idx].trim();
+        out_arg.push_str(&arg[pos..pos + idx]);
+        if let Some(replacement) = env.get(var_str) {
+            out_arg.push_str(replacement);
+        } else {
+            if let Ok(replacement) = std::env::var(var_str) {
+                out_arg.push_str(&replacement);
             }
         }
+        pos = close_idx + 2;
     }
-    for (name, value) in std::env::vars() {
-        let mut env_str = String::from("$");
-        env_str.push_str(&name.to_uppercase());
-        if out_arg.contains(&env_str) {
-            out_arg = out_arg.replace(&env_str, &value);
-            if out_arg.find('$').is_none() {
-                return out_arg;
-            }
-        }
-    }
+    out_arg.push_str(&arg[pos..]);
     out_arg
 }
 
@@ -121,11 +123,17 @@ pub struct Exec<'a> {
     cmd: BatchCmd,
     child: Option<Child>,
     state: ExecState,
-    future: Shared<Pin<Box<dyn Future<Output = Option<(ExecState, Option<Duration>, Duration)>> + 'a>>>
+    future:
+        Shared<Pin<Box<dyn Future<Output = Option<(ExecState, Option<Duration>, Duration)>> + 'a>>>,
 }
 
 impl<'a> CmdPool<'a> {
-    pub fn new(pool_size: usize, cwd: String, extension_env: &'a mut ExtensionEnvironment, debug: bool) -> CmdPool<'a> {
+    pub fn new(
+        pool_size: usize,
+        cwd: String,
+        extension_env: &'a mut ExtensionEnvironment,
+        debug: bool,
+    ) -> CmdPool<'a> {
         CmdPool {
             cmd_num: 0,
             cwd,
@@ -142,7 +150,7 @@ impl<'a> CmdPool<'a> {
         }
     }
 
-    pub fn terminate (&mut self, cmd_num: usize, name: &str) {
+    pub fn terminate(&mut self, cmd_num: usize, name: &str) {
         // Note: On Windows, terminating a process does not terminate
         // the child processes, which can leave zombie processes behind
         println!("Terminating {}...", name);
@@ -158,7 +166,9 @@ impl<'a> CmdPool<'a> {
     pub fn get_exec_future(
         &mut self,
         cmd_num: usize,
-    ) -> Pin<Box<dyn Future<Output = Result<(ExecState, Option<Duration>, Duration), Rc<Error>>> + 'a>> {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<(ExecState, Option<Duration>, Duration), Rc<Error>>> + 'a>,
+    > {
         let pool = self as *mut CmdPool;
         async move {
             let this = unsafe { &mut *pool };
@@ -196,19 +206,28 @@ impl<'a> CmdPool<'a> {
                 let this = unsafe { &mut *pool };
                 // cmds are immutable, and retained as long as executions. Rust doesn't know this.
                 let cmds = unsafe { &mut *cmds };
-                let mut batch: HashSet<&CmdOp> = this
-                    .batching
-                    .iter()
-                    .map(|cmd_num| &cmds[cmd_num])
+                let mut batch: HashSet<&CmdOp> =
+                    this.batching.iter().map(|cmd_num| &cmds[cmd_num]).collect();
+                let running: HashSet<&BatchCmd> = this
+                    .execs
+                    .values()
+                    .filter(|exec| matches!(&exec.state, ExecState::Executing))
+                    .map(|exec| &exec.cmd)
                     .collect();
-                let running: HashSet<&BatchCmd> = this.execs.values().filter(|exec| matches!(&exec.state, ExecState::Executing)).map(|exec| &exec.cmd).collect();
                 let mut global_completion_map: Vec<(usize, usize)> = Vec::new();
                 let mut batched: Vec<BatchCmd> = Vec::new();
 
                 let mut batcher = 0;
                 if this.extension_env.has_batchers() {
                     'outer: loop {
-                        let (BatcherResult { defer: mut queue, mut exec, mut completion_map }, next) = this.extension_env.run_batcher(batcher, &batch, &running)?;
+                        let (
+                            BatcherResult {
+                                defer: mut queue,
+                                mut exec,
+                                mut completion_map,
+                            },
+                            next,
+                        ) = this.extension_env.run_batcher(batcher, &batch, &running)?;
                         if let Some(completion_map) = completion_map.take() {
                             for (cmd_num, exec_num) in completion_map {
                                 batch.remove(&cmds[&cmd_num]);
@@ -231,8 +250,8 @@ impl<'a> CmdPool<'a> {
                             }
                         }
                         match next {
-                            Some(num) => { batcher = num },
-                            None => { break 'outer },
+                            Some(num) => batcher = num,
+                            None => break 'outer,
                         };
                     }
                 }
@@ -260,7 +279,9 @@ impl<'a> CmdPool<'a> {
                 }
                 this.batch_future = None;
                 Ok(())
-            }.boxed_local().shared(),
+            }
+            .boxed_local()
+            .shared(),
         );
     }
 
@@ -299,11 +320,11 @@ impl<'a> CmdPool<'a> {
                             } else {
                                 ExecState::Failed
                             }
-                        },
+                        }
                         Err(e) => match exec.state {
                             ExecState::Terminating => ExecState::Terminated,
-                            _ => panic!("Unexpected exec error {:?}", e)
-                        }
+                            _ => panic!("Unexpected exec error {:?}", e),
+                        },
                     };
                     let end_time = Instant::now();
                     this.exec_cnt = this.exec_cnt - 1;
@@ -311,8 +332,17 @@ impl<'a> CmdPool<'a> {
                     let mtime = check_target_mtimes(targets, true).await;
                     Some((exec.state, mtime, end_time - start_time))
                 }
-                .boxed_local().shared();
-                self.execs.insert(exec_num, Exec { cmd, child, future, state: ExecState::Executing });
+                .boxed_local()
+                .shared();
+                self.execs.insert(
+                    exec_num,
+                    Exec {
+                        cmd,
+                        child,
+                        future,
+                        state: ExecState::Executing,
+                    },
+                );
                 self.exec_num = self.exec_num + 1;
             }
             ChompEngine::Node => node_runner(self, cmd, targets, debug),
@@ -326,6 +356,7 @@ impl<'a> CmdPool<'a> {
         run: String,
         targets: Vec<String>,
         env: BTreeMap<String, String>,
+        replacements: bool,
         cwd: Option<String>,
         engine: ChompEngine,
         stdio: TaskStdio,
@@ -337,7 +368,11 @@ impl<'a> CmdPool<'a> {
                 id,
                 cwd,
                 name,
-                run,
+                run: if matches!(engine, ChompEngine::Shell) && replacements {
+                    replace_env_vars_static(&run, &env)
+                } else {
+                    run
+                },
                 env,
                 engine,
                 stdio,

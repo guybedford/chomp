@@ -419,6 +419,7 @@ async fn main() -> Result<()> {
                                     target: None,
                                     display: None,
                                     engine: None,
+                                    env_replace: None,
                                     env: HashMap::new(),
                                     env_default: HashMap::new(),
                                     invalidation: None,
