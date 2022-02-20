@@ -81,6 +81,15 @@ $ chomp my-task
 ● output.txt [cached]
 ```
 
+### Task Completion
+
+A task is considered to have succeeded if it completes with a zero exit code, and the target or targets
+expected of the task all exist.
+
+If the spawned process returns a non-zero exit code the task and all its parents will be marked as failed.
+
+If after completion, any of the targets defined for the task still do not exist, then the task is also marked as failed.
+
 ### Shell Tasks
 
 The default `engine` is the shell environment - PowerShell on Windows or `sh` on posix machines.
