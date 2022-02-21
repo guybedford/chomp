@@ -1029,7 +1029,7 @@ impl<'a> Runner<'a> {
         }
         // If we have an mtime, check if we need to do work
         if let Some(mtime) = job.mtime {
-            let can_skip = !force && mtime.as_secs() > 0
+            let can_skip = !force
                 && task.args.is_none()
                 && match task.invalidation {
                     InvalidationCheck::NotFound => true,
@@ -2239,7 +2239,7 @@ pub async fn run<'a>(
         for job in jobs {
             if opts.rerun {
                 let mut job = runner.get_job_mut(job).unwrap();
-                job.mtime = Some(Duration::new(0, 0));
+                job.mtime = None;
                 job.state = JobState::Pending;
             }
             job_nums.insert(job);
