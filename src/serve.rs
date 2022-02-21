@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use crate::chompfile::ServerOptions;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Method, Request, Response, Result, Server, StatusCode};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use tokio::fs::File;
 use tokio_util::codec::{BytesCodec, FramedRead};
-use crate::chompfile::ServerOptions;
 
 async fn handle(req: Request<Body>) -> Result<Response<Body>> {
     match (req.method(), req.uri().path()) {
@@ -43,8 +43,10 @@ async fn file_serve(filename: &str) -> Result<Response<Body>> {
         let mut res = Response::new(body);
         let guess = mime_guess::from_path(filename);
         if let Some(mime) = guess.first() {
-            res.headers_mut()
-                .insert(header::CONTENT_TYPE, header::HeaderValue::from_str(mime.essence_str()).unwrap());
+            res.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_str(mime.essence_str()).unwrap(),
+            );
         }
         return Ok(res);
     }
@@ -61,13 +63,19 @@ fn unsupported_method() -> Response<Body> {
 fn not_found(path: &str) -> Response<Body> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
-        .header(header::CONTENT_TYPE, header::HeaderValue::from_str("text/plain").unwrap())
+        .header(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_str("text/plain").unwrap(),
+        )
         .body(Body::from(format!("\"{}\" Not Found", path)))
         .unwrap()
 }
 
 pub async fn serve(opts: ServerOptions) -> Result<()> {
-    println!("Serving \x1b[1m{}\x1b[0m on \x1b[0;36mhttp://localhost:{}\x1b[0m...", opts.root, opts.port);
+    println!(
+        "Serving \x1b[1m{}\x1b[0m on \x1b[0;36mhttp://localhost:{}\x1b[0m...",
+        opts.root, opts.port
+    );
 
     let addr = SocketAddr::from(([127, 0, 0, 1], opts.port));
 

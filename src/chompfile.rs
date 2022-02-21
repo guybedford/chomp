@@ -35,7 +35,7 @@ pub enum TaskDisplay {
 }
 
 impl Default for TaskDisplay {
-    fn default () -> Self {
+    fn default() -> Self {
         TaskDisplay::InitStatus
     }
 }
@@ -51,13 +51,13 @@ pub enum TaskStdio {
 }
 
 impl Default for TaskStdio {
-    fn default () -> Self {
+    fn default() -> Self {
         TaskStdio::All
     }
 }
 
 impl Default for ChompEngine {
-    fn default () -> Self {
+    fn default() -> Self {
         ChompEngine::Shell
     }
 }
@@ -92,10 +92,10 @@ pub struct ServerOptions {
 }
 
 impl Default for ServerOptions {
-    fn default () -> Self {
+    fn default() -> Self {
         ServerOptions {
             root: ".".to_string(),
-            port: 8080
+            port: 8080,
         }
     }
 }
@@ -109,7 +109,7 @@ pub enum InvalidationCheck {
 }
 
 impl Default for InvalidationCheck {
-    fn default () -> Self {
+    fn default() -> Self {
         InvalidationCheck::Mtime
     }
 }
@@ -140,53 +140,43 @@ pub struct ChompTaskMaybeTemplated {
 }
 
 impl ChompTaskMaybeTemplated {
-    pub fn targets_vec (&self) -> Vec<String> {
+    pub fn targets_vec(&self) -> Vec<String> {
         if let Some(ref target) = self.target {
             vec![target.to_string()]
-        }
-        else if let Some(ref targets) = self.targets {
+        } else if let Some(ref targets) = self.targets {
             targets.clone()
-        }
-        else {
+        } else {
             vec![]
         }
     }
-    pub fn deps_vec (&self) -> Vec<String> {
+    pub fn deps_vec(&self) -> Vec<String> {
         if let Some(ref dep) = self.dep {
             vec![dep.to_string()]
-        }
-        else if let Some(ref deps) = self.deps {
+        } else if let Some(ref deps) = self.deps {
             deps.clone()
-        }
-        else {
+        } else {
             vec![]
         }
     }
 }
 
 impl ChompTaskMaybeTemplatedNoDefault {
-    pub fn targets_vec (&self) -> Vec<String> {
+    pub fn targets_vec(&self) -> Vec<String> {
         if let Some(ref target) = self.target {
-            if self.targets.is_some() {
-                
-            }
+            if self.targets.is_some() {}
             vec![target.to_string()]
-        }
-        else if let Some(ref targets) = self.targets {
+        } else if let Some(ref targets) = self.targets {
             targets.clone()
-        }
-        else {
+        } else {
             vec![]
         }
     }
-    pub fn deps_vec (&self) -> Vec<String> {
+    pub fn deps_vec(&self) -> Vec<String> {
         if let Some(ref dep) = self.dep {
             vec![dep.to_string()]
-        }
-        else if let Some(ref deps) = self.deps {
+        } else if let Some(ref deps) = self.deps {
             deps.clone()
-        }
-        else {
+        } else {
             vec![]
         }
     }
@@ -221,24 +211,24 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
 }
 
 pub trait ChompTask {
-    fn env (&self) -> Option<&HashMap<String, String>>;
-    fn env_default (&self) -> Option<&HashMap<String, String>>;
+    fn env(&self) -> Option<&HashMap<String, String>>;
+    fn env_default(&self) -> Option<&HashMap<String, String>>;
 }
 
 impl ChompTask for ChompTaskMaybeTemplated {
-    fn env (&self) -> Option<&HashMap<String, String>> {
+    fn env(&self) -> Option<&HashMap<String, String>> {
         Some(&self.env)
     }
-    fn env_default (&self) -> Option<&HashMap<String, String>> {
+    fn env_default(&self) -> Option<&HashMap<String, String>> {
         Some(&self.env_default)
     }
 }
 
 impl ChompTask for ChompTaskMaybeTemplatedNoDefault {
-    fn env (&self) -> Option<&HashMap<String, String>> {
+    fn env(&self) -> Option<&HashMap<String, String>> {
         self.env.as_ref()
     }
-    fn env_default (&self) -> Option<&HashMap<String, String>> {
+    fn env_default(&self) -> Option<&HashMap<String, String>> {
         self.env_default.as_ref()
     }
 }

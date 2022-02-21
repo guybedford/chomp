@@ -14,15 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
-use std::process::Stdio;
+use crate::chompfile::TaskStdio;
 use crate::engines::BatchCmd;
-use tokio::process::{Child, Command};
 use regex::Regex;
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::chompfile::TaskStdio;
+use std::process::Stdio;
+use tokio::process::{Child, Command};
 
 fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
     let mut out_arg = arg.to_string();
@@ -30,20 +30,45 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
         return out_arg;
     }
     for (name, value) in env {
+        if !out_arg.contains(name) {
+            continue;
+        }
         let mut env_str = String::from("$");
         env_str.push_str(name);
         if out_arg.contains(&env_str) {
-            out_arg = out_arg.replace(&env_str, value);
+            out_arg = out_arg.replace(&env_str, &value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+        let mut env_str_curly = String::from("${");
+        env_str_curly.push_str(name);
+        env_str_curly.push_str("}");
+        if out_arg.contains(&env_str_curly) {
+            out_arg = out_arg.replace(&env_str_curly, &value);
             if out_arg.find('$').is_none() {
                 return out_arg;
             }
         }
     }
     for (name, value) in std::env::vars() {
+        let name = name.to_uppercase();
+        if !out_arg.contains(&name) {
+            continue;
+        }
         let mut env_str = String::from("$");
-        env_str.push_str(&name.to_uppercase());
+        env_str.push_str(&name);
         if out_arg.contains(&env_str) {
             out_arg = out_arg.replace(&env_str, &value);
+            if out_arg.find('$').is_none() {
+                return out_arg;
+            }
+        }
+        let mut env_str_curly = String::from("${");
+        env_str_curly.push_str(&name);
+        env_str_curly.push_str("}");
+        if out_arg.contains(&env_str_curly) {
+            out_arg = out_arg.replace(&env_str_curly, &value);
             if out_arg.find('$').is_none() {
                 return out_arg;
             }
@@ -52,20 +77,20 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
     out_arg
 }
 
-fn set_cmd_stdio (command: &mut Command, stdio: TaskStdio) {
+fn set_cmd_stdio(command: &mut Command, stdio: TaskStdio) {
     match stdio {
-        TaskStdio::All => {},
+        TaskStdio::All => {}
         TaskStdio::StderrOnly => {
             command.stdin(Stdio::null());
             command.stdout(Stdio::null());
-        },
+        }
         TaskStdio::StdoutOnly => {
             command.stdin(Stdio::null());
             command.stderr(Stdio::null());
-        },
+        }
         TaskStdio::NoStdin => {
             command.stdin(Stdio::null());
-        },
+        }
         TaskStdio::None => {
             command.stdin(Stdio::null());
             command.stdout(Stdio::null());
@@ -75,23 +100,33 @@ fn set_cmd_stdio (command: &mut Command, stdio: TaskStdio) {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
+pub fn create_cmd(
+    cwd: &String,
+    batch_cmd: &BatchCmd,
+    debug: bool,
+    fastpath_fallback: bool,
+) -> Option<Child> {
     let run = batch_cmd.run.trim();
     lazy_static! {
-        static ref CMD: Regex = Regex::new("(?x)
+        static ref CMD: Regex = Regex::new(
+            "(?x)
             ^(?P<cmd>[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
              (?P<args>(?:\\ (?:
                 [^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+ |
                 (?:\"[^\"\\n\\\\]*?\") |
                 (?:'[^'\"\\n\\\\]*?')
             )*?)*?)$
-        ").unwrap();
-        
-        static ref ARGS: Regex = Regex::new("(?x)
+        "
+        )
+        .unwrap();
+        static ref ARGS: Regex = Regex::new(
+            "(?x)
             \\ (?:[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+ |
                 (?:\"[^\"\\n\\\\]*?\") |
                 (?:'[^'\"\\n\\\\]*?'))
-        ").unwrap();
+        "
+        )
+        .unwrap();
     }
     let mut path: String = env::var("PATH").unwrap_or_default();
     if path.len() > 0 && !path.ends_with(';') {
@@ -188,7 +223,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                             if !fastpath_fallback {
                                 return None;
                             }
-                        }, // fallback to shell
+                        } // fallback to shell
                     }
                 }
             };
@@ -232,23 +267,33 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fallback: bool) -> Option<Child> {
+pub fn create_cmd(
+    cwd: &String,
+    batch_cmd: &BatchCmd,
+    debug: bool,
+    fastpath_fallback: bool,
+) -> Option<Child> {
     let run = batch_cmd.run.trim();
     lazy_static! {
-        static ref CMD: Regex = Regex::new("(?x)
+        static ref CMD: Regex = Regex::new(
+            "(?x)
             ^(?P<cmd>[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+?)
              (?P<args>(?:\\ (?:
                 [^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+ |
                 (?:\"[^\"\\n\\\\]*?\") |
                 (?:'[^'\"\\n\\\\]*?')
             )*?)*?)$
-        ").unwrap();
-        
-        static ref ARGS: Regex = Regex::new("(?x)
+        "
+        )
+        .unwrap();
+        static ref ARGS: Regex = Regex::new(
+            "(?x)
             \\ (?:[^`~!\\#&*()\t\\{\\[|;'\"\\n<>?\\\\\\ ]+ |
                 (?:\"[^\"\\n\\\\]*?\") |
                 (?:'[^'\"\\n\\\\]*?'))
-        ").unwrap();
+        "
+        )
+        .unwrap();
     }
     let mut path: String = env::var("PATH").unwrap_or_default();
     if path.len() > 0 && !path.ends_with(':') {
@@ -312,7 +357,7 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, debug: bool, fastpath_fall
                     if !fastpath_fallback {
                         return None;
                     }
-                }, // fallback to shell
+                } // fallback to shell
             }
         }
     }

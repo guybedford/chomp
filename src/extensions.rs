@@ -18,6 +18,7 @@ use crate::chompfile::ChompTaskMaybeTemplatedNoDefault;
 use crate::engines::BatchCmd;
 use crate::engines::CmdOp;
 use anyhow::{anyhow, Error, Result};
+use serde::Deserialize;
 use serde_v8::from_v8;
 use serde_v8::to_v8;
 use std::cell::RefCell;
@@ -26,7 +27,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
 use v8;
-use serde::Deserialize;
 
 pub struct ExtensionEnvironment {
     isolate: v8::OwnedIsolate,
@@ -164,7 +164,11 @@ fn chomp_register_batcher(
         panic!("Chomp does not support dynamic batcher registration.");
     }
     // remove any existing batcher by the same name
-    if let Some(prev_batcher) = extension_env.batchers.iter().position(|name| name.0 == name_str) {
+    if let Some(prev_batcher) = extension_env
+        .batchers
+        .iter()
+        .position(|name| name.0 == name_str)
+    {
         extension_env.batchers.remove(prev_batcher);
     }
     extension_env.batchers.push((name_str, batch_global));
@@ -319,8 +323,14 @@ impl ExtensionEnvironment {
             match extensions.templates.get(name) {
                 Some(tpl) => Ok(tpl.clone()),
                 None => {
-                    if name == "babel" || name == "cargo" || name == "jspm" || name == "npm" ||
-                        name == "prettier" || name == "svelte" || name == "swc" {
+                    if name == "babel"
+                        || name == "cargo"
+                        || name == "jspm"
+                        || name == "npm"
+                        || name == "prettier"
+                        || name == "svelte"
+                        || name == "swc"
+                    {
                         if self.has_extensions {
                             Err(anyhow!("Template '{}' has not been registered. To include the core template, add \x1b[1m'chomp@0.1:{}'\x1b[0m to the extensions list:\x1b[36m\n\n  extensions = [..., 'chomp@0.1:{}']\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m.", &name, &name, &name))
                         } else {
@@ -349,7 +359,7 @@ impl ExtensionEnvironment {
         Ok(task)
     }
 
-    pub fn has_batchers (&self) -> bool {
+    pub fn has_batchers(&self) -> bool {
         self.get_extensions().borrow().batchers.len() > 0
     }
 
@@ -358,11 +368,7 @@ impl ExtensionEnvironment {
         idx: usize,
         batch: &HashSet<&CmdOp>,
         running: &HashSet<&BatchCmd>,
-    ) -> Result<(
-        BatcherResult,
-        Option<usize>,
-    )> {
-
+    ) -> Result<(BatcherResult, Option<usize>)> {
         let (name, batcher, batchers_len) = {
             let extensions = self.get_extensions().borrow();
             let (name, batcher) = extensions.batchers[idx].clone();
@@ -384,14 +390,23 @@ impl ExtensionEnvironment {
             None => return Err(v8_exception(tc_scope)),
         };
 
-        let result: Option<BatcherResult> = from_v8(tc_scope, result)
-            .expect(&format!("Unable to deserialize batch for {} due to invalid structure", name));
+        let result: Option<BatcherResult> = from_v8(tc_scope, result).expect(&format!(
+            "Unable to deserialize batch for {} due to invalid structure",
+            name
+        ));
         let next = if idx < batchers_len - 1 {
             Some(idx + 1)
         } else {
             None
         };
-        Ok((result.unwrap_or(BatcherResult { defer: None, exec: None, completion_map: None }), next))
+        Ok((
+            result.unwrap_or(BatcherResult {
+                defer: None,
+                exec: None,
+                completion_map: None,
+            }),
+            next,
+        ))
     }
 }
 
