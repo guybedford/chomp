@@ -1029,15 +1029,13 @@ impl<'a> Runner<'a> {
         }
         // If we have an mtime, check if we need to do work
         if let Some(mtime) = job.mtime {
-            let can_skip = !force
-                && task.args.is_none()
-                && match task.invalidation {
+            let can_skip = task.args.is_none() && match task.invalidation {
                     InvalidationCheck::NotFound => true,
                     InvalidationCheck::Always => {
-                        if matches!(
+                        if !force && (matches!(
                             task.display,
                             Some(TaskDisplay::InitStatus) | Some(TaskDisplay::InitOnly) | None
-                        ) || self.chompfile.debug
+                        ) || self.chompfile.debug)
                         {
                             println!(
                                 "  \x1b[1m{}\x1b[0m invalidated",
@@ -1047,62 +1045,66 @@ impl<'a> Runner<'a> {
                         false
                     }
                     InvalidationCheck::Mtime => {
-                        let mut dep_change = false;
-                        for &dep in job.deps.iter() {
-                            dep_change = match &self.nodes[dep] {
-                                Node::Job(dep) => {
-                                    let invalidated = match &self.tasks[dep.task].invalidation {
-                                        InvalidationCheck::NotFound => false,
-                                        InvalidationCheck::Always | InvalidationCheck::Mtime => {
-                                            match dep.mtime {
-                                                Some(dep_mtime) => dep_mtime > mtime,
-                                                None => true,
+                        if force {
+                            false
+                        } else {
+                            let mut dep_change = false;
+                            for &dep in job.deps.iter() {
+                                dep_change = match &self.nodes[dep] {
+                                    Node::Job(dep) => {
+                                        let invalidated = match &self.tasks[dep.task].invalidation {
+                                            InvalidationCheck::NotFound => false,
+                                            InvalidationCheck::Always | InvalidationCheck::Mtime => {
+                                                match dep.mtime {
+                                                    Some(dep_mtime) => dep_mtime > mtime,
+                                                    None => true,
+                                                }
                                             }
+                                        };
+                                        if invalidated
+                                            && (matches!(
+                                                task.display,
+                                                Some(TaskDisplay::InitStatus)
+                                                    | Some(TaskDisplay::InitOnly)
+                                                    | None
+                                            ) || self.chompfile.debug)
+                                        {
+                                            println!(
+                                                "  \x1b[1m{}\x1b[0m invalidated by {}",
+                                                job.display_name(&self.tasks),
+                                                dep.display_name(&self.tasks)
+                                            );
                                         }
-                                    };
-                                    if invalidated
-                                        && (matches!(
-                                            task.display,
-                                            Some(TaskDisplay::InitStatus)
-                                                | Some(TaskDisplay::InitOnly)
-                                                | None
-                                        ) || self.chompfile.debug)
-                                    {
-                                        println!(
-                                            "  \x1b[1m{}\x1b[0m invalidated by {}",
-                                            job.display_name(&self.tasks),
-                                            dep.display_name(&self.tasks)
-                                        );
+                                        invalidated
                                     }
-                                    invalidated
-                                }
-                                Node::File(dep) => {
-                                    let invalidated = match dep.mtime {
-                                        Some(dep_mtime) => dep_mtime > mtime,
-                                        None => true,
-                                    };
-                                    if invalidated
-                                        && (matches!(
-                                            task.display,
-                                            Some(TaskDisplay::InitStatus)
-                                                | Some(TaskDisplay::InitOnly)
-                                                | None
-                                        ) || self.chompfile.debug)
-                                    {
-                                        println!(
-                                            "  \x1b[1m{}\x1b[0m invalidated by {}",
-                                            job.display_name(&self.tasks),
-                                            dep.name
-                                        );
+                                    Node::File(dep) => {
+                                        let invalidated = match dep.mtime {
+                                            Some(dep_mtime) => dep_mtime > mtime,
+                                            None => true,
+                                        };
+                                        if invalidated
+                                            && (matches!(
+                                                task.display,
+                                                Some(TaskDisplay::InitStatus)
+                                                    | Some(TaskDisplay::InitOnly)
+                                                    | None
+                                            ) || self.chompfile.debug)
+                                        {
+                                            println!(
+                                                "  \x1b[1m{}\x1b[0m invalidated by {}",
+                                                job.display_name(&self.tasks),
+                                                dep.name
+                                            );
+                                        }
+                                        invalidated
                                     }
-                                    invalidated
+                                };
+                                if dep_change {
+                                    break;
                                 }
-                            };
-                            if dep_change {
-                                break;
                             }
+                            !dep_change
                         }
-                        !dep_change
                     }
                 };
             if can_skip {
