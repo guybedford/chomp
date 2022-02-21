@@ -77,6 +77,7 @@ pub struct RunOptions {
     pub pool_size: usize,
     pub targets: Vec<String>,
     pub watch: bool,
+    pub rerun: bool,
     pub force: bool,
 }
 
@@ -1028,7 +1029,7 @@ impl<'a> Runner<'a> {
         }
         // If we have an mtime, check if we need to do work
         if let Some(mtime) = job.mtime {
-            let can_skip = !force
+            let can_skip = !force && mtime.as_secs() > 0
                 && task.args.is_none()
                 && match task.invalidation {
                     InvalidationCheck::NotFound => true,
@@ -2236,6 +2237,11 @@ pub async fn run<'a>(
             .expand_target(&mut watcher, &target, false, None)
             .await?;
         for job in jobs {
+            if opts.rerun {
+                let mut job = runner.get_job_mut(job).unwrap();
+                job.mtime = Some(Duration::new(0, 0));
+                job.state = JobState::Pending;
+            }
             job_nums.insert(job);
         }
     }

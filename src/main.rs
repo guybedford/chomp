@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
         )
         .arg(
             Arg::with_name("server-root")
-                .short("r")
+                .short("R")
                 .long("server-root")
                 .help("Server root path")
                 .takes_value(true),
@@ -146,6 +146,12 @@ async fn main() -> Result<()> {
                 .short("C")
                 .long("clear-cache")
                 .help("Clear URL extension cache"),
+        )
+        .arg(
+            Arg::with_name("rerun")
+                .short("r")
+                .long("rerun")
+                .help("Rerun the target tasks even if cached"),
         )
         .arg(
             Arg::with_name("force")
@@ -475,6 +481,7 @@ async fn main() -> Result<()> {
         task::RunOptions {
             watch: matches.is_present("serve") || matches.is_present("watch"),
             force: matches.is_present("force"),
+            rerun: matches.is_present("rerun"),
             args: if args.len() > 0 { Some(args) } else { None },
             pool_size,
             targets,

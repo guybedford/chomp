@@ -20,8 +20,9 @@ Chomp takes the following arguments and flags:
 * [`-j, --jobs`](#jobs): Maximum number of jobs to run in parallel
 * [`-l, --list`](#list): List the available chompfile tasks
 * [`-p, --port`](#port): Custom port to serve
+* [`-r, --rerun`](#rerun): Rerun the listed targets without caching
 * [`-s, --serve`](#serve): Run a local dev server
-* [`-r, --server-root`](#server-root): Server root path
+* [`-R, --server-root`](#server-root): Server root path
 * [`-V, --version`](#version): Prints version information
 * [`-w, --watch`](#watch): Watch the input files for changes
 
@@ -88,6 +89,12 @@ By default tasks in Chomp are run with [maximum parallelization](task.md#task-pa
 ## Port
 
 When using [`chomp --serve`](#serve) to run a local static server, customizes the static server port. Defaults to `8080`.
+
+## Rerun
+
+Useful to rerun specific tasks without caching without invalidating the whole tree.
+
+To invalidate the full task graph use [`chomp --force`](#force).
 
 ## Serve
 
