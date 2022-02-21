@@ -77,6 +77,7 @@ pub struct RunOptions {
     pub pool_size: usize,
     pub targets: Vec<String>,
     pub watch: bool,
+    pub rerun: bool,
     pub force: bool,
 }
 
@@ -2236,6 +2237,11 @@ pub async fn run<'a>(
             .expand_target(&mut watcher, &target, false, None)
             .await?;
         for job in jobs {
+            if opts.rerun {
+                let mut job = runner.get_job_mut(job).unwrap();
+                job.mtime = None;
+                job.state = JobState::Pending;
+            }
             job_nums.insert(job);
         }
     }
