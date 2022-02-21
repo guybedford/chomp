@@ -45,7 +45,7 @@ const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.7/";
 
 const CHOMP_INIT: &str = r#"version = 0.1
 
-default_task = 'build'
+default-task = 'build'
 
 [[task]]
 name = 'build'
