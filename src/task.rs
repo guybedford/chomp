@@ -532,6 +532,22 @@ fn create_task_env(
             },
         );
     }
+    for (item, value) in &chompfile.env_default {
+        if !env.contains_key(item) {
+            if let Some(val) = std::env::var_os(item) {
+                env.insert(item.to_uppercase(), String::from(val.to_str().unwrap()));
+            } else {
+                env.insert(
+                    item.to_uppercase(),
+                    if replacements {
+                        replace_env_vars_static(value, &env)
+                    } else {
+                        value.to_string()
+                    },
+                );
+            }
+        }
+    }
     if let Some(task_env) = task.env() {
         for (item, value) in task_env {
             env.insert(
@@ -562,22 +578,6 @@ fn create_task_env(
             }
         }
     }
-    for (item, value) in &chompfile.env_default {
-        if !env.contains_key(item) {
-            if let Some(val) = std::env::var_os(item) {
-                env.insert(item.to_uppercase(), String::from(val.to_str().unwrap()));
-            } else {
-                env.insert(
-                    item.to_uppercase(),
-                    if replacements {
-                        replace_env_vars_static(value, &env)
-                    } else {
-                        value.to_string()
-                    },
-                );
-            }
-        }
-    }
     env
 }
 
@@ -597,6 +597,18 @@ fn create_task_env(
                 value.to_string()
             },
         );
+    }
+    for (item, value) in &chompfile.env_default {
+        if !env.contains_key(item) && std::env::var_os(item).is_none() {
+            env.insert(
+                item.to_uppercase(),
+                if replacements {
+                    replace_env_vars_static(value, &env)
+                } else {
+                    value.to_string()
+                },
+            );
+        }
     }
     if let Some(task_env) = task.env() {
         for (item, value) in task_env {
@@ -622,18 +634,6 @@ fn create_task_env(
                     },
                 );
             }
-        }
-    }
-    for (item, value) in &chompfile.env_default {
-        if !env.contains_key(item) && std::env::var_os(item).is_none() {
-            env.insert(
-                item.to_uppercase(),
-                if replacements {
-                    replace_env_vars_static(value, &env)
-                } else {
-                    value.to_string()
-                },
-            );
         }
     }
     env
