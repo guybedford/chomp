@@ -1142,7 +1142,7 @@ impl<'a> Runner<'a> {
         let mut targets = String::new();
         for (idx, t) in task.targets.iter().enumerate() {
             if idx > 0 {
-                targets.push_str(",");
+                targets.push_str(":");
             }
             if idx == target_index {
                 targets.push_str(&target);
