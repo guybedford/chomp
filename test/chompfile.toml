@@ -2,6 +2,12 @@ version = 0.1
 extensions = ['chomp@0.1:assert', 'chomp@0.1:npm']
 default-task = 'test'
 
+[env]
+VAL = 'C'
+
+[env-default]
+DEFAULT = '${{ VAL }}H'
+
 [[task]]
 name = 'test'
 serial = true
@@ -38,12 +44,12 @@ run = '''
 '''
 template = 'assert'
 [task.env]
-VAR = 'Chomp'
+VAR = 'Chomp ${{ DEFAULT }}'
 ECHO = 'echo'
 [task.env-default]
-ANOTHER = '${{VAR}} ${{UNKNOWN}} ${{ VAR }} ${{--INVALID--}} $NOREPLACE MM'
+ANOTHER = '${{VAR}} ${{UNKNOWN}} ${{ VAR }} ${{--INVALID--}} $NOREPLACE ${{ DEFAULT }}'
 [task.template-options]
-expect-equals = 'Chomp Chomp  Chomp  $NOREPLACE MM'
+expect-equals = 'Chomp CH Chomp CH  Chomp CH  $NOREPLACE CH'
 
 # -- Test --
 [[task]]
