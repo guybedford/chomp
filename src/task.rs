@@ -160,7 +160,7 @@ impl File {
     }
 }
 
-struct Runner<'a> {
+pub struct Runner<'a> {
     // ui: &'a ChompUI,
     cwd: String,
     cmd_pool: CmdPool<'a>,
@@ -641,7 +641,7 @@ fn create_task_env(
 }
 
 impl<'a> Runner<'a> {
-    fn new(
+    pub fn new(
         // ui: &'a ChompUI,
         chompfile: &'a Chompfile,
         extension_env: &'a mut ExtensionEnvironment,
@@ -2217,102 +2217,97 @@ impl<'a> Runner<'a> {
             }
         }
     }
-}
 
-pub async fn run<'a>(
-    chompfile: &'a Chompfile,
-    extension_env: &'a mut ExtensionEnvironment,
-    opts: RunOptions,
-) -> Result<bool> {
-    let mut runner = Runner::new(&chompfile, extension_env, opts.pool_size, opts.watch)?;
-    let (tx, rx) = channel();
-    let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
-
-    let normalized_targets: Vec<String> = if opts.targets.len() == 0 {
-        match &chompfile.default_task {
-            Some(default_task) => vec![default_task.clone()],
-            None => return Err(anyhow!("No default task provided. Set:\x1b[36m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
-        }
-    } else {
-        opts.targets
-            .iter()
-            .map(|t| {
-                let normalized = t.replace('\\', "/");
-                if normalized.starts_with("./") {
-                    normalized[2..].to_string()
-                } else {
-                    normalized
-                }
-            })
-            .collect()
-    };
-
-    let mut job_nums = HashSet::new();
-    for target in normalized_targets {
-        let jobs = runner
-            .expand_target(&mut watcher, &target, false, None)
-            .await?;
-        for job in jobs {
-            if opts.rerun {
-                let mut job = runner.get_job_mut(job).unwrap();
-                job.mtime = None;
-                job.state = JobState::Pending;
+    pub async fn run (&mut self, opts: RunOptions) -> Result<bool> {
+        let (tx, rx) = channel();
+        let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
+    
+        let normalized_targets: Vec<String> = if opts.targets.len() == 0 {
+            match &self.chompfile.default_task {
+                Some(default_task) => vec![default_task.clone()],
+                None => return Err(anyhow!("No default task provided. Set:\x1b[36m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
             }
-            job_nums.insert(job);
+        } else {
+            opts.targets
+                .iter()
+                .map(|t| {
+                    let normalized = t.replace('\\', "/");
+                    if normalized.starts_with("./") {
+                        normalized[2..].to_string()
+                    } else {
+                        normalized
+                    }
+                })
+                .collect()
+        };
+    
+        let mut job_nums = HashSet::new();
+        for target in normalized_targets {
+            let jobs = self
+                .expand_target(&mut watcher, &target, false, None)
+                .await?;
+            for job in jobs {
+                if opts.rerun {
+                    let mut job = self.get_job_mut(job).unwrap();
+                    job.mtime = None;
+                    job.state = JobState::Pending;
+                }
+                job_nums.insert(job);
+            }
         }
-    }
-
-    // When running with arguments, mutate the task environment to include the arguments
-    // Arguments tasks cannot be cached
-    if let Some(args) = opts.args {
-        if job_nums.len() > 1 {
-            return Err(anyhow!(
-                "Custom args are only supported when running a single command."
-            ));
-        }
-        let &job_num = job_nums.iter().next().unwrap();
-        let task_num = runner.get_job(job_num).unwrap().task;
-        let task = &mut runner.tasks[task_num];
-        let task_args_len = match &task.args {
-            Some(args) => args.len(),
-            None => {
+    
+        // When running with arguments, mutate the task environment to include the arguments
+        // Arguments tasks cannot be cached
+        if let Some(args) = opts.args {
+            if job_nums.len() > 1 {
                 return Err(anyhow!(
-                    "Task \x1b[1m{}\x1b[0m doesn't take any arguments.",
-                    runner.get_job(job_num).unwrap().display_name(&runner.tasks)
+                    "Custom args are only supported when running a single command."
                 ));
             }
-        };
-        if task_args_len < args.len() {
-            return Err(anyhow!(
-                "Task \x1b[1m{}\x1b[0m only takes {} arguments, while {} were provided.",
-                runner.get_job(job_num).unwrap().display_name(&runner.tasks),
-                task_args_len,
-                args.len()
-            ));
+            let &job_num = job_nums.iter().next().unwrap();
+            let task_num = self.get_job(job_num).unwrap().task;
+            let task = &mut self.tasks[task_num];
+            let task_args_len = match &task.args {
+                Some(args) => args.len(),
+                None => {
+                    return Err(anyhow!(
+                        "Task \x1b[1m{}\x1b[0m doesn't take any arguments.",
+                        self.get_job(job_num).unwrap().display_name(&self.tasks)
+                    ));
+                }
+            };
+            if task_args_len < args.len() {
+                return Err(anyhow!(
+                    "Task \x1b[1m{}\x1b[0m only takes {} arguments, while {} were provided.",
+                    self.get_job(job_num).unwrap().display_name(&self.tasks),
+                    task_args_len,
+                    args.len()
+                ));
+            }
+            let task_args = task.args.as_ref().unwrap();
+            for (i, arg) in args.iter().enumerate() {
+                task.env.insert(task_args[i].to_uppercase(), arg.clone());
+            }
         }
-        let task_args = task.args.as_ref().unwrap();
-        for (i, arg) in args.iter().enumerate() {
-            task.env.insert(task_args[i].to_uppercase(), arg.clone());
+    
+        self
+            .drive_jobs(
+                &job_nums,
+                opts.force,
+                if opts.watch { Some(&rx) } else { None },
+            )
+            .await?;
+    
+        // if all jobs completed successfully, exit code is 0, otherwise its an error
+        let mut all_ok = true;
+        for &job_num in job_nums.iter() {
+            let job = self.get_job(job_num).unwrap();
+            if !matches!(job.state, JobState::Fresh) {
+                all_ok = false;
+                break;
+            }
         }
+    
+        Ok(all_ok)    
     }
-
-    runner
-        .drive_jobs(
-            &job_nums,
-            opts.force,
-            if opts.watch { Some(&rx) } else { None },
-        )
-        .await?;
-
-    // if all jobs completed successfully, exit code is 0, otherwise its an error
-    let mut all_ok = true;
-    for &job_num in job_nums.iter() {
-        let job = runner.get_job(job_num).unwrap();
-        if !matches!(job.state, JobState::Fresh) {
-            all_ok = false;
-            break;
-        }
-    }
-
-    Ok(all_ok)
 }

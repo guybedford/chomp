@@ -17,6 +17,7 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
+use crate::task::Runner;
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::Chompfile;
 use crate::extensions::init_js_platform;
@@ -34,6 +35,7 @@ use std::env;
 use std::fs::canonicalize;
 use crate::engines::replace_env_vars_static;
 
+mod ansi_windows;
 mod chompfile;
 mod engines;
 mod extensions;
@@ -175,6 +177,14 @@ async fn main() -> Result<()> {
                 .multiple(true),
         )
         .get_matches();
+
+    #[cfg(target_os = "windows")]
+    match ansi_windows::enable_ansi_support() {
+        Ok(()) => {},
+        Err(_) => {
+            // TODO: handling disabling of ansi codes
+        }
+    };
 
     let mut targets: Vec<String> = Vec::new();
     match matches.values_of("target") {
@@ -484,20 +494,16 @@ async fn main() -> Result<()> {
         }
     }
 
-    let ok = task::run(
-        &chompfile,
-        &mut extension_env,
-        task::RunOptions {
-            watch: matches.is_present("serve") || matches.is_present("watch"),
-            force: matches.is_present("force"),
-            rerun: matches.is_present("rerun"),
-            args: if args.len() > 0 { Some(args) } else { None },
-            pool_size,
-            targets,
-            cfg_file,
-        },
-    )
-    .await?;
+    let mut runner = Runner::new(&chompfile, &mut extension_env, pool_size, matches.is_present("serve") || matches.is_present("watch"))?;
+    let ok = runner.run(task::RunOptions {
+        watch: matches.is_present("serve") || matches.is_present("watch"),
+        force: matches.is_present("force"),
+        rerun: matches.is_present("rerun"),
+        args: if args.len() > 0 { Some(args) } else { None },
+        pool_size,
+        targets,
+        cfg_file,
+    }).await?;
 
     if !ok {
         eprintln!("Unable to complete all tasks.");

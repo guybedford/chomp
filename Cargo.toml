@@ -17,6 +17,10 @@ path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[target.'cfg(target_os="windows")'.dependencies.winapi]
+version = "0.3.4"
+features = ["consoleapi", "errhandlingapi", "fileapi", "handleapi"]
+
 [dependencies]
 anyhow = "1.0.52"
 async-recursion = "0.3.2"
