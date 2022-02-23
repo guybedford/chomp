@@ -29,6 +29,7 @@ pub enum ChompEngine {
 #[serde(rename_all = "kebab-case")]
 pub enum TaskDisplay {
     None,
+    Dot,
     InitStatus,
     StatusOnly,
     InitOnly,
