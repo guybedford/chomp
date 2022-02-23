@@ -24,6 +24,7 @@ use crate::extensions::ExtensionEnvironment;
 use crate::task::expand_template_tasks;
 use anyhow::{anyhow, Result};
 use clap::{App, Arg};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use tokio::fs;
@@ -31,6 +32,7 @@ extern crate num_cpus;
 use hyper::Uri;
 use std::env;
 use std::fs::canonicalize;
+use crate::engines::replace_env_vars_static;
 
 mod chompfile;
 mod engines;
@@ -41,7 +43,7 @@ mod task;
 
 use std::path::PathBuf;
 
-const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.9/";
+const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.10/";
 
 const CHOMP_INIT: &str = r#"version = 0.1
 
@@ -248,14 +250,21 @@ async fn main() -> Result<()> {
         None => num_cpus::get(),
     };
 
-    let mut global_env = HashMap::new();
+    let mut global_env = BTreeMap::new();
     for (key, value) in env::vars() {
         global_env.insert(key.to_uppercase(), value);
+    }
+    for (key, value) in &chompfile.env {
+        global_env.insert(key.to_uppercase(), replace_env_vars_static(value, &global_env));
     }
     if matches.is_present("eject_templates") {
         global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
     }
     global_env.insert("CHOMP_POOL_SIZE".to_string(), pool_size.to_string());
+    // extend global env with the chompfile env as well
+    for (key, value) in &chompfile.env_default {
+        global_env.insert(key.to_uppercase(), replace_env_vars_static(value, &global_env));
+    }
 
     let mut extension_env = ExtensionEnvironment::new(&global_env);
 

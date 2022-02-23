@@ -230,11 +230,9 @@ The code for the default batcher is a good example of how simple batching can wo
 
 ```js
 // Chomp's default batcher, without any batcher extensions:
-const POOL_SIZE = Number(ENV.CHOMP_POOL_SIZE);
-
 Chomp.registerBatcher('defaultBatcher', function (batch, running) {
   // If we are already running the maximum number of jobs, defer the whole batch
-  if (running.length >= POOL_SIZE)
+  if (running.length >= ENV.CHOMP_POOL_SIZE)
     return { defer: batch.map(({ id }) => id) };
   
   return {
@@ -257,9 +255,8 @@ Because batchers run one after another, having this exact above default batcher 
 Thus, most batchers are of the form:
 
 ```js
-const POOL_SIZE = Number(ENV.CHOMP_POOL_SIZE);
 Chomp.registerBatcher('my-batcher', function (batch, running) {
-  if (running.length >= POOL_SIZE) return;
+  if (running.length >= ENV.CHOMP_POOL_SIZE) return;
 
   const exec = [];
   for (const item of batch) {

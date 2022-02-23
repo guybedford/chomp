@@ -175,7 +175,7 @@ fn chomp_register_batcher(
 }
 
 impl ExtensionEnvironment {
-    pub fn new(global_env: &HashMap<String, String>) -> Self {
+    pub fn new(global_env: &BTreeMap<String, String>) -> Self {
         let mut isolate = v8::Isolate::new(Default::default());
 
         let global_context = {
