@@ -17,6 +17,7 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
+use crate::task::Runner;
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::Chompfile;
 use crate::extensions::init_js_platform;
@@ -493,25 +494,19 @@ async fn main() -> Result<()> {
         }
     }
 
-    let ok = task::run(
-        &chompfile,
-        &mut extension_env,
-        task::RunOptions {
-            watch: matches.is_present("serve") || matches.is_present("watch"),
-            force: matches.is_present("force"),
-            rerun: matches.is_present("rerun"),
-            args: if args.len() > 0 { Some(args) } else { None },
-            pool_size,
-            targets,
-            cfg_file,
-        },
-    )
-    .await?;
+    let mut runner = Runner::new(&chompfile, &mut extension_env, pool_size, matches.is_present("serve") || matches.is_present("watch"))?;
+    let ok = runner.run(task::RunOptions {
+        watch: matches.is_present("serve") || matches.is_present("watch"),
+        force: matches.is_present("force"),
+        rerun: matches.is_present("rerun"),
+        args: if args.len() > 0 { Some(args) } else { None },
+        pool_size,
+        targets,
+        cfg_file,
+    }).await?;
 
     if !ok {
         eprintln!("Unable to complete all tasks.");
-    } else {
-        println!("PROCESS EXIT OK");
     }
 
     std::process::exit(if ok { 0 } else { 1 });
