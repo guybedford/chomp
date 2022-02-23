@@ -44,7 +44,8 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     std::env::args().next().unwrap().to_string(),
   );
   let targets = targets.clone();
-  let write_future = fs::write(tmp_file, cmd.run.to_string());
+  // On posix, command starts executing before we wait on it!
+  std::fs::write(tmp_file, cmd.run.to_string()).expect("unable to write temporary file");
   cmd.run = NODE_CMD.to_string();
   let exec_num = cmd_pool.exec_num;
   cmd_pool.exec_cnt = cmd_pool.exec_cnt + 1;
@@ -58,7 +59,6 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
   let future = async move {
     let cmd_pool = unsafe { &mut *pool };
     let mut exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();
-    write_future.await.expect("unable to write temporary file");
     if exec.child.is_none() {
       return None;
     }

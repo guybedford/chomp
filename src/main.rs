@@ -27,7 +27,7 @@ use clap::{App, Arg};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use tokio::fs;
+use std::fs;
 extern crate num_cpus;
 use hyper::Uri;
 use std::env;
@@ -189,7 +189,7 @@ async fn main() -> Result<()> {
     let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
 
     let mut created = false;
-    let chompfile_source = match fs::read_to_string(&cfg_file).await {
+    let chompfile_source = match fs::read_to_string(&cfg_file) {
         Ok(source) => source,
         Err(_) => {
             if matches.is_present("init") {
@@ -313,7 +313,7 @@ async fn main() -> Result<()> {
                     extension_set.insert(canonical_str.to_string());
                     (
                         extension_set.get(&canonical_str).unwrap(),
-                        Some(fs::read_to_string(&ext).await?),
+                        Some(fs::read_to_string(&ext)?),
                     )
                 } else {
                     (extension_set.get(&canonical_str).unwrap(), None)
@@ -408,7 +408,7 @@ async fn main() -> Result<()> {
         } else {
             let mut script_tasks = 0;
             if matches.is_present("import_scripts") {
-                let pjson_source = match fs::read_to_string("package.json").await {
+                let pjson_source = match fs::read_to_string("package.json") {
                     Ok(source) => source,
                     Err(_) => {
                         return Err(anyhow!(
@@ -449,7 +449,7 @@ async fn main() -> Result<()> {
                     _ => return Err(anyhow!("Unexpected \"scripts\" type in package.json.")),
                 };
             }
-            fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?).await?;
+            fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?)?;
             if matches.is_present("eject_templates") {
                 println!(
                     "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected.",
