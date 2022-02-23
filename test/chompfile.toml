@@ -1,6 +1,9 @@
 version = 0.1
-extensions = ['chomp@0.1:assert', 'chomp@0.1:npm']
 default-task = 'test'
+extensions = [
+    'chomp@0.1:assert',
+    'chomp@0.1:npm',
+]
 
 [env]
 VAL = 'C'
@@ -10,8 +13,11 @@ DEFAULT = '${{ VAL }}H'
 
 [[task]]
 name = 'test'
+deps = [
+    'test:clean',
+    'test:run',
+]
 serial = true
-deps = ['test:clean', 'test:run']
 
 [[task]]
 name = 'test:clean'
@@ -21,42 +27,46 @@ run = 'rm -r output ; echo recover'
 
 [[task]]
 name = 'test:run'
-display = 'none'
 deps = [':test[0-9]*']
+display = 'none'
 
-# -- Test --
 [[task]]
 name = 'test1'
-display = 'none'
 target = 'output/test1.txt'
+display = 'none'
 run = 'echo "Chomp Chomp" > $TARGET'
 template = 'assert'
+
 [task.template-options]
 expect-equals = 'Chomp Chomp'
 
-# -- Test --
 [[task]]
 name = 'test2'
-display = 'none'
 target = 'output/test2.txt'
+display = 'none'
 run = '''
   ${{ECHO}} "$VAR $ANOTHER" > $TARGET
 '''
 template = 'assert'
-[task.env]
-VAR = 'Chomp ${{ DEFAULT }}'
-ECHO = 'echo'
-[task.env-default]
-ANOTHER = '${{VAR}} ${{UNKNOWN}} ${{ VAR }} ${{--INVALID--}} $NOREPLACE ${{ DEFAULT }}'
+
 [task.template-options]
 expect-equals = 'Chomp CH Chomp CH  Chomp CH  $NOREPLACE CH'
 
-# -- Test --
+[task.env]
+VAR = 'Chomp ${{ DEFAULT }}'
+ECHO = 'echo'
+
+[task.env-default]
+ANOTHER = '${{VAR}} ${{UNKNOWN}} ${{ VAR }} ${{--INVALID--}} $NOREPLACE ${{ DEFAULT }}'
+
 [[task]]
 name = 'test3'
-display = 'none'
 target = 'output/test3.js'
-deps = ['fixtures/app.js', 'install:swc']
+deps = [
+    'fixtures/app.js',
+    'install:swc',
+]
+display = 'none'
 engine = 'node'
 run = '''
   import swc from '@swc/core';
@@ -80,8 +90,10 @@ run = '''
   writeFileSync(process.env.TARGET + '.map', JSON.stringify(map));
 '''
 template = 'assert'
+
 [task.template-options]
-expect-equals = '''export var p = 5;
+expect-equals = '''
+export var p = 5;
 
 //# sourceMappingURL=test3.js.map
 '''
@@ -90,42 +102,53 @@ expect-equals = '''export var p = 5;
 name = 'install:swc'
 display = 'none'
 template = 'npm'
+
 [task.template-options]
-packages = ['@swc/core', '@swc/cli']
+packages = [
+    '@swc/core',
+    '@swc/cli',
+]
 auto-install = true
 
-# -- Test --
 [[task]]
 name = 'test4'
-display = 'none'
 target = 'output/unittest.txt'
 deps = [':unittest:ok-*']
+display = 'none'
 template = 'assert'
+
 [task.template-options]
-expect-equals = '''UNIT OK
+expect-equals = '''
+UNIT OK
 '''
 
 [[task]]
 name = 'unittest:#'
+dep = 'unit/#.mjs'
 display = 'none'
 stdio = 'stderr-only'
-dep = 'unit/#.mjs'
 run = 'node $DEP'
+
 [task.template-options]
-expect-equals = '''UNIT OK
+expect-equals = '''
+UNIT OK
 '''
 
-# -- Test --
 [[task]]
 name = 'test5'
-stdio = 'none'
-display = 'none'
-deps = ['output/lib/**/*.js', 'install:rollup']
 target = 'output/dist/app.js'
+deps = [
+    'output/lib/**/*.js',
+    'install:rollup',
+]
+display = 'none'
+stdio = 'none'
 run = 'rollup output/lib/app.js -d output/dist -m'
 template = 'assert'
+
 [task.template-options]
-expect-equals = '''var dep = 'dep';
+expect-equals = '''
+var dep = 'dep';
 
 console.log(dep);
 var p = 5;
@@ -138,24 +161,31 @@ export { p };
 name = 'install:rollup'
 display = 'none'
 template = 'npm'
+
 [task.template-options]
 packages = ['rollup']
 auto-install = true
 
 [[task]]
 name = 'build:swc'
+target = 'output/lib/#.js'
+deps = [
+    'fixtures/src/#.ts',
+    'install:swc',
+]
 display = 'none'
 stdio = 'stderr-only'
-target = 'output/lib/#.js'
-deps = ['fixtures/src/#.ts', 'install:swc']
 run = 'swc $DEP -o $TARGET --source-maps'
 
-# -- Test --
 [[task]]
 name = 'test6'
 target = 'output/deps.txt'
-deps = ['fixtures/src/**/*.ts', 'build:swc']
+deps = [
+    'fixtures/src/**/*.ts',
+    'build:swc',
+]
 run = 'echo "$DEPS" > output/deps.txt'
 template = 'assert'
+
 [task.template-options]
 expect-match = 'fixtures/src/(app|dep)\.ts:fixtures/src/(app|dep)\.ts:output/lib/app.js:output/lib/dep.js'

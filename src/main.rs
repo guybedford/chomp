@@ -34,6 +34,7 @@ use std::env;
 use std::fs::canonicalize;
 use crate::engines::replace_env_vars_static;
 
+mod ansi_windows;
 mod chompfile;
 mod engines;
 mod extensions;
@@ -175,6 +176,14 @@ async fn main() -> Result<()> {
                 .multiple(true),
         )
         .get_matches();
+
+    #[cfg(target_os = "windows")]
+    match ansi_windows::enable_ansi_support() {
+        Ok(()) => {},
+        Err(_) => {
+            // TODO: handling disabling of ansi codes
+        }
+    };
 
     let mut targets: Vec<String> = Vec::new();
     match matches.values_of("target") {
@@ -501,6 +510,8 @@ async fn main() -> Result<()> {
 
     if !ok {
         eprintln!("Unable to complete all tasks.");
+    } else {
+        println!("PROCESS EXIT OK");
     }
 
     std::process::exit(if ok { 0 } else { 1 });
