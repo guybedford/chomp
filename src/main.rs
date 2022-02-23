@@ -383,12 +383,36 @@ async fn main() -> Result<()> {
         || matches.is_present("import_scripts")
     {
         if matches.is_present("eject_templates") {
-            let (has_templates, template_tasks) =
+            let (mut has_templates, mut template_tasks) =
                 expand_template_tasks(&chompfile, &mut extension_env)?;
-            chompfile.task = template_tasks;
+            chompfile.task = Vec::new();
+            for task in extension_env.get_tasks().drain(..) {
+                has_templates = true;
+                chompfile.task.push(ChompTaskMaybeTemplated {
+                    target: task.target,
+                    targets: task.targets,
+                    args: task.args,
+                    cwd: task.cwd,
+                    dep: task.dep,
+                    deps: task.deps,
+                    display: task.display,
+                    engine: task.engine,
+                    env: task.env.unwrap_or_default(),
+                    env_default: task.env_default.unwrap_or_default(),
+                    env_replace: task.env_replace,
+                    invalidation: task.invalidation,
+                    run: task.run,
+                    name: task.name,
+                    serial: task.serial,
+                    stdio: task.stdio,
+                    template: task.template,
+                    template_options: task.template_options
+                });
+            }
+            chompfile.task.append(&mut template_tasks);
             if !has_templates {
                 return Err(anyhow!(
-                    "\x1b[1m{}\x1b[0m has no template usage to eject",
+                    "\x1b[1m{}\x1b[0m has no templates to eject",
                     cfg_file.to_str().unwrap()
                 ));
             }
