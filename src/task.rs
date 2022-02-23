@@ -37,6 +37,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::io::ErrorKind::NotFound;
+use std::io::Write;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -865,7 +866,7 @@ impl<'a> Runner<'a> {
         if failed
             || matches!(
                 task.display,
-                Some(TaskDisplay::InitStatus) | Some(TaskDisplay::StatusOnly) | None
+                Some(TaskDisplay::InitStatus) | Some(TaskDisplay::StatusOnly) | Some(TaskDisplay::Dot) | None
             )
             || self.chompfile.debug
         {
@@ -877,7 +878,17 @@ impl<'a> Runner<'a> {
                 name_bold.push_str("\x1b[0m");
                 name = name_bold;
             }
-            if let Some(cmd_time) = cmd_time {
+            if matches!(task.display, Some(TaskDisplay::Dot)) {
+                if failed {
+                    print!("\x1b[1;31m.\x1b[0m");
+                } else if mtime.is_some() || cmd_time.is_some() {
+                    print!("\x1b[1;32m.\x1b[0m");
+                } else {
+                    print!("\x1b[1m●\x1b[0m");
+                }
+                std::io::stdout().flush().unwrap();
+            }
+            else if let Some(cmd_time) = cmd_time {
                 if failed {
                     println!(
                         "\x1b[1;31mx\x1b[0m {} \x1b[34m[{:?}]\x1b[0m",
@@ -894,6 +905,8 @@ impl<'a> Runner<'a> {
                     println!("\x1b[1;31mx\x1b[0m {}", name);
                 } else if mtime.is_some() {
                     println!("\x1b[1;32m√\x1b[0m {}", name);
+                } else if task.deps.len() == 0 {
+                    println!("\x1b[1m●\x1b[0m {} \x1b[34m[exists]\x1b[0m", name);
                 } else {
                     println!("\x1b[1m●\x1b[0m {} \x1b[34m[cached]\x1b[0m", name);
                 }

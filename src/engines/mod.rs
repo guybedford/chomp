@@ -263,7 +263,7 @@ impl<'a> CmdPool<'a> {
                 }
                 // any leftover unbatched just get batched
                 for cmd in batch {
-                    if this.exec_cnt + 1 == this.pool_size {
+                    if this.exec_cnt == this.pool_size {
                         break;
                     }
                     this.batching.remove(&cmd.id);
