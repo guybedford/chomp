@@ -2054,7 +2054,11 @@ impl<'a> Runner<'a> {
         }
         let mut glob_target = String::new();
         glob_target.push_str(&dep[0..interpolate_idx]);
-        glob_target.push_str("(**/*)");
+        if glob_target.ends_with('/') || glob_target.ends_with('\\') {
+            glob_target.push_str("(**/*)");
+        } else {
+            glob_target.push_str("(*)");
+        }
         glob_target.push_str(&dep[interpolate_idx + 1..]);
         for entry in glob(&glob_target).expect(&format!("Failed to read glob pattern {}", &glob_target)) {
             match entry {
