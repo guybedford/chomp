@@ -107,6 +107,7 @@ expect-equals = '''UNIT OK
 
 [[task]]
 target = 'output'
+validation = 'targets-only'
 run = 'mkdir output'
 
 [[task]]
