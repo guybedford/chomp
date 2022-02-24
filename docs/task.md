@@ -38,6 +38,7 @@ Tasks support the following optional properties:
 * **env-replace**: `Boolean`, defaults to `true`. Whether to support `${{VAR}}` style static environment variable replacements in the `env` and `env-default` environment variable declarations and the `run` script of Shell engine tasks.
 * **template**: `String`, a registered template name to use for task generation as a [template task](#extensions).
 * **template-options**: `{ [option: String]: any }`, the dictionary of options to apply to the `template` [template generation](#extensions), as defined by the template itself.
+* **validation-check**: `"none" | "ok-only" | "targets-only" | "ok-targets (default)`, Validation check to determine task success condition. The default is to check the defined targets all exist and the task exited with a success status code. `"ok-only"` just verifies the status code, `"targets-only"` just verifies the targets, and `"none"` always treats the task as successful.
 
 ## Task Execution
 

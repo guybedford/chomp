@@ -18,6 +18,7 @@ mod cmd;
 mod deno;
 mod node;
 
+use std::path::Path;
 use crate::chompfile::ChompEngine;
 use crate::chompfile::TaskStdio;
 use crate::engines::deno::deno_runner;
@@ -40,6 +41,7 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::process::Child;
 use tokio::time::sleep;
+use tokio::fs;
 
 pub fn replace_env_vars_static(arg: &str, env: &BTreeMap<String, String>) -> String {
     let mut out_arg = String::new();
@@ -259,7 +261,7 @@ impl<'a> CmdPool<'a> {
                     this.execs.get_mut(&exec_num).unwrap().cmd.ids.push(cmd_num);
                 }
                 for cmd in batched.drain(..) {
-                    this.new_exec(cmd);
+                    this.new_exec(cmd).await;
                 }
                 // any leftover unbatched just get batched
                 for cmd in batch {
@@ -275,7 +277,7 @@ impl<'a> CmdPool<'a> {
                         env: cmd.env.clone(),
                         stdio: Some(cmd.stdio.clone()),
                         ids: vec![cmd.id],
-                    });
+                    }).await;
                 }
 
                 this.batch_future = None;
@@ -286,7 +288,7 @@ impl<'a> CmdPool<'a> {
         );
     }
 
-    fn new_exec(&mut self, mut cmd: BatchCmd) {
+    async fn new_exec(&mut self, mut cmd: BatchCmd) {
         let debug = self.debug;
 
         let exec_num = self.exec_num;
@@ -300,6 +302,10 @@ impl<'a> CmdPool<'a> {
                 println!("\x1b[1m🞂 {}\x1b[0m", name);
             }
             for target in &cmd.targets {
+                let target_path = Path::new(target);
+                if let Some(parent) = target_path.parent() {
+                    fs::create_dir_all(parent).await.unwrap();
+                }
                 targets.push(target.to_string());
             }
         }

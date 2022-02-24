@@ -18,6 +18,7 @@ use crate::chompfile::ChompTask;
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::TaskDisplay;
 use crate::chompfile::TaskStdio;
+use crate::chompfile::ValidationCheck;
 use crate::chompfile::{
     ChompEngine, ChompTaskMaybeTemplatedNoDefault, Chompfile, InvalidationCheck,
 };
@@ -60,6 +61,7 @@ pub struct Task {
     name: Option<String>,
     targets: Vec<String>,
     invalidation: InvalidationCheck,
+    validation: ValidationCheck,
     deps: Vec<String>,
     args: Option<Vec<String>>,
     serial: bool,
@@ -320,12 +322,7 @@ pub async fn check_target_mtimes(targets: Vec<String>, default_latest: bool) -> 
                             .unwrap(),
                     ),
                     Err(e) => match e.kind() {
-                        NotFound => {
-                            if let Some(parent) = target_path.parent() {
-                                fs::create_dir_all(parent).await.unwrap();
-                            }
-                            None
-                        },
+                        NotFound => None,
                         _ => panic!("Unknown file error"),
                     },
                 }
@@ -423,6 +420,7 @@ pub fn expand_template_tasks(
             target: None,
             targets: Some(task.targets_vec()),
             invalidation: Some(task.invalidation.clone().unwrap_or_default()),
+            validation: Some(task.validation.clone().unwrap_or_default()),
             dep: None,
             deps: Some(task.deps_vec()),
             args: task.args.clone(),
@@ -488,6 +486,7 @@ pub fn expand_template_tasks(
                 display: template_task.display,
                 stdio: template_task.stdio,
                 invalidation: template_task.invalidation.take(),
+                validation: template_task.validation.take(),
                 dep,
                 deps,
                 serial: template_task.serial,
@@ -688,6 +687,7 @@ impl<'a> Runner<'a> {
                 run: task.run.clone(),
                 cwd: task.cwd,
                 invalidation: task.invalidation.unwrap_or_default(),
+                validation: task.validation.unwrap_or_default(),
             };
 
             runner.tasks.push(task);
@@ -712,6 +712,7 @@ impl<'a> Runner<'a> {
                 run: task.run.clone(),
                 cwd: task.cwd,
                 invalidation: task.invalidation.unwrap_or_default(),
+                validation: task.validation.unwrap_or_default(),
             };
 
             runner.tasks.push(task);
@@ -866,7 +867,10 @@ impl<'a> Runner<'a> {
         if failed
             || matches!(
                 task.display,
-                Some(TaskDisplay::InitStatus) | Some(TaskDisplay::StatusOnly) | Some(TaskDisplay::Dot) | None
+                Some(TaskDisplay::InitStatus)
+                    | Some(TaskDisplay::StatusOnly)
+                    | Some(TaskDisplay::Dot)
+                    | None
             )
             || self.chompfile.debug
         {
@@ -887,8 +891,7 @@ impl<'a> Runner<'a> {
                     print!("\x1b[1m●\x1b[0m");
                 }
                 std::io::stdout().flush().unwrap();
-            }
-            else if let Some(cmd_time) = cmd_time {
+            } else if let Some(cmd_time) = cmd_time {
                 if failed {
                     println!(
                         "\x1b[1;31mx\x1b[0m {} \x1b[34m[{:?}]\x1b[0m",
@@ -1510,6 +1513,7 @@ impl<'a> Runner<'a> {
             JobOrFileState::Job(JobState::Running) => {
                 // job can complete running without an exec if eg cached
                 let job = self.get_job(node_num).unwrap();
+                let validation = self.tasks[job.task].validation.clone();
                 if let Some(cmd_num) = job.cmd_num {
                     let exec_future = self.cmd_pool.get_exec_future(cmd_num);
                     let (status, mtime, cmd_time) = match executor::block_on(exec_future) {
@@ -1518,11 +1522,29 @@ impl<'a> Runner<'a> {
                     };
                     match status {
                         ExecState::Completed => {
-                            self.mark_complete(node_num, mtime, Some(cmd_time), mtime.is_none());
+                            self.mark_complete(
+                                node_num,
+                                mtime,
+                                Some(cmd_time),
+                                matches!(
+                                    validation,
+                                    ValidationCheck::TargetsOnly | ValidationCheck::OkTargets
+                                ) && mtime.is_none(),
+                            );
                         }
-                        ExecState::Failed => {
-                            self.mark_complete(node_num, mtime, Some(cmd_time), true);
-                        }
+                        ExecState::Failed => match validation {
+                            ValidationCheck::OkOnly | ValidationCheck::OkTargets => {
+                                self.mark_complete(node_num, mtime, Some(cmd_time), true)
+                            }
+                            ValidationCheck::None | ValidationCheck::TargetsOnly => self
+                                .mark_complete(
+                                    node_num,
+                                    mtime,
+                                    Some(cmd_time),
+                                    matches!(validation, ValidationCheck::TargetsOnly)
+                                        && mtime.is_none(),
+                                ),
+                        },
                         ExecState::Terminated => return Ok(()),
                         _ => panic!("Unexpected promise exec state"),
                     };
@@ -2218,10 +2240,9 @@ impl<'a> Runner<'a> {
         }
     }
 
-    pub async fn run (&mut self, opts: RunOptions) -> Result<bool> {
+    pub async fn run(&mut self, opts: RunOptions) -> Result<bool> {
         let (tx, rx) = channel();
         let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
-    
         let normalized_targets: Vec<String> = if opts.targets.len() == 0 {
             match &self.chompfile.default_task {
                 Some(default_task) => vec![default_task.clone()],
@@ -2240,7 +2261,6 @@ impl<'a> Runner<'a> {
                 })
                 .collect()
         };
-    
         let mut job_nums = HashSet::new();
         for target in normalized_targets {
             let jobs = self
@@ -2255,7 +2275,6 @@ impl<'a> Runner<'a> {
                 job_nums.insert(job);
             }
         }
-    
         // When running with arguments, mutate the task environment to include the arguments
         // Arguments tasks cannot be cached
         if let Some(args) = opts.args {
@@ -2289,15 +2308,13 @@ impl<'a> Runner<'a> {
                 task.env.insert(task_args[i].to_uppercase(), arg.clone());
             }
         }
-    
-        self
-            .drive_jobs(
-                &job_nums,
-                opts.force,
-                if opts.watch { Some(&rx) } else { None },
-            )
-            .await?;
-    
+
+        self.drive_jobs(
+            &job_nums,
+            opts.force,
+            if opts.watch { Some(&rx) } else { None },
+        )
+        .await?;
         // if all jobs completed successfully, exit code is 0, otherwise its an error
         let mut all_ok = true;
         for &job_num in job_nums.iter() {
@@ -2307,7 +2324,7 @@ impl<'a> Runner<'a> {
                 break;
             }
         }
-    
-        Ok(all_ok)    
+
+        Ok(all_ok)
     }
 }
