@@ -45,7 +45,7 @@ mod task;
 
 use std::path::PathBuf;
 
-const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.10/";
+const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.11/";
 
 const CHOMP_INIT: &str = r#"version = 0.1
 
@@ -249,8 +249,11 @@ async fn main() -> Result<()> {
     assert!(env::set_current_dir(&cwd).is_ok());
 
     if matches.is_present("clear_cache") {
-        println!("Clearing URL extension cache...");
         http_client::clear_cache().await?;
+        println!("\x1b[1;32m√\x1b[0m Cleared remote URL extension cache.");
+        if targets.len() == 0 {
+            return Ok(());
+        }
     }
 
     init_js_platform();
@@ -383,12 +386,36 @@ async fn main() -> Result<()> {
         || matches.is_present("import_scripts")
     {
         if matches.is_present("eject_templates") {
-            let (has_templates, template_tasks) =
+            let (mut has_templates, mut template_tasks) =
                 expand_template_tasks(&chompfile, &mut extension_env)?;
-            chompfile.task = template_tasks;
+            chompfile.task = Vec::new();
+            for task in extension_env.get_tasks().drain(..) {
+                has_templates = true;
+                chompfile.task.push(ChompTaskMaybeTemplated {
+                    target: task.target,
+                    targets: task.targets,
+                    args: task.args,
+                    cwd: task.cwd,
+                    dep: task.dep,
+                    deps: task.deps,
+                    display: task.display,
+                    engine: task.engine,
+                    env: task.env.unwrap_or_default(),
+                    env_default: task.env_default.unwrap_or_default(),
+                    env_replace: task.env_replace,
+                    invalidation: task.invalidation,
+                    run: task.run,
+                    name: task.name,
+                    serial: task.serial,
+                    stdio: task.stdio,
+                    template: task.template,
+                    template_options: task.template_options
+                });
+            }
+            chompfile.task.append(&mut template_tasks);
             if !has_templates {
                 return Err(anyhow!(
-                    "\x1b[1m{}\x1b[0m has no template usage to eject",
+                    "\x1b[1m{}\x1b[0m has no templates to eject",
                     cfg_file.to_str().unwrap()
                 ));
             }
@@ -414,7 +441,6 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            return Ok(());
         } else {
             let mut script_tasks = 0;
             if matches.is_present("import_scripts") {
@@ -488,9 +514,9 @@ async fn main() -> Result<()> {
                     if created { "created" } else { "updated" }
                 );
             }
-            if matches.is_present("eject_templates") || targets.len() == 0 {
-                return Ok(());
-            }
+        }
+        if matches.is_present("eject_templates") || targets.len() == 0 {
+            return Ok(());
         }
     }
 

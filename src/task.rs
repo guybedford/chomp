@@ -325,7 +325,7 @@ pub async fn check_target_mtimes(targets: Vec<String>, default_latest: bool) -> 
                                 fs::create_dir_all(parent).await.unwrap();
                             }
                             None
-                        }
+                        },
                         _ => panic!("Unknown file error"),
                     },
                 }

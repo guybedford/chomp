@@ -277,6 +277,7 @@ impl<'a> CmdPool<'a> {
                         ids: vec![cmd.id],
                     });
                 }
+
                 this.batch_future = None;
                 Ok(())
             }

@@ -29,9 +29,14 @@ fn chomp_cache_dir() -> PathBuf {
     path
 }
 
-pub async fn clear_cache() -> Result<()> {
-    fs::remove_dir_all(chomp_cache_dir()).await?;
-    Ok(())
+pub async fn clear_cache() -> std::io::Result<()> {
+    match fs::remove_dir_all(chomp_cache_dir()).await {
+        Ok(()) => Ok(()),
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(e)
+        }
+    }
 }
 
 pub async fn prep_cache() -> Result<()> {
