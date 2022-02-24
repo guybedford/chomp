@@ -45,7 +45,7 @@ mod task;
 
 use std::path::PathBuf;
 
-const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.11/";
+const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.12/";
 
 const CHOMP_INIT: &str = r#"version = 0.1
 
