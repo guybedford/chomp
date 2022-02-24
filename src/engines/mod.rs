@@ -33,7 +33,6 @@ use futures::future::Shared;
 use futures::future::{Future, FutureExt};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::pin::Pin;
@@ -77,12 +76,12 @@ pub fn replace_env_vars_static(arg: &str, env: &BTreeMap<String, String>) -> Str
 pub struct CmdPool<'a> {
     cmd_num: usize,
     pub extension_env: &'a mut ExtensionEnvironment,
-    cmds: HashMap<usize, CmdOp>,
+    cmds: BTreeMap<usize, CmdOp>,
     exec_num: usize,
-    execs: HashMap<usize, Exec<'a>>,
+    execs: BTreeMap<usize, Exec<'a>>,
     exec_cnt: usize,
     batching: BTreeSet<usize>,
-    cmd_execs: HashMap<usize, usize>,
+    cmd_execs: BTreeMap<usize, usize>,
     cwd: String,
     pool_size: usize,
     batch_future: Option<Shared<Pin<Box<dyn Future<Output = Result<(), Rc<Error>>> + 'a>>>>,
@@ -140,14 +139,14 @@ impl<'a> CmdPool<'a> {
         CmdPool {
             cmd_num: 0,
             cwd,
-            cmds: HashMap::new(),
+            cmds: BTreeMap::new(),
             exec_num: 0,
             exec_cnt: 0,
-            execs: HashMap::new(),
+            execs: BTreeMap::new(),
             pool_size,
             extension_env,
             batching: BTreeSet::new(),
-            cmd_execs: HashMap::new(),
+            cmd_execs: BTreeMap::new(),
             batch_future: None,
             debug,
         }
@@ -200,7 +199,7 @@ impl<'a> CmdPool<'a> {
         // This is bad Rust, but it's also totally fine given the static execution model
         // (in Zig it might even be called idomatic)...
         let pool = self as *mut CmdPool;
-        let cmds = &mut self.cmds as *mut HashMap<usize, CmdOp>;
+        let cmds = &mut self.cmds as *mut BTreeMap<usize, CmdOp>;
         self.batch_future = Some(
             async move {
                 // batches with 5 millisecond execution groupings
