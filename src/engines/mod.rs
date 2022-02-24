@@ -33,6 +33,7 @@ use futures::future::Shared;
 use futures::future::{Future, FutureExt};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::pin::Pin;
@@ -76,12 +77,12 @@ pub fn replace_env_vars_static(arg: &str, env: &BTreeMap<String, String>) -> Str
 pub struct CmdPool<'a> {
     cmd_num: usize,
     pub extension_env: &'a mut ExtensionEnvironment,
-    cmds: BTreeMap<usize, CmdOp>,
+    cmds: HashMap<usize, CmdOp>,
     exec_num: usize,
-    execs: BTreeMap<usize, Exec<'a>>,
+    execs: HashMap<usize, Exec<'a>>,
     exec_cnt: usize,
     batching: BTreeSet<usize>,
-    cmd_execs: BTreeMap<usize, usize>,
+    cmd_execs: HashMap<usize, usize>,
     cwd: String,
     pool_size: usize,
     batch_future: Option<Shared<Pin<Box<dyn Future<Output = Result<(), Rc<Error>>> + 'a>>>>,
@@ -139,14 +140,14 @@ impl<'a> CmdPool<'a> {
         CmdPool {
             cmd_num: 0,
             cwd,
-            cmds: BTreeMap::new(),
+            cmds: HashMap::new(),
             exec_num: 0,
             exec_cnt: 0,
-            execs: BTreeMap::new(),
+            execs: HashMap::new(),
             pool_size,
             extension_env,
             batching: BTreeSet::new(),
-            cmd_execs: BTreeMap::new(),
+            cmd_execs: HashMap::new(),
             batch_future: None,
             debug,
         }
@@ -199,7 +200,7 @@ impl<'a> CmdPool<'a> {
         // This is bad Rust, but it's also totally fine given the static execution model
         // (in Zig it might even be called idomatic)...
         let pool = self as *mut CmdPool;
-        let cmds = &mut self.cmds as *mut BTreeMap<usize, CmdOp>;
+        let cmds = &mut self.cmds as *mut HashMap<usize, CmdOp>;
         self.batch_future = Some(
             async move {
                 // batches with 5 millisecond execution groupings
@@ -360,7 +361,7 @@ impl<'a> CmdPool<'a> {
     pub fn batch(
         &mut self,
         name: Option<String>,
-        run: String,
+        run: &String,
         targets: Vec<String>,
         env: BTreeMap<String, String>,
         replacements: bool,
@@ -369,17 +370,18 @@ impl<'a> CmdPool<'a> {
         stdio: TaskStdio,
     ) -> usize {
         let id = self.cmd_num;
+        let run =  if matches!(engine, ChompEngine::Shell) && replacements {
+            replace_env_vars_static(run, &env)
+        } else {
+            run.to_string()
+        };
         self.cmds.insert(
             id,
             CmdOp {
                 id,
                 cwd,
                 name,
-                run: if matches!(engine, ChompEngine::Shell) && replacements {
-                    replace_env_vars_static(&run, &env)
-                } else {
-                    run
-                },
+                run,
                 env,
                 engine,
                 stdio,

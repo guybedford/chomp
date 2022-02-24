@@ -101,7 +101,7 @@ impl Default for ServerOptions {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 pub enum InvalidationCheck {
     NotFound,
@@ -109,7 +109,7 @@ pub enum InvalidationCheck {
     Always,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 pub enum ValidationCheck {
     OkTargets,
@@ -177,28 +177,6 @@ impl ChompTaskMaybeTemplated {
     }
 }
 
-impl ChompTaskMaybeTemplatedNoDefault {
-    pub fn targets_vec(&self) -> Vec<String> {
-        if let Some(ref target) = self.target {
-            if self.targets.is_some() {}
-            vec![target.to_string()]
-        } else if let Some(ref targets) = self.targets {
-            targets.clone()
-        } else {
-            vec![]
-        }
-    }
-    pub fn deps_vec(&self) -> Vec<String> {
-        if let Some(ref dep) = self.dep {
-            vec![dep.to_string()]
-        } else if let Some(ref deps) = self.deps {
-            deps.clone()
-        } else {
-            vec![]
-        }
-    }
-}
-
 fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
@@ -233,7 +211,7 @@ pub trait ChompTask {
     fn env_default(&self) -> Option<&HashMap<String, String>>;
 }
 
-impl ChompTask for ChompTaskMaybeTemplated {
+impl ChompTask for &ChompTaskMaybeTemplated {
     fn env(&self) -> Option<&HashMap<String, String>> {
         Some(&self.env)
     }
@@ -242,7 +220,7 @@ impl ChompTask for ChompTaskMaybeTemplated {
     }
 }
 
-impl ChompTask for ChompTaskMaybeTemplatedNoDefault {
+impl ChompTask for &ChompTaskMaybeTemplatedNoDefault {
     fn env(&self) -> Option<&HashMap<String, String>> {
         self.env.as_ref()
     }

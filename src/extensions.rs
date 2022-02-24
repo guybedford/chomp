@@ -39,7 +39,7 @@ pub struct ExtensionEnvironment {
 pub struct BatcherResult {
     pub defer: Option<Vec<usize>>,
     pub exec: Option<Vec<BatchCmd>>,
-    pub completion_map: Option<BTreeMap<usize, usize>>,
+    pub completion_map: Option<HashMap<usize, usize>>,
 }
 
 struct Extensions {
@@ -275,7 +275,8 @@ impl ExtensionEnvironment {
         self.has_extensions = true;
         {
             let mut handle_scope = self.handle_scope();
-            let code = v8::String::new(&mut handle_scope, &format!("{{{}}}", extension_source)).unwrap();
+            let code =
+                v8::String::new(&mut handle_scope, &format!("{{{}}}", extension_source)).unwrap();
             let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
             let resource_name = v8::String::new(tc_scope, &filename).unwrap().into();
             let source_map = v8::String::new(tc_scope, "").unwrap().into();

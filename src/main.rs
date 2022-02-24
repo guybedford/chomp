@@ -17,12 +17,12 @@
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
-use crate::task::Runner;
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::Chompfile;
 use crate::extensions::init_js_platform;
 use crate::extensions::ExtensionEnvironment;
 use crate::task::expand_template_tasks;
+use crate::task::Runner;
 use anyhow::{anyhow, Result};
 use clap::{App, Arg};
 use std::collections::BTreeMap;
@@ -30,10 +30,10 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 extern crate num_cpus;
+use crate::engines::replace_env_vars_static;
 use hyper::Uri;
 use std::env;
 use std::fs::canonicalize;
-use crate::engines::replace_env_vars_static;
 
 mod ansi_windows;
 mod chompfile;
@@ -180,7 +180,7 @@ async fn main() -> Result<()> {
 
     #[cfg(target_os = "windows")]
     match ansi_windows::enable_ansi_support() {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(_) => {
             // TODO: handling disabling of ansi codes
         }
@@ -268,7 +268,10 @@ async fn main() -> Result<()> {
         global_env.insert(key.to_uppercase(), value);
     }
     for (key, value) in &chompfile.env {
-        global_env.insert(key.to_uppercase(), replace_env_vars_static(value, &global_env));
+        global_env.insert(
+            key.to_uppercase(),
+            replace_env_vars_static(value, &global_env),
+        );
     }
     if matches.is_present("eject_templates") {
         global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
@@ -277,7 +280,10 @@ async fn main() -> Result<()> {
     // extend global env with the chompfile env as well
     for (key, value) in &chompfile.env_default {
         if !global_env.contains_key(&key.to_uppercase()) {
-            global_env.insert(key.to_uppercase(), replace_env_vars_static(value, &global_env));
+            global_env.insert(
+                key.to_uppercase(),
+                replace_env_vars_static(value, &global_env),
+            );
         }
     }
 
@@ -382,40 +388,41 @@ async fn main() -> Result<()> {
         }
     }
 
+    let (mut has_templates, mut template_tasks) =
+        expand_template_tasks(&chompfile, &mut extension_env)?;
+    chompfile.task = Vec::new();
+    for task in extension_env.get_tasks().drain(..) {
+        has_templates = true;
+        chompfile.task.push(ChompTaskMaybeTemplated {
+            target: task.target,
+            targets: task.targets,
+            args: task.args,
+            cwd: task.cwd,
+            dep: task.dep,
+            deps: task.deps,
+            display: task.display,
+            engine: task.engine,
+            env: task.env.unwrap_or_default(),
+            env_default: task.env_default.unwrap_or_default(),
+            env_replace: task.env_replace,
+            invalidation: task.invalidation,
+            validation: task.validation,
+            run: task.run,
+            name: task.name,
+            serial: task.serial,
+            stdio: task.stdio,
+            template: task.template,
+            template_options: task.template_options,
+        });
+    }
+    chompfile.task.append(&mut template_tasks);
+
     if matches.is_present("format")
         || matches.is_present("eject_templates")
         || matches.is_present("list")
         || matches.is_present("import_scripts")
     {
         if matches.is_present("eject_templates") {
-            let (mut has_templates, mut template_tasks) =
-                expand_template_tasks(&chompfile, &mut extension_env)?;
-            chompfile.task = Vec::new();
-            for task in extension_env.get_tasks().drain(..) {
-                has_templates = true;
-                chompfile.task.push(ChompTaskMaybeTemplated {
-                    target: task.target,
-                    targets: task.targets,
-                    args: task.args,
-                    cwd: task.cwd,
-                    dep: task.dep,
-                    deps: task.deps,
-                    display: task.display,
-                    engine: task.engine,
-                    env: task.env.unwrap_or_default(),
-                    env_default: task.env_default.unwrap_or_default(),
-                    env_replace: task.env_replace,
-                    invalidation: task.invalidation,
-                    validation: task.validation,
-                    run: task.run,
-                    name: task.name,
-                    serial: task.serial,
-                    stdio: task.stdio,
-                    template: task.template,
-                    template_options: task.template_options
-                });
-            }
-            chompfile.task.append(&mut template_tasks);
             if !has_templates {
                 return Err(anyhow!(
                     "\x1b[1m{}\x1b[0m has no templates to eject",
@@ -524,16 +531,23 @@ async fn main() -> Result<()> {
         }
     }
 
-    let mut runner = Runner::new(&chompfile, &mut extension_env, pool_size, matches.is_present("serve") || matches.is_present("watch"))?;
-    let ok = runner.run(task::RunOptions {
-        watch: matches.is_present("serve") || matches.is_present("watch"),
-        force: matches.is_present("force"),
-        rerun: matches.is_present("rerun"),
-        args: if args.len() > 0 { Some(args) } else { None },
+    let mut runner = Runner::new(
+        &chompfile,
+        &mut extension_env,
         pool_size,
-        targets,
-        cfg_file,
-    }).await?;
+        matches.is_present("serve") || matches.is_present("watch"),
+    )?;
+    let ok = runner
+        .run(task::RunOptions {
+            watch: matches.is_present("serve") || matches.is_present("watch"),
+            force: matches.is_present("force"),
+            rerun: matches.is_present("rerun"),
+            args: if args.len() > 0 { Some(args) } else { None },
+            pool_size,
+            targets,
+            cfg_file,
+        })
+        .await?;
 
     if !ok {
         eprintln!("Unable to complete all tasks.");
