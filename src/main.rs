@@ -249,8 +249,11 @@ async fn main() -> Result<()> {
     assert!(env::set_current_dir(&cwd).is_ok());
 
     if matches.is_present("clear_cache") {
-        println!("Clearing URL extension cache...");
         http_client::clear_cache().await?;
+        println!("\x1b[1;32m√\x1b[0m Cleared remote URL extension cache.");
+        if targets.len() == 0 {
+            return Ok(());
+        }
     }
 
     init_js_platform();
@@ -438,7 +441,6 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            return Ok(());
         } else {
             let mut script_tasks = 0;
             if matches.is_present("import_scripts") {
@@ -512,9 +514,9 @@ async fn main() -> Result<()> {
                     if created { "created" } else { "updated" }
                 );
             }
-            if matches.is_present("eject_templates") || targets.len() == 0 {
-                return Ok(());
-            }
+        }
+        if matches.is_present("eject_templates") || targets.len() == 0 {
+            return Ok(());
         }
     }
 
