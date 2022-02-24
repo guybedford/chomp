@@ -276,7 +276,9 @@ async fn main() -> Result<()> {
     global_env.insert("CHOMP_POOL_SIZE".to_string(), pool_size.to_string());
     // extend global env with the chompfile env as well
     for (key, value) in &chompfile.env_default {
-        global_env.insert(key.to_uppercase(), replace_env_vars_static(value, &global_env));
+        if !global_env.contains_key(&key.to_uppercase()) {
+            global_env.insert(key.to_uppercase(), replace_env_vars_static(value, &global_env));
+        }
     }
 
     let mut extension_env = ExtensionEnvironment::new(&global_env);
