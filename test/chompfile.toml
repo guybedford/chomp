@@ -106,10 +106,14 @@ expect-equals = '''UNIT OK
 '''
 
 [[task]]
+target = 'output'
+run = 'mkdir output'
+
+[[task]]
 name = 'unittest:#'
 display = 'none'
 stdio = 'stderr-only'
-dep = 'unit/#.mjs'
+deps = ['unit/#.mjs', 'output']
 run = 'node $DEP'
 [task.template-options]
 expect-equals = '''UNIT OK
