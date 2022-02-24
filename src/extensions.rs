@@ -275,7 +275,7 @@ impl ExtensionEnvironment {
         self.has_extensions = true;
         {
             let mut handle_scope = self.handle_scope();
-            let code = v8::String::new(&mut handle_scope, extension_source).unwrap();
+            let code = v8::String::new(&mut handle_scope, &format!("{{{}}}", extension_source)).unwrap();
             let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
             let resource_name = v8::String::new(tc_scope, &filename).unwrap().into();
             let source_map = v8::String::new(tc_scope, "").unwrap().into();

@@ -320,12 +320,7 @@ pub async fn check_target_mtimes(targets: Vec<String>, default_latest: bool) -> 
                             .unwrap(),
                     ),
                     Err(e) => match e.kind() {
-                        NotFound => {
-                            if let Some(parent) = target_path.parent() {
-                                fs::create_dir_all(parent).await.unwrap();
-                            }
-                            None
-                        }
+                        NotFound => None,
                         _ => panic!("Unknown file error"),
                     },
                 }
