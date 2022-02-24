@@ -109,6 +109,21 @@ pub enum InvalidationCheck {
     Always,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub enum ValidationCheck {
+    OkTargets,
+    TargetsOnly,
+    OkOnly,
+    None,
+}
+
+impl Default for ValidationCheck {
+    fn default() -> Self {
+        ValidationCheck::OkTargets
+    }
+}
+
 impl Default for InvalidationCheck {
     fn default() -> Self {
         InvalidationCheck::Mtime
@@ -126,6 +141,7 @@ pub struct ChompTaskMaybeTemplated {
     pub args: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
+    pub validation: Option<ValidationCheck>,
     pub display: Option<TaskDisplay>,
     pub stdio: Option<TaskStdio>,
     pub engine: Option<ChompEngine>,
@@ -199,6 +215,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub args: Option<Vec<String>>,
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
+    pub validation: Option<ValidationCheck>,
     pub display: Option<TaskDisplay>,
     pub stdio: Option<TaskStdio>,
     pub engine: Option<ChompEngine>,
