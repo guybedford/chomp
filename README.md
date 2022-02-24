@@ -14,6 +14,10 @@ Make sure you have [Cargo installed](https://rustup.rs/), then run:
 cargo install chompbuild
 ```
 
+Common platform binaries are also available for [all releases](https://github.com/guybedford/chomp/releases).
+
+To quickly setup Chomp in a GitHub Actions CI workflow, see the [Chomp GitHub Action](https://github.com/guybedford/chomp-action).
+
 ## Documentation
 
 * [CLI Usage](https://github.com/guybedford/chomp/blob/main/docs/cli.md)
