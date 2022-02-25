@@ -14,11 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::chompfile::ChompTask;
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::TaskDisplay;
 use crate::chompfile::ValidationCheck;
-use crate::chompfile::{ChompTaskMaybeTemplatedNoDefault, Chompfile, InvalidationCheck};
+use crate::chompfile::{ChompTaskMaybeTemplatedJs, Chompfile, InvalidationCheck};
 use crate::engines::CmdPool;
 use crate::ExtensionEnvironment;
 use futures::future::Shared;
@@ -402,7 +401,7 @@ pub fn expand_template_tasks(
         if task.deps.is_none() {
             task.deps = Some(Default::default());
         }
-        let js_task = ChompTaskMaybeTemplatedNoDefault {
+        let js_task = ChompTaskMaybeTemplatedJs {
             cwd: task.cwd.clone(),
             name: task.name.clone(),
             target: None,
@@ -412,18 +411,19 @@ pub fn expand_template_tasks(
             dep: None,
             deps: Some(task.deps_vec()),
             args: task.args.clone(),
+            echo: task.echo.clone(),
             display: task.display,
             stdio: Some(task.stdio.unwrap_or_default()),
             serial: task.serial,
             env_replace: task.env_replace,
-            env: Some(task.env),
-            env_default: Some(task.env_default),
+            env: task.env,
+            env_default: task.env_default,
             run: task.run,
             engine: task.engine,
             template: None,
             template_options: task.template_options,
         };
-        let mut template_tasks: Vec<ChompTaskMaybeTemplatedNoDefault> =
+        let mut template_tasks: Vec<ChompTaskMaybeTemplatedJs> =
             extension_env.run_template(&template, &js_task)?;
         // template functions output a list of tasks
         for mut template_task in template_tasks.drain(..).rev() {
@@ -477,10 +477,11 @@ pub fn expand_template_tasks(
                 validation: template_task.validation.take(),
                 dep,
                 deps,
+                echo: template_task.echo,
                 serial: template_task.serial,
                 env_replace: template_task.env_replace,
-                env: template_task.env.unwrap_or_default(),
-                env_default: template_task.env_default.unwrap_or_default(),
+                env: template_task.env,
+                env_default: template_task.env_default,
                 run: template_task.run,
                 engine: template_task.engine,
                 template: template_task.template,
@@ -505,7 +506,7 @@ fn now() -> std::time::Duration {
 // for the powershell exec
 #[cfg(target_os = "windows")]
 fn create_task_env<'a>(
-    task: &impl ChompTask,
+    task: &ChompTaskMaybeTemplated,
     chompfile: &'a Chompfile,
     replacements: bool,
 ) -> BTreeMap<String, String> {
@@ -536,7 +537,7 @@ fn create_task_env<'a>(
             }
         }
     }
-    if let Some(task_env) = task.env() {
+    if let Some(ref task_env) = task.env {
         for (item, value) in task_env {
             env.insert(
                 item.to_uppercase(),
@@ -548,7 +549,7 @@ fn create_task_env<'a>(
             );
         }
     }
-    if let Some(task_env_default) = task.env_default() {
+    if let Some(ref task_env_default) = task.env_default {
         for (item, value) in task_env_default {
             if !env.contains_key(item) {
                 if let Some(val) = std::env::var_os(item) {
@@ -638,8 +639,7 @@ impl<'a> Runner<'a> {
         let cwd_buf = std::env::current_dir()?;
         let cwd = cwd_buf.to_str().unwrap();
 
-        let cmd_pool: CmdPool =
-            CmdPool::new(pool_size, String::from(cwd), extension_env, chompfile.debug);
+        let cmd_pool: CmdPool = CmdPool::new(pool_size, String::from(cwd), extension_env);
         let mut runner = Runner {
             watch,
             // ui,
@@ -822,7 +822,7 @@ impl<'a> Runner<'a> {
                     | Some(TaskDisplay::Dot)
                     | None
             )
-            || self.chompfile.debug
+            || self.chompfile.echo
         {
             let mut name = job.display_name(&self.tasks);
             let primary = job.parents.len() == 0;
@@ -1003,7 +1003,7 @@ impl<'a> Runner<'a> {
                             && (matches!(
                                 task.chomp_task.display,
                                 Some(TaskDisplay::InitStatus) | Some(TaskDisplay::InitOnly) | None
-                            ) || self.chompfile.debug)
+                            ) || self.chompfile.echo)
                         {
                             println!(
                                 "  \x1b[1m{}\x1b[0m invalidated",
@@ -1038,7 +1038,7 @@ impl<'a> Runner<'a> {
                                                 Some(TaskDisplay::InitStatus)
                                                     | Some(TaskDisplay::InitOnly)
                                                     | None
-                                            ) || self.chompfile.debug)
+                                            ) || self.chompfile.echo)
                                         {
                                             println!(
                                                 "  \x1b[1m{}\x1b[0m invalidated by {}",
@@ -1059,7 +1059,7 @@ impl<'a> Runner<'a> {
                                                 Some(TaskDisplay::InitStatus)
                                                     | Some(TaskDisplay::InitOnly)
                                                     | None
-                                            ) || self.chompfile.debug)
+                                            ) || self.chompfile.echo)
                                         {
                                             println!(
                                                 "  \x1b[1m{}\x1b[0m invalidated by {}",
@@ -1159,13 +1159,13 @@ impl<'a> Runner<'a> {
         let targets = job.targets.clone();
         let engine = task.chomp_task.engine.unwrap_or_default();
         let env_replace = task.chomp_task.env_replace.unwrap_or(true);
-        let debug = self.chompfile.debug;
+        let echo = if let Some(echo) = task.chomp_task.echo { echo } else { self.chompfile.echo };
         let cmd_num = {
             let stdio = task.chomp_task.stdio.unwrap_or_default();
             let display_name = if matches!(
                 task.chomp_task.display,
                 Some(TaskDisplay::InitStatus) | Some(TaskDisplay::InitOnly) | None
-            ) || debug
+            ) || echo
             {
                 Some(job.display_name(&self.tasks))
             } else {
@@ -1206,6 +1206,7 @@ impl<'a> Runner<'a> {
                 cwd,
                 engine,
                 stdio,
+                echo,
             );
             let job = self.get_job_mut(job_num).unwrap();
             job.state = JobState::Running;
@@ -2108,15 +2109,6 @@ impl<'a> Runner<'a> {
         let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>> = Vec::new();
 
         let mut queued = QueuedStateTransitions::new();
-
-        // if self.chompfile.debug {
-        //     dbg!(targets);
-        //     dbg!(&self.file_nodes);
-        //     dbg!(&self.task_jobs);
-        //     dbg!(&self.interpolate_nodes);
-        //     dbg!(&self.tasks);
-        //     dbg!(&self.nodes);
-        // }
 
         // first try named target, then fall back to file name check
         for &job_num in jobs {

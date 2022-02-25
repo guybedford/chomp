@@ -68,7 +68,7 @@ impl Default for ChompEngine {
 pub struct Chompfile {
     pub version: f32,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub debug: bool,
+    pub echo: bool,
     pub default_task: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub extensions: Vec<String>,
@@ -149,11 +149,10 @@ pub struct ChompTaskMaybeTemplated {
     pub cwd: Option<String>,
     pub env_replace: Option<bool>,
     pub template: Option<String>,
+    pub echo: Option<bool>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub env: HashMap<String, String>,
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub env_default: HashMap<String, String>,
+    pub env: Option<HashMap<String, String>>,
+    pub env_default: Option<HashMap<String, String>>,
 }
 
 impl ChompTaskMaybeTemplated {
@@ -181,10 +180,9 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-// Pending https://github.com/denoland/deno/issues/13185
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ChompTaskMaybeTemplatedNoDefault {
+pub struct ChompTaskMaybeTemplatedJs {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
@@ -199,6 +197,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
     pub cwd: Option<String>,
+    pub echo: Option<bool>,
     pub env_replace: Option<bool>,
     pub template: Option<String>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
@@ -206,25 +205,5 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub env_default: Option<HashMap<String, String>>,
 }
 
-pub trait ChompTask {
-    fn env(&self) -> Option<&HashMap<String, String>>;
-    fn env_default(&self) -> Option<&HashMap<String, String>>;
-}
-
-impl ChompTask for &ChompTaskMaybeTemplated {
-    fn env(&self) -> Option<&HashMap<String, String>> {
-        Some(&self.env)
-    }
-    fn env_default(&self) -> Option<&HashMap<String, String>> {
-        Some(&self.env_default)
-    }
-}
-
-impl ChompTask for &ChompTaskMaybeTemplatedNoDefault {
-    fn env(&self) -> Option<&HashMap<String, String>> {
-        self.env.as_ref()
-    }
-    fn env_default(&self) -> Option<&HashMap<String, String>> {
-        self.env_default.as_ref()
-    }
+impl ChompTaskMaybeTemplated {
 }

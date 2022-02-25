@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::chompfile::ChompTaskMaybeTemplatedNoDefault;
+use crate::chompfile::ChompTaskMaybeTemplatedJs;
 use crate::engines::BatchCmd;
 use crate::engines::CmdOp;
 use anyhow::{anyhow, Error, Result};
@@ -43,7 +43,7 @@ pub struct BatcherResult {
 }
 
 struct Extensions {
-    pub tasks: Vec<ChompTaskMaybeTemplatedNoDefault>,
+    pub tasks: Vec<ChompTaskMaybeTemplatedJs>,
     can_register: bool,
     includes: Vec<String>,
     templates: HashMap<String, v8::Global<v8::Function>>,
@@ -112,7 +112,7 @@ fn chomp_register_task(
     args: v8::FunctionCallbackArguments,
     mut _rv: v8::ReturnValue,
 ) {
-    let task: ChompTaskMaybeTemplatedNoDefault = {
+    let task: ChompTaskMaybeTemplatedJs = {
         let tc_scope = &mut v8::TryCatch::new(scope);
         from_v8(tc_scope, args.get(0)).expect("Unable to register task")
     };
@@ -254,7 +254,7 @@ impl ExtensionEnvironment {
         v8::HandleScope::with_context(&mut self.isolate, self.global_context.clone())
     }
 
-    pub fn get_tasks(&self) -> Vec<ChompTaskMaybeTemplatedNoDefault> {
+    pub fn get_tasks(&self) -> Vec<ChompTaskMaybeTemplatedJs> {
         self.isolate
             .get_slot::<Rc<RefCell<Extensions>>>()
             .unwrap()
@@ -317,8 +317,8 @@ impl ExtensionEnvironment {
     pub fn run_template(
         &mut self,
         name: &str,
-        task: &ChompTaskMaybeTemplatedNoDefault,
-    ) -> Result<Vec<ChompTaskMaybeTemplatedNoDefault>> {
+        task: &ChompTaskMaybeTemplatedJs,
+    ) -> Result<Vec<ChompTaskMaybeTemplatedJs>> {
         let template = {
             let extensions = self.get_extensions().borrow();
             match extensions.templates.get(name) {
@@ -355,7 +355,7 @@ impl ExtensionEnvironment {
             Some(result) => result,
             None => return Err(v8_exception(tc_scope)),
         };
-        let task: Vec<ChompTaskMaybeTemplatedNoDefault> = from_v8(tc_scope, result)
+        let task: Vec<ChompTaskMaybeTemplatedJs> = from_v8(tc_scope, result)
             .expect("Unable to deserialize template task list due to invalid structure");
         Ok(task)
     }

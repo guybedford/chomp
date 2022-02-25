@@ -26,7 +26,6 @@ use crate::task::Runner;
 use anyhow::{anyhow, Result};
 use clap::{App, Arg};
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 extern crate num_cpus;
@@ -402,13 +401,14 @@ async fn main() -> Result<()> {
             deps: task.deps,
             display: task.display,
             engine: task.engine,
-            env: task.env.unwrap_or_default(),
-            env_default: task.env_default.unwrap_or_default(),
+            env: task.env,
+            env_default: task.env_default,
             env_replace: task.env_replace,
             invalidation: task.invalidation,
             validation: task.validation,
             run: task.run,
             name: task.name,
+            echo: task.echo,
             serial: task.serial,
             stdio: task.stdio,
             template: task.template,
@@ -481,8 +481,9 @@ async fn main() -> Result<()> {
                                     display: None,
                                     engine: None,
                                     env_replace: None,
-                                    env: HashMap::new(),
-                                    env_default: HashMap::new(),
+                                    env: None,
+                                    env_default: None,
+                                    echo: None,
                                     invalidation: None,
                                     validation: None,
                                     serial: None,
