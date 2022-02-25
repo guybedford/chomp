@@ -1,0 +1,31 @@
+version = 0.1
+
+default-task = 'test'
+
+[[task]]
+name = 'build'
+dep = 'inline-version'
+run = 'cargo build'
+
+[[task]]
+name = 'test'
+dep = 'build'
+cwd = 'test'
+run = 'chomp test'
+
+[[task]]
+name = 'install'
+serial = true
+dep = 'build'
+run = 'cp ./target/Debug/chomp* ~/bin/'
+
+[[task]]
+name = 'inline-version'
+engine = 'node'
+run = '''
+  import { readFileSync, writeFileSync } from 'fs';
+  const toml = readFileSync('Cargo.toml', 'utf8');
+  const [, version] = toml.match(/version\s*=\s*\"(\d+\.\d+\.\d+)\"/);
+  const main = readFileSync('src/main.rs', 'utf8');
+  writeFileSync('src/main.rs', main.replace(/let version = "\d+.\d+.\d+/g, `let version = "${version}`));
+'''
