@@ -28,8 +28,7 @@ use uuid::Uuid;
 // Custom node loader to mimic current working directory despite loading from a tmp file
 const NODE_CMD: &str = "node --no-warnings --loader \"data:text/javascript,import{readFileSync}from'fs';export function resolve(u,c,d){if(u.endsWith('[cm]'))return{url:u,format:'module'};return d(u,c);}export function load(u,c,d){if(u.endsWith('[cm]'))return{source:readFileSync(process.env.CHOMP_MAIN),format:'module'};return d(u,c)}export{load as getFormat,load as getSource}\" [cm]";
 
-pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<String>, debug: bool) {
-  // TODO: debug should pipe console output for node.js run
+pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<String>) {
   let start_time = Instant::now();
   let uuid = Uuid::new_v4();
   let mut tmp_file = env::temp_dir();
@@ -47,13 +46,14 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
   // On posix, command starts executing before we wait on it!
   std::fs::write(tmp_file, cmd.run.to_string()).expect("unable to write temporary file");
   cmd.run = NODE_CMD.to_string();
+  let echo = cmd.echo;
+  cmd.echo = false;
   let exec_num = cmd_pool.exec_num;
   cmd_pool.exec_cnt = cmd_pool.exec_cnt + 1;
   let pool = cmd_pool as *mut CmdPool;
   let child = create_cmd(
     cmd.cwd.as_ref().unwrap_or(&cmd_pool.cwd),
     &cmd,
-    debug,
     false,
   );
   let future = async move {
@@ -61,6 +61,9 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     let mut exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();
     if exec.child.is_none() {
       return None;
+    }
+    if echo {
+      println!("<Node.js exec>");
     }
     exec.state = match exec.child.as_mut().unwrap().wait().await {
       Ok(status) => {

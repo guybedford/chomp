@@ -85,7 +85,6 @@ pub struct CmdPool<'a> {
     cwd: String,
     pool_size: usize,
     batch_future: Option<Shared<Pin<Box<dyn Future<Output = Result<(), Rc<Error>>> + 'a>>>>,
-    debug: bool,
 }
 
 #[derive(Hash, Serialize, PartialEq, Eq, Debug)]
@@ -98,12 +97,14 @@ pub struct CmdOp {
     pub engine: ChompEngine,
     pub stdio: TaskStdio,
     pub targets: Vec<String>,
+    pub echo: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Hash, PartialEq, Eq)]
 pub struct BatchCmd {
     pub id: Option<usize>,
     pub run: String,
+    pub echo: bool,
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
     pub engine: ChompEngine,
@@ -134,7 +135,6 @@ impl<'a> CmdPool<'a> {
         pool_size: usize,
         cwd: String,
         extension_env: &'a mut ExtensionEnvironment,
-        debug: bool,
     ) -> CmdPool<'a> {
         CmdPool {
             cmd_num: 0,
@@ -148,7 +148,6 @@ impl<'a> CmdPool<'a> {
             batching: BTreeSet::new(),
             cmd_execs: BTreeMap::new(),
             batch_future: None,
-            debug,
         }
     }
 
@@ -271,6 +270,7 @@ impl<'a> CmdPool<'a> {
                     this.batching.remove(&cmd.id);
                     this.new_exec(BatchCmd {
                         id: None,
+                        echo: cmd.echo,
                         run: cmd.run.to_string(),
                         cwd: cmd.cwd.clone(),
                         engine: cmd.engine,
@@ -289,8 +289,6 @@ impl<'a> CmdPool<'a> {
     }
 
     async fn new_exec(&mut self, mut cmd: BatchCmd) {
-        let debug = self.debug;
-
         let exec_num = self.exec_num;
         cmd.id = Some(exec_num);
 
@@ -316,7 +314,7 @@ impl<'a> CmdPool<'a> {
             ChompEngine::Shell => {
                 let start_time = Instant::now();
                 self.exec_cnt = self.exec_cnt + 1;
-                let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&self.cwd), &cmd, debug, true);
+                let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&self.cwd), &cmd, true);
                 let future = async move {
                     let this = unsafe { &mut *pool };
                     let mut exec = &mut this.execs.get_mut(&exec_num).unwrap();
@@ -352,35 +350,38 @@ impl<'a> CmdPool<'a> {
                 );
                 self.exec_num = self.exec_num + 1;
             }
-            ChompEngine::Node => node_runner(self, cmd, targets, debug),
-            ChompEngine::Deno => deno_runner(self, cmd, targets, debug),
+            ChompEngine::Node => node_runner(self, cmd, targets),
+            ChompEngine::Deno => deno_runner(self, cmd, targets),
         };
     }
 
     pub fn batch(
         &mut self,
         name: Option<String>,
-        run: String,
+        run: &String,
         targets: Vec<String>,
         env: BTreeMap<String, String>,
         replacements: bool,
         cwd: Option<String>,
         engine: ChompEngine,
         stdio: TaskStdio,
+        echo: bool,
     ) -> usize {
         let id = self.cmd_num;
+        let run =  if matches!(engine, ChompEngine::Shell) && replacements {
+            replace_env_vars_static(run, &env)
+        } else {
+            run.to_string()
+        };
         self.cmds.insert(
             id,
             CmdOp {
                 id,
                 cwd,
                 name,
-                run: if matches!(engine, ChompEngine::Shell) && replacements {
-                    replace_env_vars_static(&run, &env)
-                } else {
-                    run
-                },
+                run,
                 env,
+                echo,
                 engine,
                 stdio,
                 targets,

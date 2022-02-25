@@ -103,7 +103,6 @@ fn set_cmd_stdio(command: &mut Command, stdio: TaskStdio) {
 pub fn create_cmd(
     cwd: &String,
     batch_cmd: &BatchCmd,
-    debug: bool,
     fastpath_fallback: bool,
 ) -> Option<Child> {
     let run = batch_cmd.run.trim();
@@ -136,9 +135,8 @@ pub fn create_cmd(
     path += "\\.bin;";
     path.push_str(cwd);
     path += "\\node_modules\\.bin;";
-    if debug {
-        println!("ENV: {:?}", batch_cmd.env);
-        println!("RUN: {}", run);
+    if batch_cmd.echo {
+        println!("{}", &run);
     }
     // fast path for direct commands to skip the shell entirely
     if let Some(capture) = CMD.captures(&run) {
@@ -270,7 +268,6 @@ pub fn create_cmd(
 pub fn create_cmd(
     cwd: &String,
     batch_cmd: &BatchCmd,
-    debug: bool,
     fastpath_fallback: bool,
 ) -> Option<Child> {
     let run = batch_cmd.run.trim();
@@ -304,9 +301,8 @@ pub fn create_cmd(
     path.push_str(cwd);
     path += "/node_modules/.bin";
 
-    if debug {
-        println!("ENV: {:?}", batch_cmd.env);
-        println!("RUN: {}", run);
+    if batch_cmd.echo {
+        println!("{}", run);
     }
     // Spawn needs an exact path for Ubuntu?
     // fast path for direct commands to skip the shell entirely

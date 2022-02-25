@@ -27,8 +27,7 @@ use uuid::Uuid;
 
 const DENO_CMD: &str = "deno run -A --unstable --no-check $CHOMP_MAIN";
 
-pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<String>, debug: bool) {
-  // TODO: debug should pipe console output for deno.js run
+pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<String>) {
   let start_time = Instant::now();
   let uuid = Uuid::new_v4();
   let mut tmp_file = env::temp_dir();
@@ -48,10 +47,11 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
   let exec_num = cmd_pool.exec_num;
   cmd_pool.exec_cnt = cmd_pool.exec_cnt + 1;
   let pool = cmd_pool as *mut CmdPool;
+  let echo = cmd.echo;
+  cmd.echo = false;
   let child = create_cmd(
     cmd.cwd.as_ref().unwrap_or(&cmd_pool.cwd),
     &cmd,
-    debug,
     false,
   );
   let future = async move {
@@ -60,6 +60,9 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     write_future.await.expect("unable to write temporary file");
     if exec.child.is_none() {
       return None;
+    }
+    if echo {
+      println!("<Deno exec>");
     }
     exec.state = match exec.child.as_mut().unwrap().wait().await {
       Ok(status) => {

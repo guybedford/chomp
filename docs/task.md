@@ -29,6 +29,7 @@ Tasks support the following optional properties:
 * **serial**: `Boolean`, whether [task dependencies](#task-dependence) should be processed in serial order. Defaults to false for parallel task processing.
 * **invalidation**: `"always" | "mtime" (default) | "not-found"`, the [task caching invalidation rules](#task-invalidation). By default a task is cached based on its target path having an mtime greater than its dependencies per "make" semantics. `"always"` never caches, and `"not-found"` will never rerun the task if the target exists.
 * **display**: `"none" | "init-status" | "init-only" | "status-only"`, defaults to `"init-status"`. Useful to reduce noise in the output log. Init is the note that the task has begun, while status is the note of task success or caching. Task errors will always be reported even with `display: 'none'`.
+* **echo**: `Boolean`, defaults to false - whether to echo the executed command of the task.
 * **stdio**: `"none" | "no-stdin" | "stdout-only" | "stderr-only" | "all"`, defaults to `"all"` where stderr and stdout are piped to the main process output and stdin is also accepted. Set to `"no-stdin"` to disable the stdin for tasks. `"stdout-only"` and `"stderr-only"` will output only those streams.
 * **engine**: `"node" | "deno" | "cmd" (default)`, the [execution engine](#task-execution) to use for the `run` string. For `node` or `deno` it is a Node.js or Deno program source string as if executed in the current directory.
 * **run**: `String`, the source code string to run in the `engine`.

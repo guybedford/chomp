@@ -68,7 +68,7 @@ impl Default for ChompEngine {
 pub struct Chompfile {
     pub version: f32,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub debug: bool,
+    pub echo: bool,
     pub default_task: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub extensions: Vec<String>,
@@ -101,7 +101,7 @@ impl Default for ServerOptions {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 pub enum InvalidationCheck {
     NotFound,
@@ -109,7 +109,7 @@ pub enum InvalidationCheck {
     Always,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 pub enum ValidationCheck {
     OkTargets,
@@ -149,38 +149,39 @@ pub struct ChompTaskMaybeTemplated {
     pub cwd: Option<String>,
     pub env_replace: Option<bool>,
     pub template: Option<String>,
+    pub echo: Option<bool>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub env: HashMap<String, String>,
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub env_default: HashMap<String, String>,
+    pub env: Option<HashMap<String, String>>,
+    pub env_default: Option<HashMap<String, String>>,
 }
 
 impl ChompTaskMaybeTemplated {
-    pub fn targets_vec(&self) -> Vec<String> {
-        if let Some(ref target) = self.target {
-            vec![target.to_string()]
-        } else if let Some(ref targets) = self.targets {
-            targets.clone()
-        } else {
-            vec![]
+    pub fn new() -> Self {
+        ChompTaskMaybeTemplated {
+            name: None,
+            run: None,
+            args: None,
+            cwd: None,
+            deps: None,
+            dep: None,
+            targets: None,
+            target: None,
+            display: None,
+            engine: None,
+            env_replace: None,
+            env: None,
+            env_default: None,
+            echo: None,
+            invalidation: None,
+            validation: None,
+            serial: None,
+            stdio: None,
+            template: None,
+            template_options: None,
         }
     }
-    pub fn deps_vec(&self) -> Vec<String> {
-        if let Some(ref dep) = self.dep {
-            vec![dep.to_string()]
-        } else if let Some(ref deps) = self.deps {
-            deps.clone()
-        } else {
-            vec![]
-        }
-    }
-}
-
-impl ChompTaskMaybeTemplatedNoDefault {
     pub fn targets_vec(&self) -> Vec<String> {
         if let Some(ref target) = self.target {
-            if self.targets.is_some() {}
             vec![target.to_string()]
         } else if let Some(ref targets) = self.targets {
             targets.clone()
@@ -203,10 +204,9 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-// Pending https://github.com/denoland/deno/issues/13185
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ChompTaskMaybeTemplatedNoDefault {
+pub struct ChompTaskMaybeTemplatedJs {
     pub name: Option<String>,
     pub target: Option<String>,
     pub targets: Option<Vec<String>>,
@@ -221,6 +221,7 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub engine: Option<ChompEngine>,
     pub run: Option<String>,
     pub cwd: Option<String>,
+    pub echo: Option<bool>,
     pub env_replace: Option<bool>,
     pub template: Option<String>,
     pub template_options: Option<HashMap<String, toml::value::Value>>,
@@ -228,25 +229,29 @@ pub struct ChompTaskMaybeTemplatedNoDefault {
     pub env_default: Option<HashMap<String, String>>,
 }
 
-pub trait ChompTask {
-    fn env(&self) -> Option<&HashMap<String, String>>;
-    fn env_default(&self) -> Option<&HashMap<String, String>>;
-}
-
-impl ChompTask for ChompTaskMaybeTemplated {
-    fn env(&self) -> Option<&HashMap<String, String>> {
-        Some(&self.env)
-    }
-    fn env_default(&self) -> Option<&HashMap<String, String>> {
-        Some(&self.env_default)
-    }
-}
-
-impl ChompTask for ChompTaskMaybeTemplatedNoDefault {
-    fn env(&self) -> Option<&HashMap<String, String>> {
-        self.env.as_ref()
-    }
-    fn env_default(&self) -> Option<&HashMap<String, String>> {
-        self.env_default.as_ref()
+impl Into<ChompTaskMaybeTemplated> for ChompTaskMaybeTemplatedJs {
+    fn into(self) -> ChompTaskMaybeTemplated {
+        ChompTaskMaybeTemplated {
+            cwd: self.cwd,
+            name: self.name,
+            args: self.args,
+            target: self.target,
+            targets: self.targets,
+            display: self.display,
+            stdio: self.stdio,
+            invalidation: self.invalidation,
+            validation: self.validation,
+            dep: self.dep,
+            deps: self.deps,
+            echo: self.echo,
+            serial: self.serial,
+            env_replace: self.env_replace,
+            env: self.env,
+            env_default: self.env_default,
+            run: self.run,
+            engine: self.engine,
+            template: self.template,
+            template_options: self.template_options,
+        }
     }
 }

@@ -14,10 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::chompfile::ChompTaskMaybeTemplatedNoDefault;
+use crate::chompfile::ChompTaskMaybeTemplatedJs;
 use crate::engines::BatchCmd;
 use crate::engines::CmdOp;
+use crate::ChompTaskMaybeTemplated;
+use crate::Chompfile;
 use anyhow::{anyhow, Error, Result};
+use convert_case::{Case, Casing};
 use serde::Deserialize;
 use serde_v8::from_v8;
 use serde_v8::to_v8;
@@ -25,6 +28,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::rc::Rc;
 use v8;
 
@@ -39,11 +43,11 @@ pub struct ExtensionEnvironment {
 pub struct BatcherResult {
     pub defer: Option<Vec<usize>>,
     pub exec: Option<Vec<BatchCmd>>,
-    pub completion_map: Option<BTreeMap<usize, usize>>,
+    pub completion_map: Option<HashMap<usize, usize>>,
 }
 
 struct Extensions {
-    pub tasks: Vec<ChompTaskMaybeTemplatedNoDefault>,
+    pub tasks: Vec<ChompTaskMaybeTemplatedJs>,
     can_register: bool,
     includes: Vec<String>,
     templates: HashMap<String, v8::Global<v8::Function>>,
@@ -60,6 +64,118 @@ impl Extensions {
             batchers: Vec::new(),
         }
     }
+}
+
+fn create_template_options(
+    template: &str,
+    task_options: &Option<HashMap<String, toml::value::Value>>,
+    default_options: &HashMap<String, HashMap<String, toml::value::Value>>,
+    convert_case: bool,
+) -> HashMap<String, toml::value::Value> {
+    let mut options = HashMap::new();
+    if let Some(task_options) = task_options {
+        for (key, value) in task_options {
+            let converted_key = if convert_case {
+                key.from_case(Case::Kebab).to_case(Case::Camel)
+            } else {
+                key.to_string()
+            };
+            options.insert(converted_key, value.clone());
+        }
+    };
+    if let Some(default_options) = default_options.get(template) {
+        for (key, value) in default_options {
+            let converted_key = key.from_case(Case::Kebab).to_case(Case::Camel);
+            if options.get(&converted_key).is_some() {
+                continue;
+            }
+            options.insert(converted_key, value.clone());
+        }
+    }
+    options
+}
+
+pub fn expand_template_tasks(
+    chompfile: &Chompfile,
+    extension_env: &mut ExtensionEnvironment,
+) -> Result<(bool, Vec<ChompTaskMaybeTemplated>)> {
+    let mut out_tasks = Vec::new();
+    let mut has_templates = false;
+
+    // expand tasks into initial job list
+    let mut task_queue: VecDeque<ChompTaskMaybeTemplated> = VecDeque::new();
+    for (idx, task) in chompfile.task.iter().enumerate() {
+        if task.deps.is_some() && task.dep.is_some() {
+            return Err(anyhow!("Invalid task: Both 'dep' and 'deps' fields are used by task {}, either a single dep or list of deps must be provided.", idx));
+        }
+        if task.targets.is_some() && task.target.is_some() {
+            return Err(anyhow!("Invalid task: Both 'target' and 'targets' fields are used by task {}, either a single target or list of targets must be provided.", idx));
+        }
+        let mut cloned = task.clone();
+        if let Some(ref template) = task.template {
+            cloned.template_options = Some(create_template_options(
+                &template,
+                &task.template_options,
+                &chompfile.template_options,
+                true,
+            ))
+        };
+        task_queue.push_back(cloned);
+    }
+
+    while task_queue.len() > 0 {
+        let mut task = task_queue.pop_front().unwrap();
+        if task.template.is_none() {
+            out_tasks.push(task);
+            continue;
+        }
+        has_templates = true;
+        let template = task.template.as_ref().unwrap();
+
+        if task.deps.is_none() {
+            task.deps = Some(Default::default());
+        }
+        let js_task = ChompTaskMaybeTemplatedJs {
+            cwd: task.cwd.clone(),
+            name: task.name.clone(),
+            target: None,
+            targets: Some(task.targets_vec()),
+            invalidation: Some(task.invalidation.clone().unwrap_or_default()),
+            validation: Some(task.validation.clone().unwrap_or_default()),
+            dep: None,
+            deps: Some(task.deps_vec()),
+            args: task.args.clone(),
+            echo: task.echo.clone(),
+            display: task.display,
+            stdio: Some(task.stdio.unwrap_or_default()),
+            serial: task.serial,
+            env_replace: task.env_replace,
+            env: task.env,
+            env_default: task.env_default,
+            run: task.run,
+            engine: task.engine,
+            template: None,
+            template_options: task.template_options,
+        };
+        let mut template_tasks: Vec<ChompTaskMaybeTemplatedJs> =
+            extension_env.run_template(&template, &js_task)?;
+        // template functions output a list of tasks
+        for mut template_task in template_tasks.drain(..).rev() {
+            template_task.template_options = if let Some(ref template) = template_task.template {
+                Some(create_template_options(
+                    &template,
+                    &template_task.template_options,
+                    &chompfile.template_options,
+                    false,
+                ))
+            } else {
+                None
+            };
+            task_queue.push_front(template_task.into());
+        }
+    }
+
+    Ok((has_templates, out_tasks))
 }
 
 pub fn init_js_platform() {
@@ -112,7 +228,7 @@ fn chomp_register_task(
     args: v8::FunctionCallbackArguments,
     mut _rv: v8::ReturnValue,
 ) {
-    let task: ChompTaskMaybeTemplatedNoDefault = {
+    let task: ChompTaskMaybeTemplatedJs = {
         let tc_scope = &mut v8::TryCatch::new(scope);
         from_v8(tc_scope, args.get(0)).expect("Unable to register task")
     };
@@ -254,7 +370,7 @@ impl ExtensionEnvironment {
         v8::HandleScope::with_context(&mut self.isolate, self.global_context.clone())
     }
 
-    pub fn get_tasks(&self) -> Vec<ChompTaskMaybeTemplatedNoDefault> {
+    pub fn get_tasks(&self) -> Vec<ChompTaskMaybeTemplatedJs> {
         self.isolate
             .get_slot::<Rc<RefCell<Extensions>>>()
             .unwrap()
@@ -275,7 +391,8 @@ impl ExtensionEnvironment {
         self.has_extensions = true;
         {
             let mut handle_scope = self.handle_scope();
-            let code = v8::String::new(&mut handle_scope, &format!("{{{}}}", extension_source)).unwrap();
+            let code =
+                v8::String::new(&mut handle_scope, &format!("{{{}}}", extension_source)).unwrap();
             let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
             let resource_name = v8::String::new(tc_scope, &filename).unwrap().into();
             let source_map = v8::String::new(tc_scope, "").unwrap().into();
@@ -316,8 +433,8 @@ impl ExtensionEnvironment {
     pub fn run_template(
         &mut self,
         name: &str,
-        task: &ChompTaskMaybeTemplatedNoDefault,
-    ) -> Result<Vec<ChompTaskMaybeTemplatedNoDefault>> {
+        task: &ChompTaskMaybeTemplatedJs,
+    ) -> Result<Vec<ChompTaskMaybeTemplatedJs>> {
         let template = {
             let extensions = self.get_extensions().borrow();
             match extensions.templates.get(name) {
@@ -354,7 +471,7 @@ impl ExtensionEnvironment {
             Some(result) => result,
             None => return Err(v8_exception(tc_scope)),
         };
-        let task: Vec<ChompTaskMaybeTemplatedNoDefault> = from_v8(tc_scope, result)
+        let task: Vec<ChompTaskMaybeTemplatedJs> = from_v8(tc_scope, result)
             .expect("Unable to deserialize template task list due to invalid structure");
         Ok(task)
     }
