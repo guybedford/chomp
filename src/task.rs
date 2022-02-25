@@ -408,9 +408,9 @@ fn create_task_env<'a>(
 }
 
 #[cfg(not(target_os = "windows"))]
-fn create_task_env(
-    task: &impl ChompTask,
-    chompfile: &Chompfile,
+fn create_task_env<'a> (
+    task: &ChompTaskMaybeTemplated,
+    chompfile: &'a Chompfile,
     replacements: bool,
 ) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
@@ -436,7 +436,7 @@ fn create_task_env(
             );
         }
     }
-    if let Some(task_env) = task.env() {
+    if let Some(task_env) = task.env {
         for (item, value) in task_env {
             env.insert(
                 item.to_uppercase(),
@@ -448,7 +448,7 @@ fn create_task_env(
             );
         }
     }
-    if let Some(task_env_default) = task.env_default() {
+    if let Some(task_env_default) = task.env_default {
         for (item, value) in task_env_default {
             if !env.contains_key(item) && std::env::var_os(item).is_none() {
                 env.insert(
