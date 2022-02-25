@@ -156,6 +156,30 @@ pub struct ChompTaskMaybeTemplated {
 }
 
 impl ChompTaskMaybeTemplated {
+    pub fn new() -> Self {
+        ChompTaskMaybeTemplated {
+            name: None,
+            run: None,
+            args: None,
+            cwd: None,
+            deps: None,
+            dep: None,
+            targets: None,
+            target: None,
+            display: None,
+            engine: None,
+            env_replace: None,
+            env: None,
+            env_default: None,
+            echo: None,
+            invalidation: None,
+            validation: None,
+            serial: None,
+            stdio: None,
+            template: None,
+            template_options: None,
+        }
+    }
     pub fn targets_vec(&self) -> Vec<String> {
         if let Some(ref target) = self.target {
             vec![target.to_string()]
@@ -205,5 +229,29 @@ pub struct ChompTaskMaybeTemplatedJs {
     pub env_default: Option<HashMap<String, String>>,
 }
 
-impl ChompTaskMaybeTemplated {
+impl Into<ChompTaskMaybeTemplated> for ChompTaskMaybeTemplatedJs {
+    fn into(self) -> ChompTaskMaybeTemplated {
+        ChompTaskMaybeTemplated {
+            cwd: self.cwd,
+            name: self.name,
+            args: self.args,
+            target: self.target,
+            targets: self.targets,
+            display: self.display,
+            stdio: self.stdio,
+            invalidation: self.invalidation,
+            validation: self.validation,
+            dep: self.dep,
+            deps: self.deps,
+            echo: self.echo,
+            serial: self.serial,
+            env_replace: self.env_replace,
+            env: self.env,
+            env_default: self.env_default,
+            run: self.run,
+            engine: self.engine,
+            template: self.template,
+            template_options: self.template_options,
+        }
+    }
 }

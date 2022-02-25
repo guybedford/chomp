@@ -19,9 +19,9 @@ extern crate clap;
 extern crate lazy_static;
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::Chompfile;
+use crate::extensions::expand_template_tasks;
 use crate::extensions::init_js_platform;
 use crate::extensions::ExtensionEnvironment;
-use crate::task::expand_template_tasks;
 use crate::task::Runner;
 use anyhow::{anyhow, Result};
 use clap::{App, Arg};
@@ -392,28 +392,7 @@ async fn main() -> Result<()> {
     chompfile.task = Vec::new();
     for task in extension_env.get_tasks().drain(..) {
         has_templates = true;
-        chompfile.task.push(ChompTaskMaybeTemplated {
-            target: task.target,
-            targets: task.targets,
-            args: task.args,
-            cwd: task.cwd,
-            dep: task.dep,
-            deps: task.deps,
-            display: task.display,
-            engine: task.engine,
-            env: task.env,
-            env_default: task.env_default,
-            env_replace: task.env_replace,
-            invalidation: task.invalidation,
-            validation: task.validation,
-            run: task.run,
-            name: task.name,
-            echo: task.echo,
-            serial: task.serial,
-            stdio: task.stdio,
-            template: task.template,
-            template_options: task.template_options,
-        });
+        chompfile.task.push(task.into());
     }
     chompfile.task.append(&mut template_tasks);
 
@@ -469,28 +448,10 @@ async fn main() -> Result<()> {
                         for (name, val) in scripts.iter() {
                             if let serde_json::Value::String(run) = &val {
                                 script_tasks = script_tasks + 1;
-                                chompfile.task.push(ChompTaskMaybeTemplated {
-                                    name: Some(name.to_string()),
-                                    run: Some(run.to_string()),
-                                    args: None,
-                                    cwd: None,
-                                    deps: None,
-                                    dep: None,
-                                    targets: None,
-                                    target: None,
-                                    display: None,
-                                    engine: None,
-                                    env_replace: None,
-                                    env: None,
-                                    env_default: None,
-                                    echo: None,
-                                    invalidation: None,
-                                    validation: None,
-                                    serial: None,
-                                    stdio: None,
-                                    template: None,
-                                    template_options: None,
-                                })
+                                let mut task = ChompTaskMaybeTemplated::new();
+                                task.name = Some(name.to_string());
+                                task.run = Some(run.to_string());
+                                chompfile.task.push(task);
                             }
                         }
                     }

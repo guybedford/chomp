@@ -17,7 +17,7 @@
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::TaskDisplay;
 use crate::chompfile::ValidationCheck;
-use crate::chompfile::{ChompTaskMaybeTemplatedJs, Chompfile, InvalidationCheck};
+use crate::chompfile::{Chompfile, InvalidationCheck};
 use crate::engines::CmdPool;
 use crate::ExtensionEnvironment;
 use futures::future::Shared;
@@ -32,7 +32,6 @@ use notify::DebouncedEvent;
 use notify::RecommendedWatcher;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::io::ErrorKind::NotFound;
 use std::io::Write;
 use std::path::PathBuf;
@@ -43,7 +42,6 @@ extern crate notify;
 use crate::engines::replace_env_vars_static;
 use crate::engines::ExecState;
 use anyhow::{anyhow, Result};
-use convert_case::{Case, Casing};
 use derivative::Derivative;
 use futures::executor;
 use tokio::fs;
@@ -330,167 +328,6 @@ pub async fn check_target_mtimes(targets: Vec<String>, default_latest: bool) -> 
         }
     }
     last_mtime
-}
-
-fn create_template_options(
-    template: &str,
-    task_options: &Option<HashMap<String, toml::value::Value>>,
-    default_options: &HashMap<String, HashMap<String, toml::value::Value>>,
-    convert_case: bool,
-) -> HashMap<String, toml::value::Value> {
-    let mut options = HashMap::new();
-    if let Some(task_options) = task_options {
-        for (key, value) in task_options {
-            let converted_key = if convert_case {
-                key.from_case(Case::Kebab).to_case(Case::Camel)
-            } else {
-                key.to_string()
-            };
-            options.insert(converted_key, value.clone());
-        }
-    };
-    if let Some(default_options) = default_options.get(template) {
-        for (key, value) in default_options {
-            let converted_key = key.from_case(Case::Kebab).to_case(Case::Camel);
-            if options.get(&converted_key).is_some() {
-                continue;
-            }
-            options.insert(converted_key, value.clone());
-        }
-    }
-    options
-}
-
-pub fn expand_template_tasks(
-    chompfile: &Chompfile,
-    extension_env: &mut ExtensionEnvironment,
-) -> Result<(bool, Vec<ChompTaskMaybeTemplated>)> {
-    let mut out_tasks = Vec::new();
-    let mut has_templates = false;
-
-    // expand tasks into initial job list
-    let mut task_queue: VecDeque<ChompTaskMaybeTemplated> = VecDeque::new();
-    for (idx, task) in chompfile.task.iter().enumerate() {
-        if task.deps.is_some() && task.dep.is_some() {
-            return Err(anyhow!("Invalid task: Both 'dep' and 'deps' fields are used by task {}, either a single dep or list of deps must be provided.", idx));
-        }
-        if task.targets.is_some() && task.target.is_some() {
-            return Err(anyhow!("Invalid task: Both 'target' and 'targets' fields are used by task {}, either a single target or list of targets must be provided.", idx));
-        }
-        let mut cloned = task.clone();
-        if let Some(ref template) = task.template {
-            cloned.template_options = Some(create_template_options(
-                &template,
-                &task.template_options,
-                &chompfile.template_options,
-                true,
-            ))
-        };
-        task_queue.push_back(cloned);
-    }
-
-    while task_queue.len() > 0 {
-        let mut task = task_queue.pop_front().unwrap();
-        if task.template.is_none() {
-            out_tasks.push(task);
-            continue;
-        }
-        has_templates = true;
-        let template = task.template.as_ref().unwrap();
-
-        if task.deps.is_none() {
-            task.deps = Some(Default::default());
-        }
-        let js_task = ChompTaskMaybeTemplatedJs {
-            cwd: task.cwd.clone(),
-            name: task.name.clone(),
-            target: None,
-            targets: Some(task.targets_vec()),
-            invalidation: Some(task.invalidation.clone().unwrap_or_default()),
-            validation: Some(task.validation.clone().unwrap_or_default()),
-            dep: None,
-            deps: Some(task.deps_vec()),
-            args: task.args.clone(),
-            echo: task.echo.clone(),
-            display: task.display,
-            stdio: Some(task.stdio.unwrap_or_default()),
-            serial: task.serial,
-            env_replace: task.env_replace,
-            env: task.env,
-            env_default: task.env_default,
-            run: task.run,
-            engine: task.engine,
-            template: None,
-            template_options: task.template_options,
-        };
-        let mut template_tasks: Vec<ChompTaskMaybeTemplatedJs> =
-            extension_env.run_template(&template, &js_task)?;
-        // template functions output a list of tasks
-        for mut template_task in template_tasks.drain(..).rev() {
-            let (target, targets) = if template_task.target.is_some() {
-                (Some(template_task.target.take().unwrap()), None)
-            } else if template_task.targets.is_some() {
-                let mut targets = template_task.targets.take().unwrap();
-                if targets.len() == 1 {
-                    (Some(targets.remove(0)), None)
-                } else if targets.len() == 0 {
-                    (None, None)
-                } else {
-                    (None, Some(targets))
-                }
-            } else {
-                (None, None)
-            };
-            let (dep, deps) = if template_task.dep.is_some() {
-                (Some(template_task.dep.take().unwrap()), None)
-            } else if template_task.deps.is_some() {
-                let mut deps = template_task.deps.take().unwrap();
-                if deps.len() == 1 {
-                    (Some(deps.remove(0)), None)
-                } else if deps.len() == 0 {
-                    (None, None)
-                } else {
-                    (None, Some(deps))
-                }
-            } else {
-                (None, None)
-            };
-            let template_options = if let Some(ref template) = template_task.template {
-                Some(create_template_options(
-                    &template,
-                    &template_task.template_options,
-                    &chompfile.template_options,
-                    false,
-                ))
-            } else {
-                None
-            };
-            task_queue.push_front(ChompTaskMaybeTemplated {
-                cwd: template_task.cwd,
-                name: template_task.name,
-                args: template_task.args,
-                target,
-                targets,
-                display: template_task.display,
-                stdio: template_task.stdio,
-                invalidation: template_task.invalidation.take(),
-                validation: template_task.validation.take(),
-                dep,
-                deps,
-                echo: template_task.echo,
-                serial: template_task.serial,
-                env_replace: template_task.env_replace,
-                env: template_task.env,
-                env_default: template_task.env_default,
-                run: template_task.run,
-                engine: template_task.engine,
-                template: template_task.template,
-                template_options: template_options,
-            });
-        }
-    }
-
-    Ok((has_templates, out_tasks))
 }
 
 fn has_glob_chars(s: &str) -> bool {
@@ -1159,7 +996,11 @@ impl<'a> Runner<'a> {
         let targets = job.targets.clone();
         let engine = task.chomp_task.engine.unwrap_or_default();
         let env_replace = task.chomp_task.env_replace.unwrap_or(true);
-        let echo = if let Some(echo) = task.chomp_task.echo { echo } else { self.chompfile.echo };
+        let echo = if let Some(echo) = task.chomp_task.echo {
+            echo
+        } else {
+            self.chompfile.echo
+        };
         let cmd_num = {
             let stdio = task.chomp_task.stdio.unwrap_or_default();
             let display_name = if matches!(
