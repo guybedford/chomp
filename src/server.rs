@@ -42,7 +42,7 @@ async fn client_connection(ws: WebSocket, state: State) {
             eprintln!("error sending websocket msg: {}", e);
         }
     }));
-    // client_sender.send(Ok(Message::text("Connected"))).unwrap();
+    client_sender.send(Ok(Message::text("Connected"))).unwrap();
     let id = {
         let clients_vec = &mut state.write().await.clients;
         let id = if clients_vec.len() > 0 {
@@ -111,7 +111,7 @@ pub enum FileEvent {
     WatchFile(PathBuf),
 }
 
-async fn check_watcher(mut rx: UnboundedReceiver<DebouncedEvent>, state: State) {
+async fn check_watcher(mut rx: UnboundedReceiver<DebouncedEvent>, root: &PathBuf, state: State) {
     loop {
         let evt = rx.recv().await.unwrap();
         match evt {
@@ -122,7 +122,7 @@ async fn check_watcher(mut rx: UnboundedReceiver<DebouncedEvent>, state: State) 
             DebouncedEvent::Create(path)
             | DebouncedEvent::Write(path)
             | DebouncedEvent::Rename(_, path) => {
-                let _ = revalidate(&path, state.clone(), true).await;
+                let _ = revalidate(&path, root, state.clone(), true).await;
             }
             DebouncedEvent::Rescan => panic!("Unhandled: Watcher Rescan"),
             DebouncedEvent::Error(err, maybe_path) => {
@@ -132,17 +132,26 @@ async fn check_watcher(mut rx: UnboundedReceiver<DebouncedEvent>, state: State) 
     }
 }
 
-async fn revalidate(path: &PathBuf, state: State, broadcast_updates: bool) -> Option<String> {
+async fn revalidate(
+    path: &PathBuf,
+    root: &PathBuf,
+    state: State,
+    broadcast_updates: bool,
+) -> (Option<String>, bool) {
     let source = match fs::read(path).await {
         Ok(src) => src,
-        Err(_) => return None,
+        Err(_) => return (None, true),
     };
+    let path_str = path
+        .strip_prefix(root)
+        .expect("Unexpected revalidation outside project base")
+        .to_str()
+        .unwrap();
     let hash = crate::http_client::hash(&source[0..]);
-    let path_str = path.to_str().unwrap();
     let mut state = state.write().await;
     if let Some(existing_hash) = state.file_hashes.get(path_str) {
         if hash.eq(existing_hash) {
-            return Some(hash);
+            return (Some(hash), false);
         }
     }
     state
@@ -152,50 +161,59 @@ async fn revalidate(path: &PathBuf, state: State, broadcast_updates: bool) -> Op
         for client in state.clients.iter() {
             client
                 .sender
-                .send(Ok(Message::text(format!(
-                    "CHANGE:{}",
-                    path.to_str().unwrap()
-                ))))
+                .send(Ok(Message::text(path_str.replace('\\', "/"))))
                 .expect("error sending websocket");
         }
     }
-    Some(hash)
+    (Some(hash), true)
 }
 
-fn not_found(path: &PathBuf) -> Response<Body> {
+fn not_found(resource: &str) -> Response<Body> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .header(
             header::CONTENT_TYPE,
             header::HeaderValue::from_str("text/plain").unwrap(),
         )
-        .body(Body::from(format!(
-            "\"{}\" Not Found",
-            path.to_string_lossy()
-        )))
+        .body(Body::from(format!("\"{}\" Not Found", resource)))
         .unwrap()
 }
 
-async fn file_serve(filename: &PathBuf) -> Response<Body> {
+async fn file_serve(path: &PathBuf, root: &PathBuf, hash: Option<String>) -> Response<Body> {
     // Serve a file by asynchronously reading it by chunks using tokio-util crate.
-    if let Ok(file) = File::open(filename).await {
+    if let Ok(file) = File::open(path).await {
         let stream = FramedRead::new(file, BytesCodec::new());
         let body = Body::wrap_stream(stream);
         let mut res = Response::new(body);
-        let guess = mime_guess::from_path(filename);
+        let guess = mime_guess::from_path(path);
         if let Some(mime) = guess.first() {
-            res.headers_mut().insert(
+            let headers_mut = res.headers_mut();
+            headers_mut.insert(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_str(mime.essence_str()).unwrap(),
+            );
+            headers_mut.insert(
+                header::ETAG,
+                header::HeaderValue::from_str(&hash.unwrap()).unwrap(),
+            );
+            headers_mut.insert(
+                header::CACHE_CONTROL,
+                header::HeaderValue::from_str("must-revalidate").unwrap(),
             );
         }
         return res;
     }
-    not_found(filename)
+    not_found(
+        &path.strip_prefix(root)
+            .expect("unexpected path")
+            .to_str()
+            .unwrap()
+            .replace('\\', "/"),
+    )
 }
 
 // TODO: gloss
-async fn index_page(path: &mut PathBuf, base_len: usize) -> Option<Response<Body>> {
+async fn index_page(path: &mut PathBuf, root: &PathBuf) -> Option<Response<Body>> {
     path.push("index.html");
     match fs::metadata(&path).await {
         Ok(_) => {}
@@ -207,12 +225,18 @@ async fn index_page(path: &mut PathBuf, base_len: usize) -> Option<Response<Body
                 .collect::<Result<Vec<_>, std::io::Error>>()
                 .unwrap();
             entries.sort();
-            let prefix_len = path.to_string_lossy().len();
             let mut listing = String::from("<!doctype html><body><ul>");
             for entry in entries {
-                let entry_str = entry.to_string_lossy().replace('\\', "/");
-                let name = &entry_str[prefix_len + 1..];
-                let relpath = &entry_str[base_len + 1..];
+                let name = entry
+                    .strip_prefix(&path)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let relpath = entry
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
                 let item = format!("<li><a href=\"{}\">{}</a></li>", relpath, name);
                 listing.push_str(&item);
             }
@@ -237,23 +261,35 @@ pub async fn serve(
     let state: State = Arc::new(RwLock::new(StateStruct::new()));
     let watcher_state = state.clone();
     let state_clone = state.clone();
-
+    let root = match fs::canonicalize(&opts.root).await {
+        Ok(canonical) => canonical,
+        Err(_) => {
+            eprintln!("Unable to find the root server path {}", &opts.root);
+            return;
+        }
+    };
+    let root_str = root.to_str().unwrap();
+    let root = if root_str.starts_with(r"\\?\") {
+        PathBuf::from(String::from(&root_str[4..]))
+    } else {
+        root
+    };
+    let watcher_root = root.clone();
     let static_assets = warp::path::tail()
-        .and(warp::any().map(move || opts.root.to_string()))
+        .and(warp::any().map(move || root.clone()))
         .and(warp::any().map(move || state.clone()))
         .and(warp::any().map(move || watch_sender.clone()))
         .and(warp::filters::header::optional::<String>("if-none-match"))
         .then(
             |path: warp::path::Tail,
-             root: String,
+             root: PathBuf,
              state: State,
              sender: UnboundedSender<FileEvent>,
-             etag: Option<String>| async move {
+             validate_hash: Option<String>| async move {
                 let subpath = percent_decode_str(path.as_str())
                     .decode_utf8_lossy()
                     .into_owned();
-                let root_len = root.len();
-                let mut path = PathBuf::from(root);
+                let mut path = PathBuf::from(&root);
                 path.push(subpath);
 
                 let is_dir = match fs::metadata(&path).await {
@@ -261,30 +297,32 @@ pub async fn serve(
                     Err(_) => false,
                 };
                 if is_dir {
-                    if let Some(res) = index_page(&mut path, root_len).await {
+                    if let Some(res) = index_page(&mut path, &root).await {
                         return res;
                     }
                 }
-                let cached = match revalidate(&path, state, false).await {
-                    Some(hash) => match etag {
-                        Some(etag) => etag == hash,
-                        None => false,
+                let (hash, add_watch) = revalidate(&path, &root, state, false).await;
+                if add_watch {
+                    let _ = sender.send(FileEvent::WatchFile(path.clone())).is_ok();
+                }
+                let (cached, etag) = match hash {
+                    Some(hash) => match validate_hash {
+                        Some(validate_hash) => (validate_hash == hash, Some(hash)),
+                        None => (false, Some(hash)),
                     },
-                    None => false,
+                    None => (false, None),
                 };
                 if cached {
                     let mut res = Response::new(Body::empty());
                     *res.status_mut() = hyper::StatusCode::NOT_MODIFIED;
                     return res;
                 } else {
-                    let res = file_serve(&path).await;
-                    let _ = sender.send(FileEvent::WatchFile(path)).is_ok();
-                    res
+                    file_serve(&path, &root, etag).await
                 }
             },
         );
 
-    let websocket = warp::path("ws")
+    let websocket = warp::path("watch")
         .and(warp::ws())
         .and(warp::any().map(move || state_clone.clone()))
         .map(|ws: Ws, state: State| ws.on_upgrade(move |socket| client_connection(socket, state)));
@@ -294,7 +332,7 @@ pub async fn serve(
         .with(warp::cors().allow_any_origin());
 
     future::join(
-        check_watcher(watch_receiver, watcher_state),
+        check_watcher(watch_receiver, &watcher_root, watcher_state),
         warp::serve(routes).run(([127, 0, 0, 1], opts.port)),
     )
     .await;

@@ -19,7 +19,7 @@ use crate::chompfile::TaskDisplay;
 use crate::chompfile::ValidationCheck;
 use crate::chompfile::{Chompfile, InvalidationCheck};
 use crate::engines::CmdPool;
-use crate::ws::FileEvent;
+use crate::server::FileEvent;
 use crate::ExtensionEnvironment;
 use futures::future::Shared;
 use std::collections::BTreeMap;
@@ -1974,7 +1974,6 @@ impl<'a> Runner<'a> {
                 // Sentinel value used to enforce watcher task looping
                 JobOrFileState::Job(JobState::Sentinel) => {
                     let mut redrives = HashSet::new();
-                    let mut blocking = futures.len() == 0;
                     while self.check_watcher(
                         watcher,
                         &rx,
@@ -1982,10 +1981,7 @@ impl<'a> Runner<'a> {
                         &mut writer,
                         &mut queued,
                         &mut redrives,
-                        blocking,
-                    )? {
-                        blocking = false;
-                    }
+                    )? {}
                     for job_num in redrives {
                         self.drive_all(job_num, false, &mut futures, &mut queued, None)?;
                     }
@@ -2016,7 +2012,6 @@ impl<'a> Runner<'a> {
         writer: &mut UnboundedReceiver<FileEvent>,
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
-        blocking: bool,
     ) -> Result<bool> {
         let mut keep_checking = true;
         while keep_checking {
@@ -2030,19 +2025,12 @@ impl<'a> Runner<'a> {
                 }
             };
         }
-        let evt = if blocking {
-            match rx.recv() {
-                Ok(evt) => evt,
-                Err(_) => panic!("Watcher disconnected"),
+        let evt = match rx.try_recv() {
+            Ok(evt) => evt,
+            Err(TryRecvError::Empty) => {
+                return Ok(false);
             }
-        } else {
-            match rx.try_recv() {
-                Ok(evt) => evt,
-                Err(TryRecvError::Empty) => {
-                    return Ok(false);
-                }
-                Err(TryRecvError::Disconnected) => panic!("Watcher disconnected"),
-            }
+            Err(TryRecvError::Disconnected) => panic!("Watcher disconnected"),
         };
         let result = match &evt {
             DebouncedEvent::NoticeWrite(_)

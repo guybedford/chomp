@@ -40,9 +40,8 @@ mod chompfile;
 mod engines;
 mod extensions;
 mod http_client;
-mod serve;
 mod task;
-mod ws;
+mod server;
 
 use std::path::PathBuf;
 
@@ -383,7 +382,7 @@ async fn main() -> Result<()> {
         }
         if matches.is_present("serve") {
             use_default_target = false;
-            tokio::spawn(ws::serve(serve_options, watch_event_receiver, watch_sender));
+            tokio::spawn(server::serve(serve_options, watch_event_receiver, watch_sender));
         }
     }
 
