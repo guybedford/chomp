@@ -50,9 +50,9 @@ fn u4_to_hex_char(c: u8) -> char {
     return if c < 10 { c + 48 } else { c + 87 } as char;
 }
 
-fn hash_uri(uri_str: &str) -> String {
+pub fn hash(input: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(uri_str.as_bytes());
+    hasher.update(input);
     let result = hasher.finalize();
     let mut out_hash = String::with_capacity(64);
     for c in result {
@@ -82,7 +82,7 @@ async fn write_cache(cache_key: &str, source: &str) -> Result<()> {
 }
 
 pub async fn fetch_uri_cached(uri_str: &str, uri: Uri) -> Result<String> {
-    let hash = hash_uri(uri_str);
+    let hash = hash(uri_str.as_bytes());
     if let Some(cached) = from_cache(&hash).await {
         return Ok(cached);
     }
