@@ -285,4 +285,4 @@ The completion map is a map from `CmdOp` id to `BatchCmd` id, which allows assoc
 
 The coalescing of batch tasks implies reparsing the `run` or `env` vars of `CmdOp` task executions to collate them into a single `run` and `env` on a `BatchCmd` return of the `exec` property of the `BatcherResult`. It was a choice between this model, or modelling the data structure of the command calls more abstractly first, which seemed unnecessary overhead when execution parsing can suffice and with the flexibility of the JS language implementation the edge cases can generally be well handled.
 
-See the core [Chomp extensions](https://guybedford/chomp-extensions) repo for further understanding through the direct examples of these hooks in use. The `npm.js` batcher demonstrates `npm install` batching and the `swc.js` batcher demonstrates compilation batching.
+See the core [Chomp extensions](https://github.com/guybedford/chomp-extensions) repo for further understanding through the direct examples of these hooks in use. The `npm.js` batcher demonstrates `npm install` batching and the `swc.js` batcher demonstrates compilation batching.
