@@ -19,11 +19,14 @@ use crate::chompfile::TaskDisplay;
 use crate::chompfile::ValidationCheck;
 use crate::chompfile::{Chompfile, InvalidationCheck};
 use crate::engines::CmdPool;
+use crate::ws::FileEvent;
 use crate::ExtensionEnvironment;
 use futures::future::Shared;
 use std::collections::BTreeMap;
 use std::fs::canonicalize;
 use std::path::Path;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::UnboundedSender;
 // use crate::ui::ChompUI;
 use async_recursion::async_recursion;
 use capturing_glob::{glob, Pattern};
@@ -44,11 +47,10 @@ use crate::engines::ExecState;
 use anyhow::{anyhow, Result};
 use derivative::Derivative;
 use futures::executor;
-use tokio::fs;
-use tokio::time;
-
 use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
+use tokio::fs;
+use tokio::time;
 
 #[derive(Debug)]
 pub struct Task<'a> {
@@ -408,7 +410,7 @@ fn create_task_env<'a>(
 }
 
 #[cfg(not(target_os = "windows"))]
-fn create_task_env<'a> (
+fn create_task_env<'a>(
     task: &ChompTaskMaybeTemplated,
     chompfile: &'a Chompfile,
     replacements: bool,
@@ -1943,9 +1945,12 @@ impl<'a> Runner<'a> {
     // find the job for the target, and drive its completion
     async fn drive_jobs(
         &mut self,
+        watcher: &mut RecommendedWatcher,
         jobs: &HashSet<usize>,
         force: bool,
-        watcher: Option<&Receiver<DebouncedEvent>>,
+        rx: Receiver<DebouncedEvent>,
+        listener: UnboundedSender<DebouncedEvent>,
+        mut writer: UnboundedReceiver<FileEvent>,
     ) -> Result<()> {
         let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>> = Vec::new();
 
@@ -1959,7 +1964,7 @@ impl<'a> Runner<'a> {
             }
             self.drive_all(job_num, force, &mut futures, &mut queued, None)?;
         }
-        if watcher.is_some() {
+        if self.watch {
             futures.push(Runner::watcher_interval().boxed_local());
         }
         while futures.len() > 0 {
@@ -1971,7 +1976,10 @@ impl<'a> Runner<'a> {
                     let mut redrives = HashSet::new();
                     let mut blocking = futures.len() == 0;
                     while self.check_watcher(
-                        watcher.unwrap(),
+                        watcher,
+                        &rx,
+                        &listener,
+                        &mut writer,
                         &mut queued,
                         &mut redrives,
                         blocking,
@@ -2002,11 +2010,26 @@ impl<'a> Runner<'a> {
 
     fn check_watcher(
         &mut self,
+        watcher: &mut RecommendedWatcher,
         rx: &Receiver<DebouncedEvent>,
+        listener: &UnboundedSender<DebouncedEvent>,
+        writer: &mut UnboundedReceiver<FileEvent>,
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
         blocking: bool,
     ) -> Result<bool> {
+        let mut keep_checking = true;
+        while keep_checking {
+            match writer.try_recv() {
+                Ok(FileEvent::WatchFile(path)) => {
+                    watcher.watch(path, RecursiveMode::Recursive)?
+                },
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => keep_checking = false,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    panic!("Server file channel disconnected")
+                }
+            };
+        }
         let evt = if blocking {
             match rx.recv() {
                 Ok(evt) => evt,
@@ -2021,42 +2044,47 @@ impl<'a> Runner<'a> {
                 Err(TryRecvError::Disconnected) => panic!("Watcher disconnected"),
             }
         };
-        match evt {
+        let result = match &evt {
             DebouncedEvent::NoticeWrite(_)
             | DebouncedEvent::NoticeRemove(_)
             | DebouncedEvent::Chmod(_) => Ok(false),
             DebouncedEvent::Remove(path)
             | DebouncedEvent::Create(path)
             | DebouncedEvent::Write(path)
-            | DebouncedEvent::Rename(_, path) => self.invalidate_path(path, queued, redrives),
+            | DebouncedEvent::Rename(_, path) => {
+                self.invalidate_path(path.clone(), queued, redrives)
+            }
             DebouncedEvent::Rescan => panic!("Watcher rescan"),
             DebouncedEvent::Error(err, maybe_path) => {
-                panic!("WATCHER ERROR {:?} {:?}", err, maybe_path)
+                panic!("WATCHER ERROR {:?} {:?}", err, maybe_path.clone())
             }
-        }
+        };
+        listener
+            .send(evt)
+            .expect("Unable to send watcher event to server channel");
+        result
     }
 
-    pub async fn run(&mut self, opts: RunOptions) -> Result<bool> {
+    pub async fn run(
+        &mut self,
+        opts: RunOptions,
+        watch_listener: UnboundedSender<DebouncedEvent>,
+        watch_writer: UnboundedReceiver<FileEvent>,
+    ) -> Result<bool> {
         let (tx, rx) = channel();
         let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
-        let normalized_targets: Vec<String> = if opts.targets.len() == 0 {
-            match &self.chompfile.default_task {
-                Some(default_task) => vec![default_task.clone()],
-                None => return Err(anyhow!("No default task provided. Set:\x1b[36m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
-            }
-        } else {
-            opts.targets
-                .iter()
-                .map(|t| {
-                    let normalized = t.replace('\\', "/");
-                    if normalized.starts_with("./") {
-                        normalized[2..].to_string()
-                    } else {
-                        normalized
-                    }
-                })
-                .collect()
-        };
+        let normalized_targets: Vec<String> = opts
+            .targets
+            .iter()
+            .map(|t| {
+                let normalized = t.replace('\\', "/");
+                if normalized.starts_with("./") {
+                    normalized[2..].to_string()
+                } else {
+                    normalized
+                }
+            })
+            .collect();
         let mut job_nums = HashSet::new();
         for target in normalized_targets {
             let jobs = self
@@ -2106,9 +2134,12 @@ impl<'a> Runner<'a> {
         }
 
         self.drive_jobs(
+            &mut watcher,
             &job_nums,
             opts.force,
-            if opts.watch { Some(&rx) } else { None },
+            rx,
+            watch_listener,
+            watch_writer
         )
         .await?;
         // if all jobs completed successfully, exit code is 0, otherwise its an error

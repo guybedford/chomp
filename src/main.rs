@@ -33,6 +33,7 @@ use crate::engines::replace_env_vars_static;
 use hyper::Uri;
 use std::env;
 use std::fs::canonicalize;
+use tokio::sync::mpsc::unbounded_channel;
 
 mod ansi_windows;
 mod chompfile;
@@ -41,6 +42,7 @@ mod extensions;
 mod http_client;
 mod serve;
 mod task;
+mod ws;
 
 use std::path::PathBuf;
 
@@ -190,6 +192,7 @@ async fn main() -> Result<()> {
     };
 
     let mut targets: Vec<String> = Vec::new();
+    let mut use_default_target = true;
     match matches.values_of("target") {
         Some(target) => {
             for item in target {
@@ -366,6 +369,10 @@ async fn main() -> Result<()> {
     }
     extension_env.seal_extensions();
 
+    // channel for watch events
+    let (watch_event_sender, watch_event_receiver) = unbounded_channel();
+    // channel for adding new files to watcher
+    let (watch_sender, watch_receiver) = unbounded_channel();
     let mut serve_options = chompfile.server.clone();
     {
         if let Some(root) = matches.value_of("server-root") {
@@ -375,12 +382,8 @@ async fn main() -> Result<()> {
             serve_options.port = port.parse().unwrap();
         }
         if matches.is_present("serve") {
-            tokio::spawn(async move {
-                if let Err(e) = serve::serve(serve_options).await {
-                    eprintln!("{:?}", e);
-                    std::process::exit(1);
-                }
-            });
+            use_default_target = false;
+            tokio::spawn(ws::serve(serve_options, watch_event_receiver, watch_sender));
         }
     }
 
@@ -405,6 +408,7 @@ async fn main() -> Result<()> {
         || matches.is_present("list")
         || matches.is_present("import_scripts")
     {
+        use_default_target = false;
         if matches.is_present("eject_templates") {
             if !has_templates {
                 return Err(anyhow!(
@@ -497,6 +501,13 @@ async fn main() -> Result<()> {
         }
     }
 
+    let targets = if targets.len() == 0 && use_default_target {
+        match &chompfile.default_task {
+            Some(default_task) => vec![default_task.clone()],
+            None => return Err(anyhow!("No default task provided. Set:\x1b[36m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
+        }
+    } else { targets };
+
     let mut runner = Runner::new(
         &chompfile,
         &mut extension_env,
@@ -512,7 +523,7 @@ async fn main() -> Result<()> {
             pool_size,
             targets,
             cfg_file,
-        })
+        }, watch_event_sender, watch_receiver)
         .await?;
 
     if !ok {
