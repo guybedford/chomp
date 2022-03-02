@@ -1077,6 +1077,7 @@ impl<'a> Runner<'a> {
         futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>>,
         queued: &mut QueuedStateTransitions,
         parent: Option<usize>,
+        watch_listener: UnboundedSender<DebouncedEvent>,
     ) -> Result<JobOrFileState> {
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
@@ -1138,8 +1139,14 @@ impl<'a> Runner<'a> {
                         let deps = job.deps.clone();
 
                         for dep in deps {
-                            let dep_state =
-                                self.drive_all(dep, force, futures, queued, Some(job_num))?;
+                            let dep_state = self.drive_all(
+                                dep,
+                                force,
+                                futures,
+                                queued,
+                                Some(job_num),
+                                watch_listener.clone(),
+                            )?;
                             match dep_state {
                                 JobOrFileState::Job(JobState::Fresh)
                                 | JobOrFileState::File(FileState::Found) => {}
@@ -1149,7 +1156,13 @@ impl<'a> Runner<'a> {
                                     let transition = queued
                                         .insert_job(job_num, JobState::Running, None)
                                         .unwrap();
-                                    self.drive_completion(transition, force, futures, queued)?;
+                                    self.drive_completion(
+                                        transition,
+                                        force,
+                                        futures,
+                                        queued,
+                                        watch_listener.clone(),
+                                    )?;
                                     return Ok(JobOrFileState::Job(JobState::Failed));
                                 }
                                 _ => {
@@ -1186,7 +1199,13 @@ impl<'a> Runner<'a> {
                                     let transition = queued
                                         .insert_job(job_num, JobState::Running, None)
                                         .unwrap();
-                                    self.drive_completion(transition, force, futures, queued)?;
+                                    self.drive_completion(
+                                        transition,
+                                        force,
+                                        futures,
+                                        queued,
+                                        watch_listener,
+                                    )?;
                                     Ok(JobOrFileState::Job(JobState::Fresh))
                                 }
                             };
@@ -1290,6 +1309,7 @@ impl<'a> Runner<'a> {
         force: bool,
         futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>>,
         queued: &mut QueuedStateTransitions,
+        watch_listener: UnboundedSender<DebouncedEvent>,
     ) -> Result<()> {
         if !queued.state_transitions.remove(&transition) {
             return Ok(());
@@ -1305,7 +1325,7 @@ impl<'a> Runner<'a> {
                 let mtime = executor::block_on(mtime_future);
                 job.mtime = mtime;
                 job.mtime_future = None;
-                self.drive_all(node_num, force, futures, queued, None)?;
+                self.drive_all(node_num, force, futures, queued, None, watch_listener)?;
                 Ok(())
             }
             JobOrFileState::Job(JobState::Running) => {
@@ -1323,6 +1343,18 @@ impl<'a> Runner<'a> {
                     };
                     match status {
                         ExecState::Completed => {
+                            let job = self.get_job(node_num).unwrap();
+                            for target in &job.targets {
+                                let mut path = PathBuf::from(&self.cwd);
+                                #[cfg(not(target_os = "windows"))]
+                                path.push(&target);
+                                #[cfg(target_os = "windows")]
+                                path.push(target.replace('/', "\\"));
+                                let evt = DebouncedEvent::Write(path);
+                                watch_listener
+                                    .send(evt)
+                                    .expect("Unable to send watcher event to server channel");
+                            }
                             self.mark_complete(
                                 node_num,
                                 mtime,
@@ -1353,7 +1385,14 @@ impl<'a> Runner<'a> {
                 let job = self.get_job(node_num).unwrap();
                 if matches!(job.state, JobState::Fresh | JobState::Failed) {
                     for parent in job.parents.clone() {
-                        self.drive_all(parent, force, futures, queued, None)?;
+                        self.drive_all(
+                            parent,
+                            force,
+                            futures,
+                            queued,
+                            None,
+                            watch_listener.clone(),
+                        )?;
                     }
                 }
                 Ok(())
@@ -1372,14 +1411,11 @@ impl<'a> Runner<'a> {
                     None => FileState::NotFound,
                 };
                 for parent in file.parents.clone() {
-                    self.drive_all(parent, force, futures, queued, None)?;
+                    self.drive_all(parent, force, futures, queued, None, watch_listener.clone())?;
                 }
                 Ok(())
             }
-            _ => {
-                dbg!(transition.state);
-                panic!("Unexpected promise transition state");
-            }
+            _ => panic!("Unexpected promise transition state")
         }
     }
 
@@ -1949,7 +1985,7 @@ impl<'a> Runner<'a> {
         jobs: &HashSet<usize>,
         force: bool,
         rx: Receiver<DebouncedEvent>,
-        listener: UnboundedSender<DebouncedEvent>,
+        watch_listener: UnboundedSender<DebouncedEvent>,
         mut writer: UnboundedReceiver<FileEvent>,
     ) -> Result<()> {
         let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>> = Vec::new();
@@ -1962,7 +1998,14 @@ impl<'a> Runner<'a> {
             if let Some(ref mut job) = self.get_job_mut(job_num) {
                 job.live = true;
             }
-            self.drive_all(job_num, force, &mut futures, &mut queued, None)?;
+            self.drive_all(
+                job_num,
+                force,
+                &mut futures,
+                &mut queued,
+                None,
+                watch_listener.clone(),
+            )?;
         }
         if self.watch {
             futures.push(Runner::watcher_interval().boxed_local());
@@ -1974,21 +2017,37 @@ impl<'a> Runner<'a> {
                 // Sentinel value used to enforce watcher task looping
                 JobOrFileState::Job(JobState::Sentinel) => {
                     let mut redrives = HashSet::new();
-                    while self.check_watcher(
-                        watcher,
-                        &rx,
-                        &listener,
-                        &mut writer,
-                        &mut queued,
-                        &mut redrives,
-                    )? {}
+                    while self
+                        .check_watcher(
+                            watcher,
+                            &rx,
+                            watch_listener.clone(),
+                            &mut writer,
+                            &mut queued,
+                            &mut redrives,
+                        )
+                        .await?
+                    {}
                     for job_num in redrives {
-                        self.drive_all(job_num, false, &mut futures, &mut queued, None)?;
+                        self.drive_all(
+                            job_num,
+                            false,
+                            &mut futures,
+                            &mut queued,
+                            None,
+                            watch_listener.clone(),
+                        )?;
                     }
                     futures.push(Runner::watcher_interval().boxed_local());
                 }
                 _ => {
-                    self.drive_completion(transition, force, &mut futures, &mut queued)?;
+                    self.drive_completion(
+                        transition,
+                        force,
+                        &mut futures,
+                        &mut queued,
+                        watch_listener.clone(),
+                    )?;
                 }
             }
         }
@@ -2004,11 +2063,11 @@ impl<'a> Runner<'a> {
         }
     }
 
-    fn check_watcher(
+    async fn check_watcher(
         &mut self,
         watcher: &mut RecommendedWatcher,
         rx: &Receiver<DebouncedEvent>,
-        listener: &UnboundedSender<DebouncedEvent>,
+        watch_listener: UnboundedSender<DebouncedEvent>,
         writer: &mut UnboundedReceiver<FileEvent>,
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
@@ -2017,8 +2076,21 @@ impl<'a> Runner<'a> {
         while keep_checking {
             match writer.try_recv() {
                 Ok(FileEvent::WatchFile(path)) => {
-                    watcher.watch(path, RecursiveMode::Recursive)?
-                },
+                    let subpath = path
+                        .strip_prefix(&self.cwd)
+                        .expect("Internal error: Invalid path to watch");
+                    let normalized_target = subpath.to_str().unwrap().replace('\\', "/");
+                    let jobs = self
+                        .expand_target(watcher, &normalized_target, true, None)
+                        .await?;
+                    for job_num in jobs {
+                        // server watcher can actually create new live jobs
+                        if let Some(ref mut job) = self.get_job_mut(job_num) {
+                            job.live = true;
+                            redrives.insert(job_num);
+                        }
+                    }
+                }
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => keep_checking = false,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     panic!("Server file channel disconnected")
@@ -2047,7 +2119,7 @@ impl<'a> Runner<'a> {
                 panic!("WATCHER ERROR {:?} {:?}", err, maybe_path.clone())
             }
         };
-        listener
+        watch_listener
             .send(evt)
             .expect("Unable to send watcher event to server channel");
         result
@@ -2127,7 +2199,7 @@ impl<'a> Runner<'a> {
             opts.force,
             rx,
             watch_listener,
-            watch_writer
+            watch_writer,
         )
         .await?;
         // if all jobs completed successfully, exit code is 0, otherwise its an error

@@ -122,7 +122,11 @@ async fn check_watcher(mut rx: UnboundedReceiver<DebouncedEvent>, root: &PathBuf
                 DebouncedEvent::Create(path)
                 | DebouncedEvent::Write(path)
                 | DebouncedEvent::Rename(_, path) => {
-                    let _ = revalidate(&path, root, state.clone(), true).await;
+                    let path_str = match path.strip_prefix(root) {
+                        Ok(path) => path.to_str().unwrap(),
+                        Err(_) => continue,
+                    };
+                    let _ = revalidate(&path, &path_str, state.clone(), true).await;
                 }
                 DebouncedEvent::Rescan => panic!("Unhandled: Watcher Rescan"),
                 DebouncedEvent::Error(err, maybe_path) => {
@@ -136,7 +140,7 @@ async fn check_watcher(mut rx: UnboundedReceiver<DebouncedEvent>, root: &PathBuf
 
 async fn revalidate(
     path: &PathBuf,
-    root: &PathBuf,
+    path_str: &str,
     state: State,
     broadcast_updates: bool,
 ) -> (Option<String>, bool) {
@@ -144,11 +148,6 @@ async fn revalidate(
         Ok(src) => src,
         Err(_) => return (None, true),
     };
-    let path_str = path
-        .strip_prefix(root)
-        .expect("Unexpected revalidation outside project base")
-        .to_str()
-        .unwrap();
     let hash = crate::http_client::hash(&source[0..]);
     let mut state = state.write().await;
     if let Some(existing_hash) = state.file_hashes.get(path_str) {
@@ -206,7 +205,8 @@ async fn file_serve(path: &PathBuf, root: &PathBuf, hash: Option<String>) -> Res
         return res;
     }
     not_found(
-        &path.strip_prefix(root)
+        &path
+            .strip_prefix(root)
             .expect("unexpected path")
             .to_str()
             .unwrap()
@@ -292,7 +292,7 @@ pub async fn serve(
                     .decode_utf8_lossy()
                     .into_owned();
                 let mut path = PathBuf::from(&root);
-                path.push(subpath);
+                path.push(&subpath);
 
                 let is_dir = match fs::metadata(&path).await {
                     Ok(metadata) => metadata.is_dir(),
@@ -303,7 +303,7 @@ pub async fn serve(
                         return res;
                     }
                 }
-                let (hash, add_watch) = revalidate(&path, &root, state, false).await;
+                let (hash, add_watch) = revalidate(&path, &subpath, state, false).await;
                 if add_watch {
                     let _ = sender.send(FileEvent::WatchFile(path.clone())).is_ok();
                 }
@@ -333,7 +333,10 @@ pub async fn serve(
         .or(static_assets)
         .with(warp::cors().allow_any_origin());
 
-    println!("Serving \x1b[1m{}\x1b[0m on port \x1b[36m{}\x1b[0m...", opts.root, opts.port);
+    println!(
+        "Serving \x1b[1m{}\x1b[0m on port \x1b[36m{}\x1b[0m...",
+        opts.root, opts.port
+    );
     future::join(
         check_watcher(watch_receiver, &watcher_root, watcher_state),
         warp::serve(routes).run(([127, 0, 0, 1], opts.port)),
