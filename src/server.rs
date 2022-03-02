@@ -296,7 +296,13 @@ pub async fn serve(
 
                 let is_dir = match fs::metadata(&path).await {
                     Ok(metadata) => metadata.is_dir(),
-                    Err(_) => false,
+                    Err(_) => if !path.ends_with(".html") {
+                        path.set_extension("html");
+                        match fs::metadata(&path).await {
+                            Ok(metadata) => metadata.is_dir(),
+                            Err(_) => false
+                        }
+                    } else { false }
                 };
                 if is_dir {
                     if let Some(res) = index_page(&mut path, &root).await {
