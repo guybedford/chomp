@@ -88,15 +88,19 @@ pub struct Chompfile {
 pub struct ServerOptions {
     #[serde(default, skip_serializing_if = "is_default")]
     pub root: String,
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(default = "default_port", skip_serializing_if = "is_default")]
     pub port: u16,
+}
+
+fn default_port() -> u16 {
+    5776
 }
 
 impl Default for ServerOptions {
     fn default() -> Self {
         ServerOptions {
             root: ".".to_string(),
-            port: 8080,
+            port: default_port(),
         }
     }
 }

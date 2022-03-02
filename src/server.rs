@@ -113,21 +113,23 @@ pub enum FileEvent {
 
 async fn check_watcher(mut rx: UnboundedReceiver<DebouncedEvent>, root: &PathBuf, state: State) {
     loop {
-        let evt = rx.recv().await.unwrap();
-        match evt {
-            DebouncedEvent::NoticeWrite(_)
-            | DebouncedEvent::NoticeRemove(_)
-            | DebouncedEvent::Chmod(_)
-            | DebouncedEvent::Remove(_) => {}
-            DebouncedEvent::Create(path)
-            | DebouncedEvent::Write(path)
-            | DebouncedEvent::Rename(_, path) => {
-                let _ = revalidate(&path, root, state.clone(), true).await;
-            }
-            DebouncedEvent::Rescan => panic!("Unhandled: Watcher Rescan"),
-            DebouncedEvent::Error(err, maybe_path) => {
-                panic!("Unhandled: Watcher Error {:?} {:?}", err, maybe_path)
-            }
+        match rx.recv().await {
+            Some(evt) => match evt {
+                DebouncedEvent::NoticeWrite(_)
+                | DebouncedEvent::NoticeRemove(_)
+                | DebouncedEvent::Chmod(_)
+                | DebouncedEvent::Remove(_) => {}
+                DebouncedEvent::Create(path)
+                | DebouncedEvent::Write(path)
+                | DebouncedEvent::Rename(_, path) => {
+                    let _ = revalidate(&path, root, state.clone(), true).await;
+                }
+                DebouncedEvent::Rescan => panic!("Unhandled: Watcher Rescan"),
+                DebouncedEvent::Error(err, maybe_path) => {
+                    panic!("Unhandled: Watcher Error {:?} {:?}", err, maybe_path)
+                }
+            },
+            None => {}
         }
     }
 }
@@ -331,6 +333,7 @@ pub async fn serve(
         .or(static_assets)
         .with(warp::cors().allow_any_origin());
 
+    println!("Serving \x1b[1m{}\x1b[0m on port \x1b[36m{}\x1b[0m...", opts.root, opts.port);
     future::join(
         check_watcher(watch_receiver, &watcher_root, watcher_state),
         warp::serve(routes).run(([127, 0, 0, 1], opts.port)),
