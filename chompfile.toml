@@ -17,7 +17,7 @@ run = 'chomp test'
 name = 'install'
 serial = true
 dep = 'build'
-run = 'cp ./target/Debug/chomp* ~/bin/'
+run = 'cp ./target/[dD]ebug/chomp* ~/bin/'
 
 [[task]]
 name = 'inline-version'
