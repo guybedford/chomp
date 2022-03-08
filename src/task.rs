@@ -142,7 +142,7 @@ impl File {
             match watcher.watch(&self.name, RecursiveMode::Recursive) {
                 Ok(_) => {}
                 Err(_) => {
-                    eprintln!("Unable to watch {}", self.name);
+                    // eprintln!("Unable to watch {}", self.name);
                 }
             };
         }
