@@ -51,6 +51,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v1
+    - uses: guybedford/chomp-action@v1
 
     - name: Set env
       run: |
@@ -64,7 +65,7 @@ jobs:
         toolchain: stable
 
     - name: Build
-      run: cargo build --release --locked
+      run: chomp build:release
 
     - name: archive release
       shell: bash
@@ -89,6 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
+      - uses: guybedford/chomp-action@v1
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -96,5 +98,6 @@ jobs:
       - run: cargo login ${CRATES_IO_TOKEN}
         env:
           CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+      - run: chomp prebuild
       - name: publish chomp
         run: cargo publish
