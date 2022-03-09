@@ -1139,6 +1139,10 @@ impl<'a> Runner<'a> {
                         let deps = job.deps.clone();
 
                         for dep in deps {
+                            // permit self-builds, arbitrary cycles will stall still though
+                            if dep == job_num {
+                                continue;
+                            }
                             let dep_state = self.drive_all(
                                 dep,
                                 force,
@@ -1757,8 +1761,8 @@ impl<'a> Runner<'a> {
         } else {
             self.lookup_glob_target(watcher, target, glob_files).await?
         };
-        for job_num in job_nums.iter() {
-            self.expand_job(watcher, *job_num, drives).await?;
+        for &job_num in job_nums.iter() {
+            self.expand_job(watcher, job_num, drives).await?;
         }
         Ok(job_nums)
     }
