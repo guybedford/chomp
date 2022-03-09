@@ -5,8 +5,26 @@ on:
 name: Create Release
 
 jobs:
+  publish-crate:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+      - run: cargo login ${CRATES_IO_TOKEN}
+        env:
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+      - run: cargo build --release --locked
+      - run: ./target/release/chomp prebuild
+      - name: publish chomp
+        run: cargo publish
+
   create-github-release:
     name: Create GitHub Release
+    needs: publish-crate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -23,8 +41,8 @@ jobs:
 
   build:
     name: Build assets for ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
     needs: create-github-release
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         name: [
@@ -51,7 +69,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v1
-    - uses: guybedford/chomp-action@v1
 
     - name: Set env
       run: |
@@ -65,7 +82,7 @@ jobs:
         toolchain: stable
 
     - name: Build
-      run: chomp build:release
+      run: cargo build --release --locked
 
     - name: archive release
       shell: bash
@@ -84,20 +101,3 @@ jobs:
         file: chomp*${{ matrix.asset_extension }}
         file_glob: true
         tag: ${{ github.ref }}
-
-  publish-crate:
-    name: Publish to crates.io
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v1
-      - uses: guybedford/chomp-action@v1
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-      - run: cargo login ${CRATES_IO_TOKEN}
-        env:
-          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-      - run: chomp prebuild
-      - name: publish chomp
-        run: cargo publish
