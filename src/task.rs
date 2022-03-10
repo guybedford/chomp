@@ -742,11 +742,13 @@ impl<'a> Runner<'a> {
         };
         if job.parents.len() > 0 {
             for parent in job.parents.clone() {
+                if parent == job_num {
+                    continue;
+                }
                 self.invalidate_job(parent, queued, redrives)?;
             }
-        } else {
-            redrives.insert(job_num);
         }
+        redrives.insert(job_num);
         Ok(())
     }
 

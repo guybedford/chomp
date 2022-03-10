@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// const websocket = new WebSocket('ws://localhost:8080/watch'); websocket.onmessage = evt => console.log(evt.data);
+// const websocket = new WebSocket('ws://localhost:5776/watch'); websocket.onmessage = evt => console.log(evt.data);
 
 use crate::chompfile::ServerOptions;
 use futures::{future, FutureExt, StreamExt};
