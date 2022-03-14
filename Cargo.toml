@@ -1,6 +1,6 @@
 [package]
 name = "chompbuild"
-version = "0.1.11"
+version = "0.1.12"
 authors = ["Guy Bedford <guybedford@gmail.com>"]
 edition = "2021"
 license = "GPL-3.0"
