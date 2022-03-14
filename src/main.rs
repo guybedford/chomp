@@ -25,8 +25,7 @@ use crate::extensions::ExtensionEnvironment;
 use crate::task::Runner;
 use anyhow::{anyhow, Result};
 use clap::{App, Arg};
-use std::collections::BTreeMap;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 extern crate num_cpus;
 use crate::engines::replace_env_vars_static;
@@ -421,6 +420,7 @@ async fn main() -> Result<()> {
                 ));
             }
             chompfile.extensions = Vec::new();
+            chompfile.template_options = HashMap::new();
         }
 
         if matches.is_present("list") {
