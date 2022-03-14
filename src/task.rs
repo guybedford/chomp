@@ -866,8 +866,8 @@ impl<'a> Runner<'a> {
                                             .invalidation
                                             .unwrap_or_default()
                                         {
-                                            InvalidationCheck::NotFound => false,
-                                            InvalidationCheck::Always
+                                            InvalidationCheck::NotFound
+                                            | InvalidationCheck::Always
                                             | InvalidationCheck::Mtime => match dep.mtime {
                                                 Some(dep_mtime) => dep_mtime > mtime,
                                                 None => true,
