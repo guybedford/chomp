@@ -63,7 +63,6 @@ pub struct Task<'a> {
 
 pub struct RunOptions {
     pub args: Option<Vec<String>>,
-    pub cfg_file: PathBuf,
     pub pool_size: usize,
     pub targets: Vec<String>,
     pub watch: bool,
@@ -154,6 +153,7 @@ pub struct Runner<'a> {
     cwd: String,
     cmd_pool: CmdPool<'a>,
     chompfile: &'a Chompfile,
+    chompfile_path: String,
     watch: bool,
     tasks: Vec<Task<'a>>,
 
@@ -467,10 +467,35 @@ fn create_task_env<'a>(
     env
 }
 
+pub fn canonical_path (path: &str, base: &str) -> PathBuf {
+    let path_buf = PathBuf::from(path);
+    let resolved_buf = if Path::is_absolute(&path_buf) {
+        path_buf
+    } else {
+        let mut base = PathBuf::from(base);
+        base.push(&path_buf);
+        base
+    };
+    match canonicalize(&resolved_buf) {
+        Ok(path) => {
+            let path_str = path.to_str().unwrap();
+            if path_str.starts_with(r"\\?\") {
+                PathBuf::from(&path_str[4..])
+            } else {
+                path
+            }
+        }
+        Err(_) => {
+            panic!("Unable to resolve path {}", &path);
+        }
+    }
+}
+
 impl<'a> Runner<'a> {
     pub fn new(
         // ui: &'a ChompUI,
         chompfile: &'a Chompfile,
+        chompfile_path: String,
         extension_env: &'a mut ExtensionEnvironment,
         pool_size: usize,
         watch: bool,
@@ -485,6 +510,7 @@ impl<'a> Runner<'a> {
             cwd: String::from(cwd),
             cmd_pool,
             chompfile,
+            chompfile_path,
             nodes: Vec::new(),
             tasks: Vec::new(),
             task_jobs: HashMap::new(),
@@ -1017,29 +1043,7 @@ impl<'a> Runner<'a> {
                 None
             };
             let cwd = match &task.chomp_task.cwd {
-                Some(cwd) => {
-                    let cwd_path = PathBuf::from(cwd);
-                    let cwd = if Path::is_absolute(&cwd_path) {
-                        cwd_path
-                    } else {
-                        let mut base = PathBuf::from(&self.cwd);
-                        base.push(&cwd_path);
-                        base
-                    };
-                    Some(match canonicalize(&cwd) {
-                        Ok(cwd) => {
-                            let cwd = cwd.to_str().unwrap();
-                            if cwd.starts_with(r"\\?\") {
-                                String::from(&cwd[4..])
-                            } else {
-                                cwd.to_string()
-                            }
-                        }
-                        Err(_) => {
-                            panic!("Unable to resolve task CWD {}", &cwd.to_str().unwrap());
-                        }
-                    })
-                }
+                Some(cwd) => Some(canonical_path(cwd, &self.cwd).to_str().unwrap().to_string()),
                 None => None,
             };
             let cmd_num = self.cmd_pool.batch(
@@ -1868,6 +1872,9 @@ impl<'a> Runner<'a> {
                             .await?;
                     }
                 }
+
+                // every job depends on the chompfile!
+                self.expand_target(watcher, &self.chompfile_path.to_string(), true, Some(job_num)).await?;
 
                 if is_interpolate.is_some() && !expanded_interpolate {
                     return Err(anyhow!(

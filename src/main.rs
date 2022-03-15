@@ -42,8 +42,6 @@ mod http_client;
 mod task;
 mod server;
 
-use std::path::PathBuf;
-
 const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.17/";
 
 const CHOMP_INIT: &str = r#"version = 0.1
@@ -200,7 +198,7 @@ async fn main() -> Result<()> {
         None => {}
     }
 
-    let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
+    let cfg_file = matches.value_of("config").unwrap_or_default();
 
     let mut created = false;
     let chompfile_source = match fs::read_to_string(&cfg_file) {
@@ -219,7 +217,7 @@ async fn main() -> Result<()> {
                 } else {
                     return Err(anyhow!(
                         "Unable to load the Chomp configuration {}. Pass the \x1b[1m--init\x1b[0m flag to create one, or try:\n\n\x1b[36mchomp --init --import-scripts\x1b[0m\n\nto create one and import from existing package.json scripts.",
-                        &cfg_file.to_str().unwrap()
+                        &cfg_file
                     ));
                 }
             }
@@ -233,27 +231,8 @@ async fn main() -> Result<()> {
         ));
     }
 
-    let cwd = {
-        let mut parent: PathBuf = PathBuf::from(cfg_file.parent().unwrap());
-        if parent.to_str().unwrap().len() == 0 {
-            parent = env::current_dir()?;
-        }
-        let unc_path = match canonicalize(&parent) {
-            Ok(path) => path,
-            Err(_) => {
-                return Err(anyhow!(
-                    "Unable to load the Chomp configuration {}.\nMake sure it exists in the current directory, or use --config to set a custom path.",
-                    &cfg_file.to_str().unwrap()
-                ));
-            }
-        };
-        let unc_str = unc_path.to_str().unwrap();
-        if unc_str.starts_with(r"\\?\") {
-            PathBuf::from(String::from(&unc_path.to_str().unwrap()[4..]))
-        } else {
-            unc_path
-        }
-    };
+    let canonical_cfg_file = task::canonical_path(cfg_file, env::current_dir().unwrap().to_str().unwrap());
+    let cwd = canonical_cfg_file.parent().unwrap();
     assert!(env::set_current_dir(&cwd).is_ok());
 
     if matches.is_present("clear_cache") {
@@ -414,10 +393,7 @@ async fn main() -> Result<()> {
         use_default_target = false;
         if matches.is_present("eject_templates") {
             if !has_templates {
-                return Err(anyhow!(
-                    "\x1b[1m{}\x1b[0m has no templates to eject",
-                    cfg_file.to_str().unwrap()
-                ));
+                return Err(anyhow!("\x1b[1m{}\x1b[0m has no templates to eject", cfg_file));
             }
             chompfile.extensions = Vec::new();
             chompfile.template_options = HashMap::new();
@@ -472,14 +448,11 @@ async fn main() -> Result<()> {
             }
             fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?)?;
             if matches.is_present("eject_templates") {
-                println!(
-                    "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected.",
-                    cfg_file.to_str().unwrap()
-                );
+                println!("\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected.", cfg_file);
             } else if matches.is_present("import_scripts") {
                 println!(
                     "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m {}.",
-                    cfg_file.to_str().unwrap(),
+                    cfg_file,
                     if created {
                         format!(
                             "created with {} package.json script tasks imported",
@@ -495,7 +468,7 @@ async fn main() -> Result<()> {
             } else {
                 println!(
                     "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m {}.",
-                    cfg_file.to_str().unwrap(),
+                    cfg_file,
                     if created { "created" } else { "updated" }
                 );
             }
@@ -514,6 +487,7 @@ async fn main() -> Result<()> {
 
     let mut runner = Runner::new(
         &chompfile,
+        canonical_cfg_file.strip_prefix(cwd).unwrap().to_str().unwrap().to_string(),
         &mut extension_env,
         pool_size,
         matches.is_present("serve") || matches.is_present("watch"),
@@ -526,7 +500,6 @@ async fn main() -> Result<()> {
             args: if args.len() > 0 { Some(args) } else { None },
             pool_size,
             targets,
-            cfg_file,
         }, watch_event_sender, watch_receiver)
         .await?;
 
