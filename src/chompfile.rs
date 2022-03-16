@@ -86,10 +86,14 @@ pub struct Chompfile {
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 pub struct ServerOptions {
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(default = "default_root", skip_serializing_if = "is_default")]
     pub root: String,
     #[serde(default = "default_port", skip_serializing_if = "is_default")]
     pub port: u16,
+}
+
+fn default_root() -> String {
+    ".".to_string()
 }
 
 fn default_port() -> u16 {
