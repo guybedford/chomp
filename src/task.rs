@@ -1602,7 +1602,12 @@ impl<'a> Runner<'a> {
         assert!(has_glob_chars(target));
         let task_pattern = target.as_bytes()[0] as char == ':';
         let target = if task_pattern { &target[1..] } else { target };
-        let target_pattern = Pattern::new(target).unwrap();
+        let target_pattern = match Pattern::new(target) {
+            Ok(pattern) => pattern,
+            Err(e) => {
+                return Err(anyhow!("Unable to parse pattern {}, {}", target, e.msg));
+            }
+        };
 
         // Determine non-glob prefix and suffix of the target
         let mut target_prefix_len = 0;

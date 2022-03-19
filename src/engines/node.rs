@@ -24,7 +24,9 @@ use std::time::Instant;
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 
 // Custom node loader to mimic current working directory despite loading from a tmp file
-const NODE_LOADER: &str = "let s;export function resolve(u,c,d){if(!c.parentURL){const i=u.indexOf('data:text/javascript,');s=decodeURIComponent(decodeURIComponent(u.slice(i+21)));return{url:`${u.slice(0,i)}/[cm]`,format:'module'}}return d(u,c)}export function load(u,c,d){if(u.endsWith('[cm]'))return{source:s,format:'module'};return d(u,c)}export{load as getFormat,load as getSource}";
+// Note: We dont have to percent encode as we're not using `,! characters
+// If this becomes a problem, switch to base64 encoding rather
+const NODE_LOADER: &str = "let s;export function resolve(u,c,d){if(c.parentURL===undefined){const i=u.indexOf('data:text/javascript,');s=decodeURIComponent(decodeURIComponent(u.slice(i+21)));return{url:u.slice(0,i)+'/[cm]',format:'module'}}return d(u,c)}export function load(u,c,d){if(u.endsWith('[cm]'))return{source:s,format:'module'};return d(u,c)}export{load as getFormat,load as getSource}";
 
 pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<String>) {
   let start_time = Instant::now();
@@ -35,8 +37,8 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
   let targets = targets.clone();
   // On posix, command starts executing before we wait on it!
   cmd.run = format!(
-    "node --no-warnings --loader data:text/javascript,{} data:text/javascript,{}",
-    percent_encode(NODE_LOADER.as_bytes(), NON_ALPHANUMERIC).to_string(),
+    "node --no-warnings --loader \"data:text/javascript,{}\" data:text/javascript,{}",
+    NODE_LOADER.to_string(),
     percent_encode(cmd.run.as_bytes(), NON_ALPHANUMERIC).to_string()
   );
   let echo = cmd.echo;
