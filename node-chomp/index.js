@@ -2,7 +2,6 @@
 
 import BinWrapper from 'bin-wrapper';
 import { readFileSync } from 'fs';
-import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
@@ -21,4 +20,4 @@ const bin = new BinWrapper({ skipCheck: true })
 
 await bin.run();
 
-spawn(fileURLToPath(new URL(bin.path(), import.meta.url)), process.argv.slice(2), { stdio: 'inherit' });
+spawn(bin.path(), process.argv.slice(2), { stdio: 'inherit' });
