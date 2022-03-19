@@ -1,0 +1,31 @@
+{
+  "name": "chomp",
+  "version": "0.1.14",
+  "description": "'JS Make' - parallel task runner CLI for the frontend ecosystem with a JS extension system",
+  "bin": {
+    "chomp": "index.js"
+  },
+  "type": "module",
+  "keywords": [
+    "task",
+    "runner",
+    "build",
+    "development",
+    "make"
+  ],
+  "author": "Guy Bedford",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "bin-wrapper": "^4.1.0"
+  },
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guybedford/chomp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/guybedford/chomp/issues"
+  },
+  "files": ["index.js"],
+  "homepage": "https://github.com/guybedford/chomp#readme"
+}
