@@ -20,9 +20,8 @@ jobs:
       run: echo "$(pwd)/target/debug:$PATH" >> $GITHUB_PATH
     - uses: actions/checkout@v3
       with:
-        repository: 'guybedford/chomp-extentions'
+        repository: 'guybedford/chomp-extensions'
         path: 'chomp-extensions'
-        ref: 'main'
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
@@ -46,9 +45,8 @@ jobs:
       run: echo echo "$(pwd)/target/debug" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     - uses: actions/checkout@v3
       with:
-        repository: 'guybedford/chomp-extentions'
+        repository: 'guybedford/chomp-extensions'
         path: 'chomp-extensions'
-        ref: 'main'
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
