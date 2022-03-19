@@ -14,11 +14,12 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
+      - name: Setup Chomp
+        uses: guybedford/chomp-action@v1
       - run: cargo login ${CRATES_IO_TOKEN}
         env:
           CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-      - run: cargo build --release --locked
-      - run: ./target/release/chomp build:release
+      - run: chomp build:release
       - name: publish chomp
         run: cargo publish
 
