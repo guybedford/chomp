@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import BinWrapper from 'bin-wrapper';
 import { readFileSync } from 'fs';
 import path from 'path';
