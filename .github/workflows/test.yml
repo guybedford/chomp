@@ -22,6 +22,7 @@ jobs:
       with:
         repository: 'guybedford/chomp-extentions'
         path: 'chomp-extensions'
+        ref: 'main'
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
@@ -47,6 +48,7 @@ jobs:
       with:
         repository: 'guybedford/chomp-extentions'
         path: 'chomp-extensions'
+        ref: 'main'
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
