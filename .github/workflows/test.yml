@@ -14,12 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-      with:
-        submodules: recursive
     - name: Build
       run: cargo build --verbose
     - name: Set PATH
       run: echo "$(pwd)/target/debug:$PATH" >> $GITHUB_PATH
+    - run: git clone git@github.com:chomp/chomp-extensions
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
@@ -31,8 +30,6 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
-      with:
-        submodules: recursive
     - name: Install latest nightly
       uses: actions-rs/toolchain@v1
       with:
@@ -43,6 +40,7 @@ jobs:
       run: cargo build --verbose
     - name: Set PATH
       run: echo echo "$(pwd)/target/debug" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    - run: git clone git@github.com:chomp/chomp-extensions
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
