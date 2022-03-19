@@ -3,17 +3,13 @@ version = 0.1
 default-task = 'test'
 
 [[task]]
-name = 'prebuild'
-dep = 'inline-version'
-
-[[task]]
 name = 'build'
-dep = 'prebuild'
+deps = ['src/**/*.rs']
 run = 'cargo build'
 
 [[task]]
 name = 'build:release'
-dep = 'prebuild'
+deps = ['src/**/*.rs']
 run = 'cargo build --release --locked'
 
 [[task]]
