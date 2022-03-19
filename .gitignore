@@ -1,7 +1,7 @@
 node_modules
 target
 test/package.json
-test/package-lock.json
+package-lock.json
 sandbox
 test/output
 vendor
