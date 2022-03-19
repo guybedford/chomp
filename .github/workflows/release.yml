@@ -18,7 +18,7 @@ jobs:
         env:
           CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
       - run: cargo build --release --locked
-      - run: ./target/release/chomp prebuild
+      - run: ./target/release/chomp build:release
       - name: publish chomp
         run: cargo publish
 
