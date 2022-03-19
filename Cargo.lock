@@ -159,6 +159,7 @@ version = "0.1.14"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "base64",
  "capturing-glob",
  "clap",
  "convert_case",

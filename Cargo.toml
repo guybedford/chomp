@@ -25,6 +25,7 @@ features = ["consoleapi", "errhandlingapi", "fileapi", "handleapi"]
 anyhow = "1.0.52"
 async-recursion = "0.3.2"
 capturing-glob = "0.1.1"
+base64 = "0.13.0"
 clap = "2.33.3"
 convert_case = "0.5.0"
 derivative = "2.2.0"
