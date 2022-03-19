@@ -26,6 +26,8 @@ run = 'cp ./target/[dD]ebug/chomp* ~/bin/'
 
 [[task]]
 name = 'inline-version'
+deps = ['Cargo.toml']
+targets = ['src/main.rs', 'chomp-node/package.json']
 engine = 'node'
 run = '''
   import { readFileSync, writeFileSync } from 'fs';
@@ -33,4 +35,7 @@ run = '''
   const [, version] = toml.match(/version\s*=\s*\"(\d+\.\d+\.\d+)\"/);
   const main = readFileSync('src/main.rs', 'utf8');
   writeFileSync('src/main.rs', main.replace(/let version = "\d+.\d+.\d+/g, `let version = "${version}`));
+  const pjson = JSON.parse(readFileSync('chomp-node/package.json', 'utf8'));
+  pjson.version = version;
+  writeFileSync('chomp-node/package.json', JSON.stringify(pjson, null, 2));
 '''

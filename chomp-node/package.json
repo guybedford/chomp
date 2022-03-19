@@ -1,6 +1,6 @@
 {
   "name": "chomp",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "'JS Make' - parallel task runner CLI for the frontend ecosystem with a JS extension system",
   "bin": {
     "chomp": "index.js"
@@ -26,6 +26,8 @@
   "bugs": {
     "url": "https://github.com/guybedford/chomp/issues"
   },
-  "files": ["index.js"],
+  "files": [
+    "index.js"
+  ],
   "homepage": "https://github.com/guybedford/chomp#readme"
 }
