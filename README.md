@@ -14,6 +14,14 @@ Make sure you have [Cargo installed](https://rustup.rs/), then run:
 cargo install chompbuild
 ```
 
+If you don't have access to Cargo, there is an npm wrapper available:
+
+```
+npm install -g chomp
+```
+
+> Note: npm scripts add over 100ms to the script run time.
+
 Common platform binaries are also available for [all releases](https://github.com/guybedford/chomp/releases).
 
 To quickly setup Chomp in a GitHub Actions CI workflow, see the [Chomp GitHub Action](https://github.com/guybedford/chomp-action).

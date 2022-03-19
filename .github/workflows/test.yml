@@ -18,7 +18,10 @@ jobs:
       run: cargo build --verbose
     - name: Set PATH
       run: echo "$(pwd)/target/debug:$PATH" >> $GITHUB_PATH
-    - run: git clone https://github.com/chomp/chomp-extensions
+    - uses: actions/checkout@v3
+      with:
+        repository: 'chomp/chomp-extentions'
+        path: 'chomp-extensions'
     - name: Run Core Tests
       run: chomp -c test/chompfile.toml test
       env:
