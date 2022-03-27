@@ -151,8 +151,8 @@ auto-install = true
 name = 'build:swc'
 display = 'none'
 stdio = 'stderr-only'
-target = 'output/lib/#.js'
-deps = ['fixtures/src/#.ts', 'install:swc']
+target = 'output/lib/##.js'
+deps = ['fixtures/src/##.ts', 'install:swc']
 run = 'swc $DEP -o $TARGET --source-maps'
 
 # -- Test --

@@ -211,9 +211,9 @@ By default the Deno engine will run with full permissions since that is generall
 
 Chomp works best when each task builds a single file target, instead of having a large monolithic build.
 
-To extend the previous example to build all of `src` into `lib`, we use **task interpolation** with the `#` which means the same thing as a `**/*` glob, but it retains the important property of being a reversible mapping which is necessary for tracing task invalidations.
+To extend the previous example to build all of `src` into `lib`, we use **task interpolation** with a `#` or `##`, which means the same thing as a `*` or `**/*` glob respectively, but it retains the important property of being a reversible mapping which is necessary for tracing task invalidations.
 
-Replacing `app` with `#` in the previous [SWC Shell example](#shell-tasks), we can achieve the full folder build:
+Replacing `app` with `##` in the previous [SWC Shell example](#shell-tasks), we can achieve the full folder build:
 
 _chompfile.toml_
 ```toml
@@ -221,8 +221,8 @@ version = 0.1
 
 [[task]]
 name = 'build:swc'
-target = 'lib/#.js'
-dep = 'src/#.ts'
+target = 'lib/##.js'
+dep = 'src/##.ts'
 run = 'swc $DEP -o $TARGET --source-maps'
 ```
 _<div style="text-align: center">Chomp task compiling all `.ts` files in `src` into JS modules in `lib`.</div>_
@@ -248,8 +248,8 @@ run = 'npm install'
 
 [[task]]
 name = 'build:swc'
-target = 'lib/#.js'
-deps = ['src/#.js', 'npm:install']
+target = 'lib/##.js'
+deps = ['src/##.js', 'npm:install']
 run = 'swc $DEP -o $TARGET --source-maps'
 ```
 _<div style="text-align: center">`$DEP` and `$TARGET` will always be the primary dependency and target (the interpolation item or the first in the list). Additional dependencies and targets can always be defined.</div>_
@@ -315,8 +315,8 @@ run = 'npm install'
 
 [[task]]
 name = 'build:swc'
-target = 'lib/#.js'
-deps = ['src/#.js', 'npm:install']
+target = 'lib/##.js'
+deps = ['src/##.js', 'npm:install']
 run = 'swc $DEP -o $TARGET --source-maps'
 
 [[task]]
@@ -443,8 +443,8 @@ template = 'npm'
 [[task]]
 name = 'build:swc'
 template = 'swc'
-target = 'lib/#.js'
-deps = ['src/#.js', 'npm:install']
+target = 'lib/##.js'
+deps = ['src/##.js', 'npm:install']
 [task.template-options]
 source-maps = true
 
