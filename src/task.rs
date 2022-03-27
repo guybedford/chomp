@@ -1920,7 +1920,7 @@ impl<'a> Runner<'a> {
                         return Err(anyhow!(
                             "Task {} defines a {} interpolate target {} but with a {} interpolation dep. Dependency interpolation must use a '{}' interpolate to match.",
                             &display_name,
-                            if double_interpolate { "double" } else { "single "},
+                            if double_interpolate { "double" } else { "single" },
                             is_interpolate.unwrap(),
                             if double_interpolate { "single" } else { "double" },
                             if double_interpolate { "##" } else { "#" }
