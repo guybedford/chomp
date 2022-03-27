@@ -241,7 +241,7 @@ pub fn create_cmd(
         command.arg("-NonInteractive");
         command.arg("-NoLogo");
         // ensure file operations use UTF8
-        let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';");
+        let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';$ErrorActionPreference='Stop';");
         // we also set _custom_ variables as local variables for easy substitution
         for (name, value) in &batch_cmd.env {
             run_str.push_str(&format!("${}='{}';", name, value.replace("'", "''")));
