@@ -405,6 +405,54 @@ async fn main() -> Result<()> {
         }
     }
 
+    if matches.is_present("import_scripts") {
+        if matches.is_present("eject_templates") {
+            return Err(anyhow!("Cannot use --import-scripts and --eject-templates together."));
+        }
+        let mut script_tasks = 0;
+        let pjson_source = match fs::read_to_string("package.json") {
+            Ok(source) => source,
+            Err(_) => {
+                return Err(anyhow!(
+                    "No package.json to import found in the current project directory."
+                ));
+            }
+        };
+
+        let pjson: serde_json::Value = serde_json::from_str(&pjson_source)?;
+        match &pjson["scripts"] {
+            serde_json::Value::Object(scripts) => {
+                for (name, val) in scripts.iter() {
+                    if let serde_json::Value::String(run) = &val {
+                        script_tasks = script_tasks + 1;
+                        let mut task = ChompTaskMaybeTemplated::new();
+                        task.name = Some(name.to_string());
+                        task.run = Some(run.to_string());
+                        chompfile.task.push(task);
+                    }
+                }
+            }
+            _ => return Err(anyhow!("Unexpected \"scripts\" type in package.json.")),
+        };
+        fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?)?;
+        println!(
+            "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m {}.",
+            cfg_file.to_str().unwrap(),
+            if created {
+                format!(
+                    "created with {} package.json script tasks imported",
+                    script_tasks
+                )
+            } else {
+                format!(
+                    "updated with {} package.json script tasks imported",
+                    script_tasks
+                )
+            }
+        );
+        return Ok(());
+    }
+
     let (mut has_templates, mut template_tasks) =
         expand_template_tasks(&chompfile, &mut extension_env)?;
     chompfile.task = Vec::new();
@@ -414,10 +462,32 @@ async fn main() -> Result<()> {
     }
     chompfile.task.append(&mut template_tasks);
 
+    if matches.is_present("list") {
+        if matches.is_present("eject_templates") || matches.is_present("format") || matches.is_present("init") {
+            return Err(anyhow!("Cannot use --list with --eject-templates, --format or --init."));
+        }
+        for task in &chompfile.task {
+            if let Some(name) = &task.name {
+                let matches_some_target = if targets.len() > 0 {
+                    let mut matches_some_target = false;
+                    for target in &targets {
+                        if name.starts_with(target) {
+                            matches_some_target = true;
+                        }
+                    }
+                    matches_some_target
+                } else {
+                    true
+                };
+                if matches_some_target {
+                    println!(" \x1b[1m▪\x1b[0m {}", name);
+                }
+            }
+        }
+    }
+
     if matches.is_present("format")
         || matches.is_present("eject_templates")
-        || matches.is_present("list")
-        || matches.is_present("import_scripts")
         || matches.is_present("init")
     {
         use_default_target = false;
@@ -432,82 +502,18 @@ async fn main() -> Result<()> {
             chompfile.template_options = HashMap::new();
         }
 
-        if matches.is_present("list") {
-            for task in &chompfile.task {
-                if let Some(name) = &task.name {
-                    let matches_some_target = if targets.len() > 0 {
-                        let mut matches_some_target = false;
-                        for target in &targets {
-                            if name.starts_with(target) {
-                                matches_some_target = true;
-                            }
-                        }
-                        matches_some_target
-                    } else {
-                        true
-                    };
-                    if matches_some_target {
-                        println!(" \x1b[1m▪\x1b[0m {}", name);
-                    }
-                }
-            }
+        fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?)?;
+        if matches.is_present("eject_templates") {
+            println!(
+                "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected.",
+                cfg_file.to_str().unwrap()
+            );
         } else {
-            let mut script_tasks = 0;
-            if matches.is_present("import_scripts") {
-                let pjson_source = match fs::read_to_string("package.json") {
-                    Ok(source) => source,
-                    Err(_) => {
-                        return Err(anyhow!(
-                            "No package.json to import found in the current project directory."
-                        ));
-                    }
-                };
-
-                let pjson: serde_json::Value = serde_json::from_str(&pjson_source)?;
-                match &pjson["scripts"] {
-                    serde_json::Value::Object(scripts) => {
-                        for (name, val) in scripts.iter() {
-                            if let serde_json::Value::String(run) = &val {
-                                script_tasks = script_tasks + 1;
-                                let mut task = ChompTaskMaybeTemplated::new();
-                                task.name = Some(name.to_string());
-                                task.run = Some(run.to_string());
-                                chompfile.task.push(task);
-                            }
-                        }
-                    }
-                    _ => return Err(anyhow!("Unexpected \"scripts\" type in package.json.")),
-                };
-            }
-            fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?)?;
-            if matches.is_present("eject_templates") {
-                println!(
-                    "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected.",
-                    cfg_file.to_str().unwrap()
-                );
-            } else if matches.is_present("import_scripts") {
-                println!(
-                    "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m {}.",
-                    cfg_file.to_str().unwrap(),
-                    if created {
-                        format!(
-                            "created with {} package.json script tasks imported",
-                            script_tasks
-                        )
-                    } else {
-                        format!(
-                            "updated with {} package.json script tasks imported",
-                            script_tasks
-                        )
-                    }
-                );
-            } else {
-                println!(
-                    "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m {}.",
-                    cfg_file.to_str().unwrap(),
-                    if created { "created" } else { "updated" }
-                );
-            }
+            println!(
+                "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m {}.",
+                cfg_file.to_str().unwrap(),
+                if created { "created" } else { "updated" }
+            );
         }
         if matches.is_present("eject_templates") || targets.len() == 0 {
             return Ok(());
