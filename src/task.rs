@@ -1397,13 +1397,16 @@ impl<'a> Runner<'a> {
                                 node_num,
                                 mtime,
                                 Some(cmd_time),
-                                matches!(
+                                matches!(validation, ValidationCheck::NotOk) || matches!(
                                     validation,
                                     ValidationCheck::TargetsOnly | ValidationCheck::OkTargets
                                 ) && mtime.is_none(),
                             );
                         }
                         ExecState::Failed => match validation {
+                            ValidationCheck::NotOk => {
+                                self.mark_complete(node_num, mtime, Some(cmd_time), false)
+                            }
                             ValidationCheck::OkOnly | ValidationCheck::OkTargets => {
                                 self.mark_complete(node_num, mtime, Some(cmd_time), true)
                             }
