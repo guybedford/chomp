@@ -218,21 +218,18 @@ impl<'a> Job {
             if task.targets.len() > 0 {
                 match task.targets.iter().find(|&t| t.contains('#')) {
                     Some(interpolate_target) => {
-                        interpolate_target.replace('#', &self.interpolate.as_ref().unwrap())
+                        replace_interpolate(interpolate_target, &self.interpolate.as_ref().unwrap())
                     }
-                    None => task
-                        .deps
-                        .iter()
-                        .find(|&d| d.contains('#'))
-                        .unwrap()
-                        .replace('#', &self.interpolate.as_ref().unwrap()),
+                    None => replace_interpolate(
+                        task.deps.iter().find(|&d| d.contains('#')).unwrap(),
+                        &self.interpolate.as_ref().unwrap(),
+                    ),
                 }
             } else {
-                task.deps
-                    .iter()
-                    .find(|&d| d.contains('#'))
-                    .unwrap()
-                    .replace('#', &self.interpolate.as_ref().unwrap())
+                replace_interpolate(
+                    task.deps.iter().find(|&d| d.contains('#')).unwrap(),
+                    &self.interpolate.as_ref().unwrap(),
+                )
             }
         } else if self.targets.len() > 0 {
             self.targets.first().unwrap().to_string()
@@ -555,7 +552,7 @@ impl<'a> Runner<'a> {
                 let name = if is_interpolate_target && name.contains('#') {
                     // interpolates support "#" in the name as well
                     // which is treated as blank for the all case
-                    name.replace('#', "")
+                    replace_interpolate(name, "")
                 } else {
                     name.to_string()
                 };
@@ -564,7 +561,7 @@ impl<'a> Runner<'a> {
                 }
             } else if name.contains('#') {
                 // interpolate individual names only expanded when using "#" in the name
-                let name = name.replace('#', interpolate.as_ref().unwrap());
+                let name = replace_interpolate(name, interpolate.as_ref().unwrap());
                 if !self.task_jobs.contains_key(&name) {
                     self.task_jobs.insert(name, num);
                 }
@@ -587,7 +584,7 @@ impl<'a> Runner<'a> {
                         if !target.contains('#') {
                             continue;
                         }
-                        target.replace('#', interpolate)
+                        replace_interpolate(target, interpolate)
                     }
                     None => target.to_string(),
                 };
@@ -978,7 +975,7 @@ impl<'a> Runner<'a> {
         let target = if task.targets.len() == 0 {
             "".to_string()
         } else if let Some(interpolate) = &job.interpolate {
-            task.targets[target_index].replace('#', interpolate)
+            replace_interpolate(&task.targets[target_index], interpolate)
         } else {
             task.targets[target_index].clone()
         };
@@ -1002,7 +999,10 @@ impl<'a> Runner<'a> {
                 .find(|(_, d)| d.contains('#'))
                 .unwrap()
                 .0;
-            vec![task.deps[interpolate_index].replace('#', interpolate)]
+            vec![replace_interpolate(
+                &task.deps[interpolate_index],
+                interpolate,
+            )]
         } else {
             vec![]
         };
@@ -1946,7 +1946,7 @@ impl<'a> Runner<'a> {
         let mut glob_target = String::new();
         glob_target.push_str(&dep[0..interpolate_idx]);
         if double {
-            if glob_target.ends_with('/') || glob_target.ends_with('\\') {
+            if !glob_target.ends_with('/') && !glob_target.ends_with('\\') {
                 return Err(anyhow!("Unable to apply deep globbing to interpolate {}. Deep globbing interpolates are only supported for full paths with the '##' in a separator position.", &dep));
             }
             glob_target.push_str("(**/*)");
@@ -1961,7 +1961,7 @@ impl<'a> Runner<'a> {
                 Ok(entry) => {
                     let dep_path = String::from(entry.path().to_str().unwrap()).replace('\\', "/");
                     let interpolate = &dep_path
-                        [interpolate_idx..dep_path.len() - dep.len() + interpolate_idx + 1];
+                        [interpolate_idx..dep_path.len() - dep.len() + interpolate_idx + if double { 2 } else { 1 }];
                     self.expand_interpolate_match(
                         watcher,
                         &dep_path,
@@ -2019,7 +2019,8 @@ impl<'a> Runner<'a> {
         job.state = JobState::Initialized;
 
         for parent_target in targets {
-            job.targets.push(parent_target.replace('#', interpolate));
+            job.targets
+                .push(replace_interpolate(&parent_target, interpolate));
         }
         let parent = self.get_job_mut(parent_job).unwrap();
         parent.deps.push(job_num);
