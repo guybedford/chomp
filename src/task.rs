@@ -149,6 +149,38 @@ impl File {
     }
 }
 
+fn find_interpolate(s: &str) -> Result<Option<(usize, bool)>> {
+    match s.find("##") {
+        Some(idx) => {
+            if s.find('#').unwrap() != idx || s[idx + 2..].find('#').is_some() {
+                return Err(anyhow!("Multiple interpolates in '{}' not supported", s));
+            }
+            Ok(Some((idx, true)))
+        }
+        None => match s.find('#') {
+            Some(idx) => {
+                if s[idx + 1..].find('#').is_some() {
+                    return Err(anyhow!("Multiple interpolates in '{}' not supported", s));
+                }
+                Ok(Some((idx, false)))
+            }
+            None => Ok(None),
+        },
+    }
+}
+
+fn replace_interpolate(s: &str, replacement: &str) -> String {
+    if let Some((_, double)) = find_interpolate(s).unwrap() {
+        if double {
+            s.replace("##", replacement)
+        } else {
+            s.replace('#', replacement)
+        }
+    } else {
+        String::from(s)
+    }
+}
+
 pub struct Runner<'a> {
     // ui: &'a ChompUI,
     cwd: String,
@@ -1421,7 +1453,7 @@ impl<'a> Runner<'a> {
                 }
                 Ok(())
             }
-            _ => panic!("Unexpected promise transition state")
+            _ => panic!("Unexpected promise transition state"),
         }
     }
 
@@ -1456,9 +1488,9 @@ impl<'a> Runner<'a> {
                     let job = self.get_job(*job_num).unwrap();
                     let job_task = &self.tasks[job.task];
                     if let Some(name) = &job_task.name {
-                        if let Some(interpolate_idx) = name.find('#') {
+                        if let Some((interpolate_idx, double)) = find_interpolate(name)? {
                             let lhs = &name[0..interpolate_idx];
-                            let rhs = &name[interpolate_idx + 1..];
+                            let rhs = &name[interpolate_idx + if double { 2 } else { 1 }..];
                             if task.starts_with(lhs)
                                 && task.len() > lhs.len() + rhs.len()
                                 && task.ends_with(rhs)
@@ -1480,11 +1512,10 @@ impl<'a> Runner<'a> {
                 match interpolate_match {
                     Some((job_num, interpolate)) => {
                         let task_deps = &self.tasks[self.get_job(job_num).unwrap().task].deps;
-                        let input = task_deps
-                            .iter()
-                            .find(|dep| dep.contains("#"))
-                            .unwrap()
-                            .replace("#", interpolate);
+                        let input = replace_interpolate(
+                            task_deps.iter().find(|dep| dep.contains("#")).unwrap(),
+                            interpolate,
+                        );
                         let num = self
                             .expand_interpolate_match(
                                 watcher,
@@ -1534,9 +1565,9 @@ impl<'a> Runner<'a> {
                 let mut interpolate_rhs_match_len = 0;
                 for job_num in &self.interpolate_nodes {
                     if let Some(interpolate) = self.get_interpolate_target(*job_num) {
-                        let interpolate_idx = interpolate.find('#').unwrap();
+                        let (interpolate_idx, double) = find_interpolate(interpolate)?.unwrap();
                         let lhs = &interpolate[0..interpolate_idx];
-                        let rhs = &interpolate[interpolate_idx + 1..];
+                        let rhs = &interpolate[interpolate_idx + if double { 2 } else { 1 }..];
                         if target.starts_with(lhs)
                             && target.len() > lhs.len() + rhs.len()
                             && target.ends_with(rhs)
@@ -1557,11 +1588,10 @@ impl<'a> Runner<'a> {
                 match interpolate_match {
                     Some((job_num, interpolate)) => {
                         let task_deps = &self.tasks[self.get_job(job_num).unwrap().task].deps;
-                        let input = task_deps
-                            .iter()
-                            .find(|dep| dep.contains("#"))
-                            .unwrap()
-                            .replace("#", interpolate);
+                        let input = replace_interpolate(
+                            task_deps.iter().find(|dep| dep.contains("#")).unwrap(),
+                            interpolate,
+                        );
                         let num = self
                             .expand_interpolate_match(
                                 watcher,
@@ -1635,9 +1665,9 @@ impl<'a> Runner<'a> {
                 let task_num = job.task;
                 let job_task = &self.tasks[task_num];
                 if let Some(name) = &job_task.name {
-                    if let Some(interpolate_idx) = name.find('#') {
+                    if let Some((interpolate_idx, double)) = find_interpolate(name)? {
                         let lhs = &name[0..interpolate_idx];
-                        let rhs = &name[interpolate_idx + 1..];
+                        let rhs = &name[interpolate_idx + if double { 2 } else { 1 }..];
 
                         let maybe_intersects = if lhs.len() > target_prefix.len() {
                             lhs.starts_with(target_prefix)
@@ -1684,9 +1714,9 @@ impl<'a> Runner<'a> {
             let mut expansions = Vec::new();
             for job_num in &self.interpolate_nodes {
                 if let Some(interpolate) = self.get_interpolate_target(*job_num) {
-                    let interpolate_idx = interpolate.find('#').unwrap();
+                    let (interpolate_idx, double) = find_interpolate(interpolate).unwrap().unwrap();
                     let lhs = &interpolate[0..interpolate_idx];
-                    let rhs = &interpolate[interpolate_idx + 1..];
+                    let rhs = &interpolate[interpolate_idx + if double { 2 } else { 1 }..];
 
                     let maybe_intersects = if lhs.len() > target_prefix.len() {
                         lhs.starts_with(target_prefix)
@@ -1799,6 +1829,7 @@ impl<'a> Runner<'a> {
                     return Ok(());
                 }
                 let mut is_interpolate = None;
+                let mut double_interpolate = false;
                 let display_name = job.display_name(&self.tasks);
 
                 let task_num = job.task;
@@ -1813,6 +1844,7 @@ impl<'a> Runner<'a> {
                             return Err(anyhow!("Error processing target '{}' in task {} - can only have a single interpolation target per task", &target, &display_name));
                         }
                         is_interpolate = Some(target.clone());
+                        double_interpolate = target.contains("##");
                     }
                     job_targets.push(target.to_string());
                 }
@@ -1829,6 +1861,7 @@ impl<'a> Runner<'a> {
                 job.state = JobState::Initialized;
 
                 let mut expanded_interpolate = false;
+                let mut dep_double_interpolate = false;
                 let task_id = job.task;
                 let deps = task.deps.clone();
                 for dep in deps {
@@ -1839,6 +1872,7 @@ impl<'a> Runner<'a> {
                         if expanded_interpolate {
                             return Err(anyhow!("Error processing dep '{}' in task {} - only one interpolated deps is allowed", &dep, &display_name));
                         }
+                        dep_double_interpolate = dep.contains("##");
                         self.expand_interpolate(watcher, String::from(dep), job_num, task_num)
                             .await?;
                         expanded_interpolate = true;
@@ -1874,12 +1908,24 @@ impl<'a> Runner<'a> {
                     }
                 }
 
-                if is_interpolate.is_some() && !expanded_interpolate {
-                    return Err(anyhow!(
-                        "Task {} defines an interpolation target {} without an interpolation dep",
-                        &display_name,
-                        is_interpolate.unwrap()
-                    ));
+                if is_interpolate.is_some() {
+                    if !expanded_interpolate {
+                        return Err(anyhow!(
+                            "Task {} defines an interpolation target {} without an interpolation dep",
+                            &display_name,
+                            is_interpolate.unwrap()
+                        ));
+                    }
+                    if dep_double_interpolate != double_interpolate {
+                        return Err(anyhow!(
+                            "Task {} defines a {} interpolate target {} but with a {} interpolation dep. Dependency interpolation must use a '{}' interpolate to match.",
+                            &display_name,
+                            if double_interpolate { "double" } else { "single "},
+                            is_interpolate.unwrap(),
+                            if double_interpolate { "single" } else { "double" },
+                            if double_interpolate { "##" } else { "#" }
+                        ));
+                    }
                 }
             }
             Node::File(ref mut file) => {
@@ -1896,18 +1942,18 @@ impl<'a> Runner<'a> {
         parent_job: usize,
         parent_task: usize,
     ) -> Result<()> {
-        let interpolate_idx = dep.find('#').unwrap();
-        if dep[interpolate_idx + 1..].find('#').is_some() {
-            return Err(anyhow!("Multiple interpolates in '{}' not supported", &dep));
-        }
+        let (interpolate_idx, double) = find_interpolate(&dep)?.unwrap();
         let mut glob_target = String::new();
         glob_target.push_str(&dep[0..interpolate_idx]);
-        if glob_target.ends_with('/') || glob_target.ends_with('\\') {
+        if double {
+            if glob_target.ends_with('/') || glob_target.ends_with('\\') {
+                return Err(anyhow!("Unable to apply deep globbing to interpolate {}. Deep globbing interpolates are only supported for full paths with the '##' in a separator position.", &dep));
+            }
             glob_target.push_str("(**/*)");
         } else {
             glob_target.push_str("(*)");
         }
-        glob_target.push_str(&dep[interpolate_idx + 1..]);
+        glob_target.push_str(&dep[interpolate_idx + if double { 2 } else { 1 }..]);
         for entry in
             glob(&glob_target).expect(&format!("Failed to read glob pattern {}", &glob_target))
         {

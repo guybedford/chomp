@@ -195,8 +195,8 @@ auto-install = true
 [[task]]
 name = 'build:typescript'
 template = 'swc'
-target = 'lib/#.js'
-deps = ['src/#.ts']
+target = 'lib/##.js'
+deps = ['src/##.ts']
 ```
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.
@@ -236,8 +236,8 @@ version = 0.1
 
 [[task]]
 name = 'build:typescript'
-target = 'lib/#.js'
-dep = 'src/#.ts'
+target = 'lib/##.js'
+dep = 'src/##.ts'
 stdio = 'stderr-only'
 run = 'node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET --no-swcrc --source-maps -C jsc.parser.syntax=typescript -C jsc.parser.importAssertions=true -C jsc.parser.topLevelAwait=true -C jsc.parser.importMeta=true -C jsc.parser.privateMethod=true -C jsc.parser.dynamicImport=true -C jsc.target=es2016 -C jsc.experimental.keepImportAssertions=true'
 ```

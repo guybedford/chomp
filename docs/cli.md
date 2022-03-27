@@ -94,6 +94,8 @@ When using [`chomp --serve`](#serve) to run a local static server, customizes th
 
 Useful to rerun specific tasks without caching without invalidating the whole tree.
 
+`chomp -r x` will rerun task `x` even if it is cached, but without rerunning its cached dependencies.
+
 To invalidate the full task graph use [`chomp --force`](#force).
 
 ## Serve
