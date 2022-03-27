@@ -364,6 +364,7 @@ pub fn create_cmd(
         command.env(name, value);
     }
     command.current_dir(cwd);
+    command.arg("-e");
     command.arg("-c");
     command.arg(&run);
     set_cmd_stdio(&mut command, batch_cmd.stdio.unwrap_or_default());

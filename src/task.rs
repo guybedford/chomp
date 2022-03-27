@@ -1947,7 +1947,7 @@ impl<'a> Runner<'a> {
         glob_target.push_str(&dep[0..interpolate_idx]);
         if double {
             if !glob_target.ends_with('/') && !glob_target.ends_with('\\') {
-                return Err(anyhow!("Unable to apply deep globbing to interpolate {}. Deep globbing interpolates are only supported for full paths with the '##' in a separator position.", &dep));
+                return Err(anyhow!("Unable to apply deep globbing to interpolate {}. Deep globbing interpolates are only supported for full paths with '##' immediately following a separator position.", &dep));
             }
             glob_target.push_str("(**/*)");
         } else {
