@@ -130,7 +130,7 @@ target = 'output/dist/app.js'
 run = 'rollup output/lib/app.js -d output/dist -m'
 template = 'assert'
 [task.template-options]
-expect-equals = '''var dep = 'dep';
+expect-equals = '''var dep = "dep";
 
 console.log(dep);
 var p = 5;
