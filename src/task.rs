@@ -1397,13 +1397,16 @@ impl<'a> Runner<'a> {
                                 node_num,
                                 mtime,
                                 Some(cmd_time),
-                                matches!(
+                                matches!(validation, ValidationCheck::NotOk) || matches!(
                                     validation,
                                     ValidationCheck::TargetsOnly | ValidationCheck::OkTargets
                                 ) && mtime.is_none(),
                             );
                         }
                         ExecState::Failed => match validation {
+                            ValidationCheck::NotOk => {
+                                self.mark_complete(node_num, mtime, Some(cmd_time), false)
+                            }
                             ValidationCheck::OkOnly | ValidationCheck::OkTargets => {
                                 self.mark_complete(node_num, mtime, Some(cmd_time), true)
                             }
@@ -1920,7 +1923,7 @@ impl<'a> Runner<'a> {
                         return Err(anyhow!(
                             "Task {} defines a {} interpolate target {} but with a {} interpolation dep. Dependency interpolation must use a '{}' interpolate to match.",
                             &display_name,
-                            if double_interpolate { "double" } else { "single "},
+                            if double_interpolate { "double" } else { "single" },
                             is_interpolate.unwrap(),
                             if double_interpolate { "single" } else { "double" },
                             if double_interpolate { "##" } else { "#" }
@@ -1947,7 +1950,7 @@ impl<'a> Runner<'a> {
         glob_target.push_str(&dep[0..interpolate_idx]);
         if double {
             if !glob_target.ends_with('/') && !glob_target.ends_with('\\') {
-                return Err(anyhow!("Unable to apply deep globbing to interpolate {}. Deep globbing interpolates are only supported for full paths with the '##' in a separator position.", &dep));
+                return Err(anyhow!("Unable to apply deep globbing to interpolate {}. Deep globbing interpolates are only supported for full paths with '##' immediately following a separator position.", &dep));
             }
             glob_target.push_str("(**/*)");
         } else {

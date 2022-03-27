@@ -123,6 +123,7 @@ pub enum ValidationCheck {
     OkTargets,
     TargetsOnly,
     OkOnly,
+    NotOk,
     None,
 }
 
