@@ -200,27 +200,36 @@ async fn main() -> Result<()> {
         None => {}
     }
 
-    let cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
+    let mut cfg_file = PathBuf::from(matches.value_of("config").unwrap_or_default());
 
     let mut created = false;
-    let chompfile_source = match fs::read_to_string(&cfg_file) {
-        Ok(source) => source,
-        Err(_) => {
-            if matches.is_present("init") {
-                created = true;
-                if matches.is_present("import_scripts") {
-                    String::from(CHOMP_EMPTY)
+    let chompfile_source = {
+        let is_file: bool = match fs::metadata(&cfg_file) {
+            Ok(meta) => !meta.is_dir(),
+            Err(_) => false
+        };
+        if !is_file {
+            cfg_file.push("chompfile.toml");
+        }
+        match fs::read_to_string(&cfg_file) {
+            Ok(source) => source,
+            Err(_) => {
+                if matches.is_present("init") {
+                    created = true;
+                    if matches.is_present("import_scripts") {
+                        String::from(CHOMP_EMPTY)
+                    } else {
+                        String::from(CHOMP_INIT)
+                    }
                 } else {
-                    String::from(CHOMP_INIT)
-                }
-            } else {
-                if matches.is_present("serve") {
-                    String::from(CHOMP_EMPTY)
-                } else {
-                    return Err(anyhow!(
-                        "Unable to load the Chomp configuration {}. Pass the \x1b[1m--init\x1b[0m flag to create one, or try:\n\n\x1b[36mchomp --init --import-scripts\x1b[0m\n\nto create one and import from existing package.json scripts.",
-                        &cfg_file.to_str().unwrap()
-                    ));
+                    if matches.is_present("serve") {
+                        String::from(CHOMP_EMPTY)
+                    } else {
+                        return Err(anyhow!(
+                            "Unable to load the Chomp configuration {}. Pass the \x1b[1m--init\x1b[0m flag to create one, or try:\n\n\x1b[36mchomp --init --import-scripts\x1b[0m\n\nto create one and import from existing package.json scripts.",
+                            &cfg_file.to_str().unwrap()
+                        ));
+                    }
                 }
             }
         }
