@@ -358,7 +358,7 @@ pub fn create_cmd(
         }
     }
 
-    let mut command = Command::new("sh");
+    let mut command = Command::new("bash");
     command.env("PATH", path);
     for (name, value) in &batch_cmd.env {
         command.env(name, value);
