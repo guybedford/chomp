@@ -340,7 +340,7 @@ pub async fn serve(
         .with(warp::cors().allow_any_origin());
 
     println!(
-        "Serving \x1b[1m{}\x1b[0m on port \x1b[36m{}\x1b[0m...",
+        "Serving \x1b[1m{}\x1b[0m on \x1b[36mhttp://localhost:{}\x1b[0m...",
         opts.root, opts.port
     );
     future::join(
