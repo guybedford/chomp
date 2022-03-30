@@ -463,6 +463,9 @@ async fn main() -> Result<()> {
     chompfile.task.append(&mut template_tasks);
 
     if matches.is_present("list") {
+        if targets.len() > 0 {
+            return Err(anyhow!("--list does not take any arguments."));
+        }
         if matches.is_present("eject_templates") || matches.is_present("format") || matches.is_present("init") {
             return Err(anyhow!("Cannot use --list with --eject-templates, --format or --init."));
         }
@@ -484,6 +487,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        return Ok(());
     }
 
     if matches.is_present("format")
