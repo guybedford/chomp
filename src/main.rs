@@ -204,11 +204,11 @@ async fn main() -> Result<()> {
 
     let mut created = false;
     let chompfile_source = {
-        let is_file: bool = match fs::metadata(&cfg_file) {
-            Ok(meta) => !meta.is_dir(),
+        let is_dir: bool = match fs::metadata(&cfg_file) {
+            Ok(meta) => meta.is_dir(),
             Err(_) => false
         };
-        if !is_file {
+        if is_dir {
             cfg_file.push("chompfile.toml");
         }
         match fs::read_to_string(&cfg_file) {
