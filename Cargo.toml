@@ -1,6 +1,6 @@
 [package]
 name = "chompbuild"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Guy Bedford <guybedford@gmail.com>"]
 edition = "2021"
 license = "GPL-3.0"
@@ -45,7 +45,7 @@ serde_v8 = "0.22.0"
 sha2 = "0.10.1"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1.8"
-tokio-util = "0.6.9"
+tokio-util = "0.7.1"
 toml = "0.5"
 uuid = { version = "0.8", features = ["v4"] }
 v8 = "0.36.0"
