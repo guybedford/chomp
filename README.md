@@ -165,7 +165,7 @@ Using the `--watch` flag watches all dependencies and applies incremental rebuil
 
 Or using `chomp hello --serve` runs a static file server with watched rebuilds.
 
-See the [CLI](https://github.com/guybedford/chomp/blob/main/docs/cli.md), [Chompfile](https://github.com/guybedford/chomp/blob/main/docs/chompfile.md) or [task](https://github.com/guybedford/chomp/blob/main/docs/task.md) documentation for further details.
+See the [task documentation](https://github.com/guybedford/chomp/blob/main/docs/task.md) for further details.
 
 ### Extensions
 
