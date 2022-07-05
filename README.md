@@ -55,9 +55,9 @@ Then use `chomp <name>` instead of `npm run <name>`, and enjoy the new features 
 
 ### Hello World
 
-`chomp` works against a `chompfile.toml` [TOML configuration](https://toml.io/) in the same directory as the `chomp` command is run.
+`chomp` works against a [`chompfile.toml`](https://github.com/guybedford/chomp/blob/main/docs/chompfile.md) [TOML configuration](https://toml.io/) in the same directory as the `chomp` command is run.
 
-Chomp builds up tasks as trees of files which depend on other files, then runs those tasks with maximum parallelism.
+Chomp builds up tasks as trees of files which depend on other files, then runs those tasks with [maximum parallelism](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-dependence).
 
 For example, here's a task called `hello` which builds `hello.txt` based on the contents of `name.txt`, which itself is built by another command:
 
@@ -124,7 +124,7 @@ $ cat hello.txt
 Hello Chomp
 ```
 
-Array `deps` can be defined for targets, whose targets will then be run first with invalidation based on target / deps mtime comparisons per the standard Makefile approach.
+Array [`deps`](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-dependence) can be defined for targets, whose targets will then be run first with [invalidation based on target / deps mtime comparisons](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-caching) per the standard Makefile approach.
 
 In Windows, Powershell is used and Bash on posix systems. Since both `echo` and `>` are defined on both systems the above works cross-platform (Powershell is automatically put into UTF-8 mode for `>` to work similarly).
 
@@ -159,13 +159,47 @@ run = '''
 '''
 ```
 
-Tasks are run with full parallelism permitted by the task graph, which can be controlled via the `-j` flag to limit the number of simultaneous executions.
+Tasks are run with full parallelism permitted by the task graph, which can be controlled via the [`-j` flag](https://github.com/guybedford/chomp/blob/main/docs/cli.md#jobs) to limit the number of simultaneous executions.
 
-Using the `--watch` flag watches all dependencies and applies incremental rebuilds over invalidations only.
+Using the [`--watch` flag](https://github.com/guybedford/chomp/blob/main/docs/cli.md#watch) watches all dependencies and applies incremental rebuilds over invalidations only.
 
-Or using `chomp hello --serve` runs a static file server with watched rebuilds.
+Or using `chomp hello --serve` runs a [static file server](https://github.com/guybedford/chomp/blob/main/docs/task.md#static-server) with watched rebuilds.
 
 See the [task documentation](https://github.com/guybedford/chomp/blob/main/docs/task.md) for further details.
+
+#### Monorepos
+
+There is no first-class monorepo support, but some simple techniques can achieve the use cases.
+
+For example, consider a monorepo where `packages/[pkgname]/chompfile.toml` defines per-package tasks.
+
+A base-level `chompfile.toml` could run the `test` task of all the sub-packages with the following `chompfile.toml`:
+
+```toml
+[[task]]
+name = 'test'
+dep = 'packages/#/chompfile.toml'
+run = 'chomp -c $DEP test'
+```
+
+`chomp test` will then use [task interpolation](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-interpolation) to run the multiple sub-package test tasks in parallel. A similar approach can also be used for a [basic unit testing](https://github.com/guybedford/chomp/blob/main/docs/task.md#testing).
+
+Adding [`serial = 'true'`](https://github.com/guybedford/chomp/blob/main/docs/task.md#serial-dependencies) the interpolation can be made to run in series rather than in parallel.
+
+Cross-project dependencies are [not currently supported](https://github.com/guybedford/chomp/issues/119). Instead if `packages/a/chompfile.toml`'s build task depends on `packages/b/chompfile.toml`'s build task to run first, then `packages/a/chompfile.toml` might look like:
+
+```toml
+[[task]]
+name = 'build'
+run = 'cargo build'
+dep = 'build:deps'
+
+[[task]]
+name = 'build:deps'
+run = 'chomp -c ../a build'
+```
+
+This would still be fast so long as `packages/a/chompfile.toml`'s `build` task has its targets and dependencies properly configured to do zero work if the all target mtimes are greater than their dependencies.
 
 ### Extensions
 
