@@ -57,7 +57,9 @@ Then use `chomp <name>` instead of `npm run <name>`, and enjoy the new features 
 
 `chomp` works against a `chompfile.toml` [TOML configuration](https://toml.io/) in the same directory as the `chomp` command is run.
 
-For example:
+Chomp builds up tasks as trees of files which depend on other files, then runs those tasks with maximum parallelism.
+
+For example, here's a task called `hello` which builds `hello.txt` based on the contents of `name.txt`, which itself is built by another command:
 
 chompfile.toml
 ```toml
@@ -79,7 +81,7 @@ run = '''
 '''
 ```
 
-with this file saved, running:
+with this file saved, the hello command will run all dependency commands before executing its own command:
 
 ```sh
 $ chomp hello
@@ -94,9 +96,11 @@ $ cat hello.txt
 Hello World
 ```
 
-will populate the `hello.txt` file.
+Finally it populates the `hello.txt` file with the combined output.
 
-Subsequent runs, will see that the target is defined, and skip running the command again:
+Subsequent runs use the mtime of the target files to determine what needs to be rerun.
+
+Rerunning the `hello` command will see that the `hello.txt` target is defined, and that the `name.txt` dependency didn't change, so it will skip running the command again:
 
 ```sh
 chomp hello
@@ -105,7 +109,7 @@ chomp hello
 ● hello.txt [cached]
 ```
 
-Changing `name.txt` to use a different name will invalidate the `hello.txt` target only:
+Changing the contents of `name.txt` will then invalidate the `hello.txt` target only, not rerunning the `name.txt` command:
 
 ```sh
 $ echo "Chomp" > name.txt
@@ -126,7 +130,9 @@ In Windows, Powershell is used and Bash on posix systems. Since both `echo` and 
 
 Note that `&&` and `||` are not supported in Powershell, so multiline scripts and `;` are preferred instead.
 
-Alternatively use `engine = 'node'` or `engine = 'deno'` to write JavaScript in the `run` function instead:
+#### JS Tasks
+
+Alternatively we can use `engine = 'node'` or `engine = 'deno'` to write JavaScript in the `run` function instead:
 
 chompfile.toml
 ```toml
@@ -136,9 +142,9 @@ version = 0.1
 target = 'name.txt'
 engine = 'node'
 run = '''
-  import { writeFileSync } from 'fs';
+  import { writeFile } from 'fs/promises';
   console.log("No name.txt, writing one.");
-  writeFileSync(process.env.TARGET, 'World');
+  await writeFile(process.env.TARGET, 'World');
 '''
 
 [[task]]
@@ -147,9 +153,9 @@ target = 'hello.txt'
 deps = ['name.txt']
 engine = 'node'
 run = '''
-  import { readFileSync, writeFileSync } from 'fs';
-  const name = readFileSync(process.env.DEP, 'utf8').trim();
-  writeFileSync(process.env.TARGET, `Hello ${name}`);
+  import { readFile, writeFile } from 'fs/promises';
+  const name = (await readFile(process.env.DEP, 'utf8')).trim();
+  await writeFile(process.env.TARGET, `Hello ${name}`);
 '''
 ```
 
@@ -158,6 +164,8 @@ Tasks are run with full parallelism permitted by the task graph, which can be co
 Using the `--watch` flag watches all dependencies and applies incremental rebuilds over invalidations only.
 
 Or using `chomp hello --serve` runs a static file server with watched rebuilds.
+
+See the [CLI](https://github.com/guybedford/chomp/blob/main/docs/cli.md), [Chompfile](https://github.com/guybedford/chomp/blob/main/docs/chompfile.md) or [task](https://github.com/guybedford/chomp/blob/main/docs/task.md) documentation for further details.
 
 ### Extensions
 
