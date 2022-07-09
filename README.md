@@ -230,10 +230,6 @@ To compile TypeScript with the SWC template:
 version = 0.1
 extensions = ['chomp@0.1:swc']
 
-# Automatically install SWC if not present
-[template-options.npm]
-auto-install = true
-
 [[task]]
 name = 'build:typescript'
 template = 'swc'
@@ -242,6 +238,8 @@ deps = ['src/##.ts']
 ```
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.
+
+The `##` and `#` interpolation syntax are special because unlike glob dependencies (which are also supported), they must be a 1-1 relation from dependency to target.
 
 Only files not existing or whose `src` mtimes are invalidated (or SWC itself is updated) will be rebuilt.
 
