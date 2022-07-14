@@ -1949,7 +1949,7 @@ impl<'a> Runner<'a> {
         let mut glob_target = String::new();
         glob_target.push_str(&dep[0..interpolate_idx]);
         if double {
-            if !glob_target.ends_with('/') && !glob_target.ends_with('\\') {
+            if !glob_target.starts_with("##") && !glob_target.ends_with('/') && !glob_target.ends_with('\\') {
                 return Err(anyhow!("Unable to apply deep globbing to interpolate {}. Deep globbing interpolates are only supported for full paths with '##' immediately following a separator position.", &dep));
             }
             glob_target.push_str("(**/*)");
