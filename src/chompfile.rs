@@ -16,6 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use anyhow::{anyhow, Result};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -164,6 +165,13 @@ pub struct ChompTaskMaybeTemplated {
     pub env_default: Option<HashMap<String, String>>,
 }
 
+fn validate_path (path: &str) -> Result<()> {
+    if path.starts_with("./") || path.starts_with("/") || path.starts_with("../") {
+        return Err(anyhow!("Invalid path in chompfile, must not start with './', '../' or '/': '{}'", path));
+    }
+    Ok(())
+}
+
 impl ChompTaskMaybeTemplated {
     pub fn new() -> Self {
         ChompTaskMaybeTemplated {
@@ -189,22 +197,34 @@ impl ChompTaskMaybeTemplated {
             template_options: None,
         }
     }
-    pub fn targets_vec(&self) -> Vec<String> {
+    pub fn targets_vec(&self) -> Result<Vec<String>> {
         if let Some(ref target) = self.target {
-            vec![target.to_string()]
+            let target_str = target.to_string();
+            validate_path(&target_str)?;
+            Ok(vec![target_str])
         } else if let Some(ref targets) = self.targets {
-            targets.clone()
+            let targets = targets.clone();
+            for target in &targets {
+                validate_path(&target)?;
+            }
+            Ok(targets)
         } else {
-            vec![]
+            Ok(vec![])
         }
     }
-    pub fn deps_vec(&self) -> Vec<String> {
+    pub fn deps_vec(&self) -> Result<Vec<String>> {
         if let Some(ref dep) = self.dep {
-            vec![dep.to_string()]
+            let dep_str = dep.to_string();
+            validate_path(&dep_str)?;
+            Ok(vec![dep_str])
         } else if let Some(ref deps) = self.deps {
-            deps.clone()
+            let deps = deps.clone();
+            for dep in &deps {
+                validate_path(&dep)?;
+            }
+            Ok(deps)
         } else {
-            vec![]
+            Ok(vec![])
         }
     }
 }
