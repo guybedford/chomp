@@ -522,8 +522,8 @@ impl<'a> Runner<'a> {
         };
 
         for task in &runner.chompfile.task {
-            let targets = task.targets_vec();
-            let deps = task.deps_vec();
+            let targets = task.targets_vec()?;
+            let deps = task.deps_vec()?;
             let env = create_task_env(&task, &chompfile, task.env_replace.unwrap_or(true));
             let task = Task {
                 name: task.name.clone(),
