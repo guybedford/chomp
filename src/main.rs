@@ -44,7 +44,7 @@ mod server;
 
 use std::path::PathBuf;
 
-const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.22/";
+const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.24/";
 
 const CHOMP_INIT: &str = r#"version = 0.1
 

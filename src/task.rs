@@ -169,6 +169,24 @@ fn find_interpolate(s: &str) -> Result<Option<(usize, bool)>> {
     }
 }
 
+fn get_interpolate_match (interpolate: &str, path: &str) -> String {
+    let prefix_len = interpolate.find('#').unwrap();
+    let suffix_len = interpolate.len() - interpolate.rfind('#').unwrap() - 1;
+    path[prefix_len..path.len() - suffix_len].to_string()
+}
+
+fn check_interpolate_exclude (task: &Task, path: &str) -> bool {
+    // If the interpolated dependency matches its own task's target glob space, then we exclude it
+    // We can enable further custom ignores here in future
+    if let Some(interpolation_target) = task.targets.iter().find(|&t| t.contains('#')) {
+        let target_glob = if interpolation_target.contains("##") { interpolation_target.replace("##", "(**/*)") } else { interpolation_target.replace('#', "(*)") };
+        if Pattern::new(&target_glob).unwrap().matches(&path) {
+            return true;
+        }
+    }
+    return false;
+}
+
 fn replace_interpolate(s: &str, replacement: &str) -> String {
     if let Some((_, double)) = find_interpolate(s).unwrap() {
         if double {
@@ -1964,7 +1982,13 @@ impl<'a> Runner<'a> {
                 Ok(entry) => {
                     let dep_path = String::from(entry.path().to_str().unwrap()).replace('\\', "/");
                     let interpolate = &dep_path
-                        [interpolate_idx..dep_path.len() - dep.len() + interpolate_idx + if double { 2 } else { 1 }];
+                        [interpolate_idx..dep_path.len() + interpolate_idx + if double { 2 } else { 1 } - dep.len()];
+
+                    let task = &self.tasks[parent_task];
+                    if check_interpolate_exclude(&task, &dep_path) {
+                        return Ok(());
+                    }
+
                     self.expand_interpolate_match(
                         watcher,
                         &dep_path,
@@ -1983,6 +2007,7 @@ impl<'a> Runner<'a> {
         Ok(())
     }
 
+    #[async_recursion(?Send)]
     async fn expand_interpolate_match(
         &mut self,
         watcher: &mut RecommendedWatcher,
@@ -2021,12 +2046,39 @@ impl<'a> Runner<'a> {
         // just because an interpolate is expanded, does not mean it is live
         job.state = JobState::Initialized;
 
+        let mut expansions = Vec::new();
+
         for parent_target in targets {
-            job.targets
-                .push(replace_interpolate(&parent_target, interpolate));
+            let expanded_target = replace_interpolate(&parent_target, interpolate);
+            // If the interpolation target is itself an interpolation source, then drive that
+            // Note: this should also apply to wildcard dependency expansions as well!
+            if parent_target.contains("#") || parent_target.contains("##") {
+                for job_num in &self.interpolate_nodes {
+                    let job = self.get_job(*job_num).unwrap();
+                    let task_num = job.task;
+                    let job_task = &self.tasks[task_num];
+                    if let Some(interpolation_dep) = job_task.deps.iter().find(|&t| t.contains('#')) {
+                        let dep_glob = if interpolation_dep.contains("##") { interpolation_dep.replace("##", "(**/*)") } else { interpolation_dep.replace('#', "(*)") };
+                        if Pattern::new(&dep_glob).unwrap().matches(&expanded_target) {
+                            if !check_interpolate_exclude(&job_task, &expanded_target) {
+                                let interpolate = get_interpolate_match(&interpolation_dep, &expanded_target);
+                                let input = replace_interpolate(interpolation_dep, &interpolate);
+                                expansions.push((input, interpolate, *job_num, task_num));
+                            }
+                        }
+                    }
+                }
+                let job = self.get_job_mut(job_num).unwrap();
+                job.targets.push(expanded_target);
+            }
         }
         let parent = self.get_job_mut(parent_job).unwrap();
         parent.deps.push(job_num);
+        
+        for (dep, interpolate, parent_job, parent_task) in expansions.drain(..) {
+            self.expand_interpolate_match(watcher, &dep, &interpolate, parent_job, parent_task)
+                .await?;
+        }
 
         // non-interpolation parent interpolation template deps are child deps
         let parent_task_deps = self.tasks[parent_task].deps.clone();
@@ -2036,6 +2088,7 @@ impl<'a> Runner<'a> {
                     .await?;
             }
         }
+
         Ok(job_num)
     }
 
