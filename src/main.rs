@@ -77,26 +77,26 @@ async fn main() -> Result<()> {
         .version(version)
         .arg(
             Arg::with_name("watch")
-                .short("w")
+                .short('w')
                 .long("watch")
                 .help("Watch the input files for changes"),
         )
         .arg(
             Arg::with_name("serve")
-                .short("s")
+                .short('s')
                 .long("serve")
                 .help("Run a local dev server"),
         )
         .arg(
             Arg::with_name("server-root")
-                .short("R")
+                .short('R')
                 .long("server-root")
                 .help("Server root path")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("port")
-                .short("p")
+                .short('p')
                 .long("port")
                 .value_name("PORT")
                 .help("Custom port to serve")
@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
         )
         .arg(
             Arg::with_name("jobs")
-                .short("j")
+                .short('j')
                 .long("jobs")
                 .value_name("N")
                 .help("Maximum number of jobs to run in parallel")
@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
         )
         .arg(
             Arg::with_name("config")
-                .short("c")
+                .short('c')
                 .long("config")
                 .value_name("CONFIG")
                 .default_value("chompfile.toml")
@@ -121,13 +121,13 @@ async fn main() -> Result<()> {
         )
         .arg(
             Arg::with_name("list")
-                .short("l")
+                .short('l')
                 .long("list")
                 .help("List the available chompfile tasks"),
         )
         .arg(
             Arg::with_name("format")
-                .short("F")
+                .short('F')
                 .long("format")
                 .help("Format and save the chompfile.toml"),
         )
@@ -138,31 +138,31 @@ async fn main() -> Result<()> {
         )
         .arg(
             Arg::with_name("init")
-                .short("i")
+                .short('i')
                 .long("init")
                 .help("Initialize a new chompfile.toml if it does not exist"),
         )
         .arg(
             Arg::with_name("import_scripts")
-                .short("I")
+                .short('I')
                 .long("import-scripts")
                 .help("Import from npm \"scripts\" into the chompfile.toml"),
         )
         .arg(
             Arg::with_name("clear_cache")
-                .short("C")
+                .short('C')
                 .long("clear-cache")
                 .help("Clear URL extension cache"),
         )
         .arg(
             Arg::with_name("rerun")
-                .short("r")
+                .short('r')
                 .long("rerun")
                 .help("Rerun the target tasks even if cached"),
         )
         .arg(
             Arg::with_name("force")
-                .short("f")
+                .short('f')
                 .long("force")
                 .help("Force rebuild targets"),
         )
