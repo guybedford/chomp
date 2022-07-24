@@ -31,7 +31,7 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
   let start_time = Instant::now();
   let uuid = Uuid::new_v4();
   let mut tmp_file = env::temp_dir();
-  tmp_file.push(&format!("{}.ts", uuid.to_simple().to_string()));
+  tmp_file.push(&format!("{}.ts", uuid.as_simple().to_string()));
   let tmp_file2 = tmp_file.clone();
   cmd.env.insert(
     "CHOMP_MAIN".to_string(),
