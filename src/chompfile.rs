@@ -140,6 +140,19 @@ impl Default for InvalidationCheck {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum WatchInvalidation {
+    RestartRunning,
+    SkipRunning,
+}
+
+impl Default for WatchInvalidation {
+    fn default() -> Self {
+        WatchInvalidation::RestartRunning
+    }
+}
+
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct ChompTaskMaybeTemplated {
@@ -150,6 +163,7 @@ pub struct ChompTaskMaybeTemplated {
     pub deps: Option<Vec<String>>,
     pub args: Option<Vec<String>>,
     pub serial: Option<bool>,
+    pub watch_invalidation: Option<WatchInvalidation>,
     pub invalidation: Option<InvalidationCheck>,
     pub validation: Option<ValidationCheck>,
     pub display: Option<TaskDisplay>,
@@ -195,6 +209,7 @@ impl ChompTaskMaybeTemplated {
             stdio: None,
             template: None,
             template_options: None,
+            watch_invalidation: None,
         }
     }
     pub fn targets_vec(&self) -> Result<Vec<String>> {
@@ -245,6 +260,7 @@ pub struct ChompTaskMaybeTemplatedJs {
     pub serial: Option<bool>,
     pub invalidation: Option<InvalidationCheck>,
     pub validation: Option<ValidationCheck>,
+    pub watch_invalidation: Option<WatchInvalidation>,
     pub display: Option<TaskDisplay>,
     pub stdio: Option<TaskStdio>,
     pub engine: Option<ChompEngine>,
@@ -281,6 +297,7 @@ impl Into<ChompTaskMaybeTemplated> for ChompTaskMaybeTemplatedJs {
             engine: self.engine,
             template: self.template,
             template_options: self.template_options,
+            watch_invalidation: self.watch_invalidation,
         }
     }
 }

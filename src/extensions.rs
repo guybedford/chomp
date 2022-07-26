@@ -156,6 +156,7 @@ pub fn expand_template_tasks(
             engine: task.engine,
             template: None,
             template_options: task.template_options,
+            watch_invalidation: task.watch_invalidation,
         };
         let mut template_tasks: Vec<ChompTaskMaybeTemplatedJs> =
             extension_env.run_template(&template, &js_task)?;
