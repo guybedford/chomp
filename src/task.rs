@@ -764,36 +764,41 @@ impl<'a> Runner<'a> {
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
     ) -> Result<()> {
-        let job = self.get_job_mut(job_num).unwrap();
+        let job = self.get_job(job_num).unwrap();
         let job = match job.state {
             JobState::Failed | JobState::Fresh => {
+                let task = &self.tasks[job.task];
+                if matches!(task.chomp_task.watch_invalidation, Some(WatchInvalidation::SkipRunning)) {
+                    if let Some(mtime) = job.mtime {
+                        if mtime > now() - Duration::from_secs(1) {
+                            return Ok(());
+                        }
+                    }
+                }
+                let job = self.get_job_mut(job_num).unwrap();
                 job.state = JobState::Pending;
                 job
             }
             JobState::Running => {
-                let job = if let Some(cmd_num) = job.cmd_num {
+                if let Some(cmd_num) = job.cmd_num {
                     // Could possibly consider a JobState::MaybeTerminate
                     // as a kind of Pending analog which may or may not rerun
                     queued.remove_job(job_num, JobState::Running, Some(cmd_num));
-                    let job = self.get_job(job_num).unwrap();
                     let display_name = job.display_name(&self.tasks);
                     let task = &self.tasks[job.task];
-                    if matches!(task.chomp_task.watch_invalidation, Some(WatchInvalidation::RestartRunning)) {
-                        self.cmd_pool.terminate(cmd_num, &display_name);
-                    } else {
+                    if matches!(task.chomp_task.watch_invalidation, Some(WatchInvalidation::SkipRunning)) {
                         let job = self.get_job_mut(job_num).unwrap();
                         job.state = JobState::Fresh;
                         return Ok(());
                     }
-                    self.get_job_mut(job_num).unwrap()
-                } else {
-                    job
-                };
+                    self.cmd_pool.terminate(cmd_num, &display_name);
+                }
+                let job = self.get_job_mut(job_num).unwrap();
                 job.mtime = Some(now() - Duration::from_secs(1));
                 job.state = JobState::Pending;
                 job
             }
-            _ => job,
+            _ => self.get_job_mut(job_num).unwrap()
         };
         if job.parents.len() > 0 {
             for parent in job.parents.clone() {
