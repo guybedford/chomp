@@ -17,6 +17,7 @@
 use crate::chompfile::ChompTaskMaybeTemplated;
 use crate::chompfile::TaskDisplay;
 use crate::chompfile::ValidationCheck;
+use crate::chompfile::WatchInvalidation;
 use crate::chompfile::{Chompfile, InvalidationCheck};
 use crate::engines::CmdPool;
 use crate::server::FileEvent;
@@ -776,7 +777,14 @@ impl<'a> Runner<'a> {
                     queued.remove_job(job_num, JobState::Running, Some(cmd_num));
                     let job = self.get_job(job_num).unwrap();
                     let display_name = job.display_name(&self.tasks);
-                    self.cmd_pool.terminate(cmd_num, &display_name);
+                    let task = &self.tasks[job.task];
+                    if matches!(task.chomp_task.watch_invalidation, Some(WatchInvalidation::RestartRunning)) {
+                        self.cmd_pool.terminate(cmd_num, &display_name);
+                    } else {
+                        let job = self.get_job_mut(job_num).unwrap();
+                        job.state = JobState::Fresh;
+                        return Ok(());
+                    }
                     self.get_job_mut(job_num).unwrap()
                 } else {
                     job
