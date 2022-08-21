@@ -25,7 +25,7 @@ use std::time::Instant;
 // Custom node loader to mimic current working directory despite loading from a tmp file
 // Note: We dont have to percent encode as we're not using `,! characters
 // If this becomes a problem, switch to base64 encoding rather
-const NODE_LOADER: &str = "let s;export function resolve(u,c,d){if(c.parentURL===undefined){const i=u.indexOf('data:text/javascript;base64,');s=Buffer.from(u.slice(i+28),'base64');return{url:u.slice(0,i)+'/[cm]',format:'module',shortCircuit:true}}return d(u,c)}export function load(u,c,d){if(u.endsWith('[cm]'))return{source:s,format:'module',shortCircuit:true};return d(u,c)}export{load as getFormat,load as getSource}";
+const NODE_LOADER: &str = "let s;export function resolve(u,c,d){if(c.parentURL===undefined){const i=u.indexOf('data:text/javascript;base64,');s=Buffer.from(u.slice(i+28),'base64');return{url:u.slice(0,i)+(u[i-1]==='/'?'':'/')+'[cm]',format:'module',shortCircuit:true}}return d(u,c)}export function load(u,c,d){if(u.endsWith('[cm]'))return{source:s,format:'module',shortCircuit:true};return d(u,c)}export{load as getFormat,load as getSource}";
 
 pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<String>) {
   let start_time = Instant::now();
