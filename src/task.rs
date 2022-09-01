@@ -719,6 +719,7 @@ impl<'a> Runner<'a> {
                 name_bold.push_str("\x1b[0m");
                 name = name_bold;
             }
+            // println!("{:?}", task);
             if matches!(task.chomp_task.display, Some(TaskDisplay::Dot)) {
                 if failed {
                     print!("\x1b[1;31m.\x1b[0m");
@@ -1040,6 +1041,11 @@ impl<'a> Runner<'a> {
 
         self.expand_job_deps(job_num, &mut deps);
 
+        /* println!(
+            "here   \x1b[1m{}\x1b[0m {}",
+            job.display_name(&self.tasks),
+            targets
+        ); */
         env.insert("TARGET".to_string(), target);
         env.insert("TARGETS".to_string(), targets);
         env.insert(
@@ -2320,6 +2326,7 @@ impl<'a> Runner<'a> {
             }
         }
 
+        dbg!(&job_nums);
         self.drive_jobs(
             &mut watcher,
             &job_nums,

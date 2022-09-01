@@ -20,12 +20,15 @@ use crate::engines::CmdPool;
 use crate::engines::Exec;
 use crate::engines::{BatchCmd, ExecState};
 use futures::future::FutureExt;
+use percent_encoding::NON_ALPHANUMERIC;
+use percent_encoding::percent_encode;
 use std::time::Instant;
 
 // Custom node loader to mimic current working directory despite loading from a tmp file
 // Note: We dont have to percent encode as we're not using `,! characters
 // If this becomes a problem, switch to base64 encoding rather
 const NODE_LOADER: &str = "let s;export function resolve(u,c,d){if(c.parentURL===undefined){const i=u.indexOf('data:text/javascript;base64,');s=Buffer.from(u.slice(i+28),'base64');return{url:u.slice(0,i)+(u[i-1]==='/'?'':'/')+'[cm]',format:'module',shortCircuit:true}}return d(u,c)}export function load(u,c,d){if(u.endsWith('[cm]'))return{source:s,format:'module',shortCircuit:true};return d(u,c)}export{load as getFormat,load as getSource}";
+// const NODE_LOADER: &str = "Object.defineProperty(exports, '__esModule', { value: true });let s;function resolve(u,c,d){if(c.parentURL===undefined){const i=u.indexOf('data:text/javascript;base64,');s=Buffer.from(u.slice(i+28),'base64');return {url:u.slice(0,i)+(u[i-1]==='/'?'':'/')+'[cm]',format:'module',shortCircuit:true}}return d(u,c)}function load(u,c,d){if(u.endsWith('[cm]'))return {source:s,format:'module',shortCircuit:true};return d(u,c)};exports.getFormat = load;exports.getSource = load;exports.load = load;exports.resolve = resolve;";
 
 pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<String>) {
   let start_time = Instant::now();
@@ -37,9 +40,10 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
   // On posix, command starts executing before we wait on it!
   cmd.run = format!(
     "node --no-warnings --loader \"data:text/javascript,{}\" \"data:text/javascript;base64,{}\"",
-    NODE_LOADER.to_string(),
+    percent_encode(NODE_LOADER.to_string().as_bytes(), NON_ALPHANUMERIC),
     base64::encode(cmd.run.as_bytes()).to_string()
   );
+  println!("here {} \n\n", cmd.run);
   let echo = cmd.echo;
   cmd.echo = false;
   let run_clone = if echo { Some(cmd.run.clone()) } else { None };

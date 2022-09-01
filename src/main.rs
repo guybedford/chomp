@@ -200,7 +200,7 @@ async fn main() -> Result<()> {
         None => {}
     }
 
-    let mut cfg_file = canonicalize(matches.get_one::<String>("config").unwrap()).unwrap() ;
+    let mut cfg_file = canonicalize(matches.get_one::<String>("config").unwrap()).unwrap();
 
     let mut created = false;
     let chompfile_source = {
