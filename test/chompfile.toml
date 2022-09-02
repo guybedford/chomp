@@ -41,7 +41,7 @@ name = 'test2'
 display = 'none'
 target = 'output/test2.txt'
 run = '''
-  echo hello; ${{ECHO}} "$VAR $ANOTHER" > $TARGET
+  ${{ECHO}} "$VAR $ANOTHER" > $TARGET
 '''
 template = 'assert'
 [task.env]
