@@ -23,9 +23,13 @@ use crate::engines::CmdPool;
 use crate::server::FileEvent;
 use crate::ExtensionEnvironment;
 use futures::future::Shared;
+use directories::UserDirs;
+use regex::Captures;
+use regex::Regex;
 use std::collections::BTreeMap;
+use std::env::current_dir;
 use std::fs::canonicalize;
-use std::path::Path;
+use std::path::{Component, Path};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 // use crate::ui::ChompUI;
@@ -52,6 +56,7 @@ use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 use tokio::fs;
 use tokio::time;
+
 
 #[derive(Debug)]
 pub struct Task<'a> {
@@ -523,7 +528,7 @@ impl<'a> Runner<'a> {
         pool_size: usize,
         watch: bool,
     ) -> Result<Runner<'a>> {
-        let cwd_buf = std::env::current_dir()?;
+        let cwd_buf = current_dir()?;
         let cwd = cwd_buf.to_str().unwrap();
 
         let cmd_pool: CmdPool = CmdPool::new(pool_size, String::from(cwd), extension_env);
@@ -719,7 +724,6 @@ impl<'a> Runner<'a> {
                 name_bold.push_str("\x1b[0m");
                 name = name_bold;
             }
-            // println!("{:?}", task);
             if matches!(task.chomp_task.display, Some(TaskDisplay::Dot)) {
                 if failed {
                     print!("\x1b[1;31m.\x1b[0m");
@@ -1004,13 +1008,16 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        let target = if task.targets.len() == 0 {
+        let mut target = if task.targets.len() == 0 {
             "".to_string()
         } else if let Some(interpolate) = &job.interpolate {
             replace_interpolate(&task.targets[target_index], interpolate)
         } else {
             task.targets[target_index].clone()
         };
+        if target.len() != 0 {
+            target = resolve_path(&target);
+        }
         let mut targets = String::new();
         for (idx, t) in task.targets.iter().enumerate() {
             if idx > 0 {
@@ -1019,7 +1026,7 @@ impl<'a> Runner<'a> {
             if idx == target_index {
                 targets.push_str(&target);
             } else {
-                targets.push_str(t);
+                targets.push_str(resolve_path(&t).as_str());
             }
         }
 
@@ -1041,11 +1048,6 @@ impl<'a> Runner<'a> {
 
         self.expand_job_deps(job_num, &mut deps);
 
-        /* println!(
-            "here   \x1b[1m{}\x1b[0m {}",
-            job.display_name(&self.tasks),
-            targets
-        ); */
         env.insert("TARGET".to_string(), target);
         env.insert("TARGETS".to_string(), targets);
         env.insert(
@@ -2326,7 +2328,6 @@ impl<'a> Runner<'a> {
             }
         }
 
-        dbg!(&job_nums);
         self.drive_jobs(
             &mut watcher,
             &job_nums,
@@ -2348,4 +2349,77 @@ impl<'a> Runner<'a> {
 
         Ok(all_ok)
     }
+}
+
+fn resolve_path(target: &String) -> String {
+    path_from(current_dir().unwrap(), target.as_str()).to_str().unwrap().to_string()
+}
+
+/// build a usable path from a user input which may be absolute
+/// (if it starts with / or ~) or relative to the supplied base_dir.
+/// (we might want to try detect windows drives in the future, too)
+pub fn path_from<P: AsRef<Path>>(
+    base_dir: P,
+    input: &str,
+) -> PathBuf {
+    let tilde = Regex::new(r"^~(/|$)").unwrap();
+    if input.starts_with('/') {
+        // if the input starts with a `/`, we use it as is
+        input.into()
+    } else if tilde.is_match(input) {
+        // if the input starts with `~` as first token, we replace
+        // this `~` with the user home directory
+        PathBuf::from(
+            &*tilde
+                .replace(input, |c: &Captures| {
+                    if let Some(user_dirs) = UserDirs::new() {
+                        format!(
+                            "{}{}",
+                            user_dirs.home_dir().to_string_lossy(),
+                            &c[1],
+                        )
+                    } else {
+                        // warn!("no user dirs found, no expansion of ~");
+                        c[0].to_string()
+                    }
+                })
+        )
+    } else {
+        // we put the input behind the source (the selected directory
+        // or its parent) and we normalize so that the user can type
+        // paths with `../`
+        normalize_path(base_dir.as_ref().join(input))
+    }
+}
+
+
+/// Improve the path to try remove and solve .. token.
+///
+/// This assumes that `a/b/../c` is `a/c` which might be different from
+/// what the OS would have chosen when b is a link. This is OK
+/// for broot verb arguments but can't be generally used elsewhere
+///
+/// This function ensures a given path ending with '/' still
+/// ends with '/' after normalization.
+pub fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    let ends_with_slash = path.as_ref()
+        .to_str()
+        .map_or(false, |s| s.ends_with('/'));
+    let mut normalized = PathBuf::new();
+    for component in path.as_ref().components() {
+        match &component {
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component);
+                }
+            }
+            _ => {
+                normalized.push(component);
+            }
+        }
+    }
+    if ends_with_slash {
+        normalized.push("");
+    }
+    normalized
 }

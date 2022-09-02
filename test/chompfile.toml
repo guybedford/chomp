@@ -41,7 +41,7 @@ name = 'test2'
 display = 'none'
 target = 'output/test2.txt'
 run = '''
-  ${{ECHO}} "$VAR $ANOTHER" > $TARGET
+  echo hello; ${{ECHO}} "$VAR $ANOTHER" > $TARGET
 '''
 template = 'assert'
 [task.env]
@@ -99,7 +99,7 @@ auto-install = true
 [[task]]
 name = 'test4'
 display = 'none'
-target = 'output/unittest.txt'
+targets = ['output/unittest.txt']
 deps = [':unittest:ok-*']
 template = 'assert'
 [task.template-options]

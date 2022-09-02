@@ -50,3 +50,4 @@ toml = "0.5"
 uuid = { version = "1", features = ["v4"] }
 v8 = "0.47.0"
 warp = "0.3"
+directories = "4.0.1"
