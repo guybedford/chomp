@@ -159,8 +159,8 @@ run = 'swc $DEP -o $TARGET --source-maps'
 # -- Test --
 [[task]]
 name = 'test6'
-target = 'output/deps.txt'
-deps = ['fixtures/src/**/*.ts', 'build:swc']
+target = './output/deps.txt'
+deps = ['./fixtures/src/**/*.ts', 'build:swc']
 run = 'echo "$DEPS" > output/deps.txt'
 template = 'assert'
 [task.template-options]
