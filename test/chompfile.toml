@@ -115,7 +115,7 @@ run = 'mkdir output'
 name = 'unittest:#'
 display = 'none'
 stdio = 'stderr-only'
-deps = ['unit/#.mjs', 'output']
+deps = ['./unit/#.mjs', 'output']
 run = 'node $DEP'
 [task.template-options]
 expect-equals = '''UNIT OK
