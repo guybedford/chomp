@@ -568,6 +568,7 @@ impl<'a> Runner<'a> {
         let num = self.nodes.len();
         let task = &self.tasks[task_num];
 
+
         let is_interpolate_target = task.deps.iter().find(|&d| d.contains('#')).is_some();
 
         // map target name
@@ -584,6 +585,7 @@ impl<'a> Runner<'a> {
                     self.task_jobs.insert(name, num);
                 }
             } else if name.contains('#') {
+                println!("add_job: {:?} {:?}", name, interpolate);
                 // interpolate individual names only expanded when using "#" in the name
                 let name = replace_interpolate(name, interpolate.as_ref().unwrap());
                 if !self.task_jobs.contains_key(&name) {
@@ -592,10 +594,12 @@ impl<'a> Runner<'a> {
             }
         }
 
+
         // map interpolation for primary interpolation job
         if is_interpolate_target && interpolate.is_none() {
             self.interpolate_nodes.push(num);
         }
+
 
         let mut job = Job::new(task_num, interpolate.clone());
 
@@ -645,6 +649,8 @@ impl<'a> Runner<'a> {
             }
         }
 
+
+        println!("Adding job for task {:?}",num );
         self.nodes.push(Node::Job(job));
         return Ok((num, true));
     }
@@ -1018,6 +1024,7 @@ impl<'a> Runner<'a> {
         if target.len() != 0 {
             target = resolve_path(&target);
         }
+
         let mut targets = String::new();
         for (idx, t) in task.targets.iter().enumerate() {
             if idx > 0 {
@@ -1727,7 +1734,7 @@ impl<'a> Runner<'a> {
 
                         let interpolate_dep =
                             job_task.deps.iter().find(|&dep| dep.contains('#')).unwrap();
-                        expansions.push((String::from(interpolate_dep), *job_num, task_num));
+                        expansions.push((resolve_path(interpolate_dep), *job_num, task_num));
                     }
                 }
             }
@@ -1737,12 +1744,14 @@ impl<'a> Runner<'a> {
                     .await?;
             }
 
+            println!("{:?}", &self.task_jobs);
             for (task, &job_num) in &self.task_jobs {
                 if target_pattern.matches(task) {
                     found.push(job_num);
                 }
             }
 
+            println!("found tasks: {:?} {} {}", found, target, target_pattern);
             if found.len() == 0 {
                 return Err(anyhow!(
                     "No task names found matching the pattern {}",
@@ -1781,7 +1790,7 @@ impl<'a> Runner<'a> {
                         .iter()
                         .find(|&dep| dep.contains('#'))
                         .unwrap();
-                    expansions.push((String::from(interpolate_dep), *job_num, task_num));
+                    expansions.push((resolve_path(interpolate_dep), *job_num, task_num));
                 }
             }
 
@@ -1915,7 +1924,7 @@ impl<'a> Runner<'a> {
                             return Err(anyhow!("Error processing dep '{}' in task {} - only one interpolated deps is allowed", &dep, &display_name));
                         }
                         dep_double_interpolate = dep.contains("##");
-                        self.expand_interpolate(watcher, String::from(dep), job_num, task_num)
+                        self.expand_interpolate(watcher, resolve_path(&dep), job_num, task_num)
                             .await?;
                         expanded_interpolate = true;
                     } else if dep.starts_with('&') {
@@ -2001,15 +2010,21 @@ impl<'a> Runner<'a> {
         {
             match entry {
                 Ok(entry) => {
-                    let dep_path = String::from(entry.path().to_str().unwrap()).replace('\\', "/");
+                    let dep_path = resolve_path(&String::from(entry.path().to_str().unwrap()).replace('\\', "/"));
+                    println!("\n");
+                    dbg!(interpolate_idx, dep_path.len(), double, &dep, dep.len());
                     let interpolate = &dep_path
                         [interpolate_idx..dep_path.len() + interpolate_idx + if double { 2 } else { 1 } - dep.len()];
+                    let new_interpolate = &dep
+                        [interpolate_idx..dep.len() + interpolate_idx + if double { 2 } else { 1 } - dep.len()];
 
+                    println!("here {} {} {}", dep_path, interpolate, new_interpolate);
                     let task = &self.tasks[parent_task];
                     if check_interpolate_exclude(&task, &dep_path) {
                         return Ok(());
                     }
 
+                    dbg!(&dep_path, &interpolate);
                     self.expand_interpolate_match(
                         watcher,
                         &dep_path,
@@ -2084,7 +2099,7 @@ impl<'a> Runner<'a> {
                             if !check_interpolate_exclude(&job_task, &expanded_target) {
                                 let interpolate = get_interpolate_match(&interpolation_dep, &expanded_target);
                                 let input = replace_interpolate(interpolation_dep, &interpolate);
-                                expansions.push((input, interpolate, *job_num, task_num));
+                                expansions.push((resolve_path(&input), interpolate, *job_num, task_num));
                             }
                         }
                     }
@@ -2095,7 +2110,6 @@ impl<'a> Runner<'a> {
         }
         let parent = self.get_job_mut(parent_job).unwrap();
         parent.deps.push(job_num);
-        
         for (dep, interpolate, parent_job, parent_task) in expansions.drain(..) {
             self.expand_interpolate_match(watcher, &dep, &interpolate, parent_job, parent_task)
                 .await?;
