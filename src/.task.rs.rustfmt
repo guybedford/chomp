@@ -606,7 +606,7 @@ impl<'a> Runner<'a> {
         let task_targets = task.targets.clone();
         if !is_interpolate_target || interpolate.is_some() {
             for target in task_targets.iter() {
-                let file_target = match &interpolate {
+                let file_target = resolve_path(&match &interpolate {
                     Some(interpolate) => {
                         if !target.contains('#') {
                             continue;
@@ -614,7 +614,8 @@ impl<'a> Runner<'a> {
                         resolve_path(&replace_interpolate(target, interpolate))
                     }
                     None => target.to_string(),
-                };
+                });
+                dbg!(&file_target);
                 match self.file_nodes.get(&file_target) {
                     Some(&num) => {
                         match &self.nodes[num] {
@@ -1020,7 +1021,7 @@ impl<'a> Runner<'a> {
             task.targets[target_index].clone()
         };
         if target.len() != 0 {
-            target = target;
+            target = resolve_path(&target);
         }
 
         let mut targets = String::new();
@@ -1031,7 +1032,7 @@ impl<'a> Runner<'a> {
             if idx == target_index {
                 targets.push_str(&target);
             } else {
-                targets.push_str(t);
+                targets.push_str(resolve_path(&t).as_str());
             }
         }
 
@@ -1052,11 +1053,6 @@ impl<'a> Runner<'a> {
         };
 
         self.expand_job_deps(job_num, &mut deps);
-
-        // absolute paths for deps
-        for dep in deps.iter_mut() {
-            *dep = resolve_path(dep);
-        }
 
         env.insert("TARGET".to_string(), target);
         env.insert("TARGETS".to_string(), targets);

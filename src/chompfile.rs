@@ -222,7 +222,6 @@ impl ChompTaskMaybeTemplated {
             Ok(vec![dep_str])
         } else if let Some(ref deps) = self.deps {
             let deps = deps.clone();
-            dbg!(&deps);
             Ok(deps)
         } else {
             Ok(vec![])
