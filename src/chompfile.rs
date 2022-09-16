@@ -223,14 +223,8 @@ impl ChompTaskMaybeTemplated {
         }
     }
     pub fn deps_vec(&self, chompfile: &Chompfile) -> Result<Vec<String>> {
-        let names = chompfile
-            .task
-            .iter()
-            .map(|t| t.name.clone().map(|t| t).unwrap_or_default())
-            .collect::<Vec<_>>();
-
         if let Some(ref dep) = self.dep {
-            let dep_str = if names.contains(dep) || skip_special_chars(dep) {
+            let dep_str = if chompfile.task.iter().find(|t| t.name.to_owned().unwrap_or_default().contains(dep)).is_some() || skip_special_chars(dep) {
                 dep.to_owned()
             } else {
                 resolve_path(&dep.to_string())
@@ -240,11 +234,11 @@ impl ChompTaskMaybeTemplated {
             let deps = deps
                 .clone()
                 .iter()
-                .map(|t| {
-                    if names.contains(t) || skip_special_chars(t) {
-                        t.to_owned()
+                .map(|dep| {
+                    if chompfile.task.iter().find(|t| t.name.to_owned().unwrap_or_default().contains(dep)).is_some() || skip_special_chars(dep) {
+                        dep.to_owned()
                     } else {
-                        resolve_path(t)
+                        resolve_path(dep)
                     }
                 })
                 .collect();
