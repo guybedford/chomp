@@ -23,16 +23,12 @@ use crate::engines::CmdPool;
 use crate::server::FileEvent;
 use crate::ExtensionEnvironment;
 use futures::future::Shared;
-use directories::UserDirs;
-use regex::Captures;
-use regex::Regex;
 use std::collections::BTreeMap;
 use std::env::current_dir;
 use std::fs::canonicalize;
-use std::path::{Component, Path};
+use std::path::Path;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
-// use crate::ui::ChompUI;
 use async_recursion::async_recursion;
 use capturing_glob::{glob, Pattern};
 use futures::future::{select_all, Future, FutureExt};
@@ -547,7 +543,7 @@ impl<'a> Runner<'a> {
 
         for task in &runner.chompfile.task {
             let targets = task.targets_vec()?;
-            let deps = task.deps_vec()?;
+            let deps = task.deps_vec(&chompfile)?;
             let env = create_task_env(&task, &chompfile, task.env_replace.unwrap_or(true));
             let task = Task {
                 name: task.name.clone(),
@@ -611,7 +607,7 @@ impl<'a> Runner<'a> {
                         if !target.contains('#') {
                             continue;
                         }
-                        resolve_path(&replace_interpolate(target, interpolate))
+                        replace_interpolate(target, interpolate)
                     }
                     None => target.to_string(),
                 };
@@ -1012,16 +1008,13 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        let mut target = if task.targets.len() == 0 {
+        let target = if task.targets.len() == 0 {
             "".to_string()
         } else if let Some(interpolate) = &job.interpolate {
             replace_interpolate(&task.targets[target_index], interpolate)
         } else {
             task.targets[target_index].clone()
         };
-        if target.len() != 0 {
-            target = target;
-        }
 
         let mut targets = String::new();
         for (idx, t) in task.targets.iter().enumerate() {
@@ -1052,11 +1045,6 @@ impl<'a> Runner<'a> {
         };
 
         self.expand_job_deps(job_num, &mut deps);
-
-        // absolute paths for deps
-        for dep in deps.iter_mut() {
-            *dep = resolve_path(dep);
-        }
 
         env.insert("TARGET".to_string(), target);
         env.insert("TARGETS".to_string(), targets);
@@ -1570,7 +1558,7 @@ impl<'a> Runner<'a> {
                         let num = self
                             .expand_interpolate_match(
                                 watcher,
-                                &resolve_path(&input),
+                                &input,
                                 interpolate,
                                 job_num,
                                 self.get_job(job_num).unwrap().task,
@@ -1736,7 +1724,7 @@ impl<'a> Runner<'a> {
 
                         let interpolate_dep =
                             job_task.deps.iter().find(|&dep| dep.contains('#')).unwrap();
-                        expansions.push((resolve_path(interpolate_dep), *job_num, task_num));
+                        expansions.push(((interpolate_dep.to_owned()), *job_num, task_num));
                     }
                 }
             }
@@ -1790,7 +1778,7 @@ impl<'a> Runner<'a> {
                         .iter()
                         .find(|&dep| dep.contains('#'))
                         .unwrap();
-                    expansions.push((resolve_path(interpolate_dep), *job_num, task_num));
+                    expansions.push((interpolate_dep.to_owned(), *job_num, task_num));
                 }
             }
 
@@ -1801,8 +1789,6 @@ impl<'a> Runner<'a> {
 
             // this picks up both static file targets and interpolates expanded above
             for (file, &job_num) in &self.file_nodes {
-                let file = &resolve_path(file);
-                let target_pattern = Pattern::new(resolve_path(&target_pattern.to_string()).as_str()).unwrap();
                 if target_pattern.matches(file) {
                     found.push(job_num);
                     globbed_targets.insert(String::from(file));
@@ -1811,7 +1797,7 @@ impl<'a> Runner<'a> {
 
             // finally we do file system globbing, with defined files above overriding file system matches
             if glob_files {
-                for entry in glob(resolve_path(&target.to_string()).as_str()).expect("Failed to read glob pattern") {
+                for entry in glob(target).expect("Failed to read glob pattern") {
                     match entry {
                         Ok(entry) => {
                             let dep_path =
@@ -1926,7 +1912,7 @@ impl<'a> Runner<'a> {
                             return Err(anyhow!("Error processing dep '{}' in task {} - only one interpolated deps is allowed", &dep, &display_name));
                         }
                         dep_double_interpolate = dep.contains("##");
-                        self.expand_interpolate(watcher, resolve_path(&dep), job_num, task_num)
+                        self.expand_interpolate(watcher, dep, job_num, task_num)
                             .await?;
                         expanded_interpolate = true;
                     } else if dep.starts_with('&') {
@@ -2012,7 +1998,7 @@ impl<'a> Runner<'a> {
         {
             match entry {
                 Ok(entry) => {
-                    let dep_path = resolve_path(&String::from(entry.path().to_str().unwrap()).replace('\\', "/"));
+                    let dep_path = String::from(entry.path().to_str().unwrap().replace('\\', "/"));
                     let interpolate = &dep_path
                         [interpolate_idx..dep_path.len() + interpolate_idx + if double { 2 } else { 1 } - dep.len()];
 
@@ -2095,7 +2081,7 @@ impl<'a> Runner<'a> {
                             if !check_interpolate_exclude(&job_task, &expanded_target) {
                                 let interpolate = get_interpolate_match(&interpolation_dep, &expanded_target);
                                 let input = replace_interpolate(interpolation_dep, &interpolate);
-                                expansions.push((resolve_path(&input), interpolate, *job_num, task_num));
+                                expansions.push((input.to_owned(), interpolate, *job_num, task_num));
                             }
                         }
                     }
@@ -2359,77 +2345,4 @@ impl<'a> Runner<'a> {
 
         Ok(all_ok)
     }
-}
-
-fn resolve_path(target: &String) -> String {
-    path_from(current_dir().unwrap(), target.as_str()).to_str().unwrap().to_string()
-}
-/// https://stackoverflow.com/questions/68231306/stdfscanonicalize-for-files-that-dont-exist
-/// build a usable path from a user input which may be absolute
-/// (if it starts with / or ~) or relative to the supplied base_dir.
-/// (we might want to try detect windows drives in the future, too)
-pub fn path_from<P: AsRef<Path>>(
-    base_dir: P,
-    input: &str,
-) -> PathBuf {
-    let tilde = Regex::new(r"^~(/|$)").unwrap();
-    if input.starts_with('/') {
-        // if the input starts with a `/`, we use it as is
-        input.into()
-    } else if tilde.is_match(input) {
-        // if the input starts with `~` as first token, we replace
-        // this `~` with the user home directory
-        PathBuf::from(
-            &*tilde
-                .replace(input, |c: &Captures| {
-                    if let Some(user_dirs) = UserDirs::new() {
-                        format!(
-                            "{}{}",
-                            user_dirs.home_dir().to_string_lossy(),
-                            &c[1],
-                        )
-                    } else {
-                        // warn!("no user dirs found, no expansion of ~");
-                        c[0].to_string()
-                    }
-                })
-        )
-    } else {
-        // we put the input behind the source (the selected directory
-        // or its parent) and we normalize so that the user can type
-        // paths with `../`
-        normalize_path(base_dir.as_ref().join(input))
-    }
-}
-
-
-/// Improve the path to try remove and solve .. token.
-///
-/// This assumes that `a/b/../c` is `a/c` which might be different from
-/// what the OS would have chosen when b is a link. This is OK
-/// for broot verb arguments but can't be generally used elsewhere
-///
-/// This function ensures a given path ending with '/' still
-/// ends with '/' after normalization.
-pub fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
-    let ends_with_slash = path.as_ref()
-        .to_str()
-        .map_or(false, |s| s.ends_with('/'));
-    let mut normalized = PathBuf::new();
-    for component in path.as_ref().components() {
-        match &component {
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    normalized.push(component);
-                }
-            }
-            _ => {
-                normalized.push(component);
-            }
-        }
-    }
-    if ends_with_slash {
-        normalized.push("");
-    }
-    normalized
 }
