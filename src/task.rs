@@ -611,6 +611,7 @@ impl<'a> Runner<'a> {
                     }
                     None => target.to_string(),
                 };
+                dbg!(&self.nodes.len(), &self.nodes, num);
                 match self.file_nodes.get(&file_target) {
                     Some(&num) => {
                         match &self.nodes[num] {
