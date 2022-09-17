@@ -213,10 +213,10 @@ impl ChompTaskMaybeTemplated {
     }
     pub fn targets_vec(&self) -> Result<Vec<String>> {
         if let Some(ref target) = self.target {
-            let target_str = resolve_path(&target.to_string());
+            let target_str = resolve_path(target);
             Ok(vec![target_str])
         } else if let Some(ref targets) = self.targets {
-            let targets = targets.clone().iter().map(|t| resolve_path(&t)).collect();
+            let targets = targets.iter().map(|t| resolve_path(&t)).collect();
             Ok(targets)
         } else {
             Ok(vec![])
@@ -227,14 +227,13 @@ impl ChompTaskMaybeTemplated {
 
         if let Some(ref dep) = self.dep {
             let dep_str = if names.contains(&dep) || skip_special_chars(dep) {
-                dep.to_owned()
+                dep.to_string()
             } else {
-                resolve_path(&dep.to_string())
+                resolve_path(dep)
             };
             Ok(vec![dep_str])
         } else if let Some(ref deps) = self.deps {
             let deps = deps
-                .clone()
                 .iter()
                 .map(|dep| {
                     if names.contains(&dep) || skip_special_chars(dep) {
