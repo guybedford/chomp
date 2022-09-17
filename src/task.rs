@@ -617,7 +617,7 @@ impl<'a> Runner<'a> {
                 } */
                 match self.file_nodes.get(&file_target) {
                     Some(&target_num) => {
-                    dbg!("here", &self.nodes.len(), &self.nodes, target_num);
+                    dbg!("here", &self.nodes.len(), &self.nodes, &file_target, target_num);
                         match &self.nodes[target_num] {
                             Node::Job(_) => {
                                 // duplicate job for same file -> first wins (skip)
