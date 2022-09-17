@@ -561,7 +561,7 @@ impl<'a> Runner<'a> {
     }
 
     fn add_job(&mut self, task_num: usize, interpolate: Option<String>) -> Result<(usize, bool)> {
-        let num = self.nodes.len();
+        let num: usize = self.nodes.len();
         let task = &self.tasks[task_num];
 
 
@@ -612,8 +612,12 @@ impl<'a> Runner<'a> {
                     None => target.to_string(),
                 };
                 dbg!(&self.nodes.len(), &self.nodes, num);
+                /* if (self.file_nodes.get(&file_target).is_none) {
+                    return ;
+                } */
                 match self.file_nodes.get(&file_target) {
                     Some(&num) => {
+                    dbg!("here", &self.nodes.len(), &self.nodes, num);
                         match &self.nodes[num] {
                             Node::Job(_) => {
                                 // duplicate job for same file -> first wins (skip)
