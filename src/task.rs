@@ -616,16 +616,16 @@ impl<'a> Runner<'a> {
                     return ;
                 } */
                 match self.file_nodes.get(&file_target) {
-                    Some(&num) => {
-                    dbg!("here", &self.nodes.len(), &self.nodes, num);
-                        match &self.nodes[num] {
+                    Some(&target_num) => {
+                    dbg!("here", &self.nodes.len(), &self.nodes, target_num);
+                        match &self.nodes[target_num] {
                             Node::Job(_) => {
                                 // duplicate job for same file -> first wins (skip)
-                                return Ok((num, false));
+                                return Ok((target_num, false));
                             }
                             Node::File(file) => {
                                 // replacing previous file node with interpolate job node -> upgrade the attachments
-                                self.file_nodes.insert(file_target, num);
+                                self.file_nodes.insert(file_target, target_num);
                                 let parents = file.parents.clone();
                                 for parent in parents {
                                     let parent_job = self.get_job_mut(parent).unwrap();
@@ -633,10 +633,10 @@ impl<'a> Runner<'a> {
                                         .deps
                                         .iter()
                                         .enumerate()
-                                        .find(|(_, &d)| d == num)
+                                        .find(|(_, &d)| d == target_num)
                                         .unwrap()
                                         .0;
-                                    parent_job.deps[idx] = num;
+                                    parent_job.deps[idx] = target_num;
                                     job.parents.push(parent);
                                 }
                             }
