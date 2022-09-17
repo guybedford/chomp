@@ -12,6 +12,8 @@ env:
 jobs:
   build-ubuntu:
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: 1
     steps:
     - uses: actions/checkout@v3
     - name: Build
@@ -31,6 +33,8 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    env:
+      RUST_BACKTRACE: 1
     steps:
     - uses: actions/checkout@v3
     - name: Install latest nightly
