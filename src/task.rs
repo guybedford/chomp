@@ -611,13 +611,13 @@ impl<'a> Runner<'a> {
                     }
                     None => target.to_string(),
                 };
-                dbg!(&self.nodes.len(), &self.nodes, num);
-                /* if (self.file_nodes.get(&file_target).is_none) {
-                    return ;
-                } */
                 match self.file_nodes.get(&file_target) {
                     Some(&target_num) => {
-                    dbg!("here", &self.nodes.len(), &self.nodes, &file_target, target_num);
+                        if self.nodes.get(target_num).is_none() {
+                            self.nodes.push(Node::Job(job));
+                            return Ok((num, true));
+                        }
+
                         match &self.nodes[target_num] {
                             Node::Job(_) => {
                                 // duplicate job for same file -> first wins (skip)
@@ -648,7 +648,6 @@ impl<'a> Runner<'a> {
                 }
             }
         }
-
 
         self.nodes.push(Node::Job(job));
         return Ok((num, true));
