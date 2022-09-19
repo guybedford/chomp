@@ -100,11 +100,7 @@ fn set_cmd_stdio(command: &mut Command, stdio: TaskStdio) {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_cmd(
-    cwd: &String,
-    batch_cmd: &BatchCmd,
-    fastpath_fallback: bool,
-) -> Option<Child> {
+pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, fastpath_fallback: bool) -> Option<Child> {
     let run = batch_cmd.run.trim();
     lazy_static! {
         static ref CMD: Regex = Regex::new(
@@ -241,7 +237,9 @@ pub fn create_cmd(
         command.arg("-NonInteractive");
         command.arg("-NoLogo");
         // ensure file operations use UTF8
-        let mut run_str = String::from("$PSDefaultParameterValues['Out-File:Encoding']='utf8';$ErrorActionPreference='Stop';");
+        let mut run_str = String::from(
+            "$PSDefaultParameterValues['Out-File:Encoding']='utf8';$ErrorActionPreference='Stop';",
+        );
         // we also set _custom_ variables as local variables for easy substitution
         for (name, value) in &batch_cmd.env {
             run_str.push_str(&format!("${}='{}';", name, value.replace("'", "''")));
@@ -265,11 +263,7 @@ pub fn create_cmd(
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(
-    cwd: &String,
-    batch_cmd: &BatchCmd,
-    fastpath_fallback: bool,
-) -> Option<Child> {
+pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, fastpath_fallback: bool) -> Option<Child> {
     let run = batch_cmd.run.trim();
     lazy_static! {
         static ref CMD: Regex = Regex::new(

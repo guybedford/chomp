@@ -34,8 +34,8 @@ pub async fn clear_cache() -> std::io::Result<()> {
         Ok(()) => Ok(()),
         Err(e) => match e.kind() {
             std::io::ErrorKind::NotFound => Ok(()),
-            _ => Err(e)
-        }
+            _ => Err(e),
+        },
     }
 }
 

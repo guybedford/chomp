@@ -39,8 +39,8 @@ mod chompfile;
 mod engines;
 mod extensions;
 mod http_client;
-mod task;
 mod server;
+mod task;
 
 use std::path::PathBuf;
 
@@ -206,7 +206,7 @@ async fn main() -> Result<()> {
     let chompfile_source = {
         let is_dir: bool = match fs::metadata(&cfg_file) {
             Ok(meta) => meta.is_dir(),
-            Err(_) => false
+            Err(_) => false,
         };
         if is_dir {
             cfg_file.push("chompfile.toml");
@@ -394,7 +394,11 @@ async fn main() -> Result<()> {
         }
         if matches.is_present("serve") {
             use_default_target = false;
-            tokio::spawn(server::serve(serve_options, watch_event_receiver, watch_sender));
+            tokio::spawn(server::serve(
+                serve_options,
+                watch_event_receiver,
+                watch_sender,
+            ));
         }
     }
 
@@ -407,7 +411,9 @@ async fn main() -> Result<()> {
 
     if matches.is_present("import_scripts") {
         if matches.is_present("eject_templates") {
-            return Err(anyhow!("Cannot use --import-scripts and --eject-templates together."));
+            return Err(anyhow!(
+                "Cannot use --import-scripts and --eject-templates together."
+            ));
         }
         let mut script_tasks = 0;
         let pjson_source = match fs::read_to_string("package.json") {
@@ -466,8 +472,13 @@ async fn main() -> Result<()> {
         if targets.len() > 0 {
             return Err(anyhow!("--list does not take any arguments."));
         }
-        if matches.is_present("eject_templates") || matches.is_present("format") || matches.is_present("init") {
-            return Err(anyhow!("Cannot use --list with --eject-templates, --format or --init."));
+        if matches.is_present("eject_templates")
+            || matches.is_present("format")
+            || matches.is_present("init")
+        {
+            return Err(anyhow!(
+                "Cannot use --list with --eject-templates, --format or --init."
+            ));
         }
         for task in &chompfile.task {
             if let Some(name) = &task.name {
@@ -529,7 +540,9 @@ async fn main() -> Result<()> {
             Some(default_task) => vec![default_task.clone()],
             None => return Err(anyhow!("No default task provided. Set:\x1b[36m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
         }
-    } else { targets };
+    } else {
+        targets
+    };
 
     let mut runner = Runner::new(
         &chompfile,
@@ -538,15 +551,19 @@ async fn main() -> Result<()> {
         matches.is_present("serve") || matches.is_present("watch"),
     )?;
     let ok = runner
-        .run(task::RunOptions {
-            watch: matches.is_present("serve") || matches.is_present("watch"),
-            force: matches.is_present("force"),
-            rerun: matches.is_present("rerun"),
-            args: if args.len() > 0 { Some(args) } else { None },
-            pool_size,
-            targets,
-            cfg_file,
-        }, watch_event_sender, watch_receiver)
+        .run(
+            task::RunOptions {
+                watch: matches.is_present("serve") || matches.is_present("watch"),
+                force: matches.is_present("force"),
+                rerun: matches.is_present("rerun"),
+                args: if args.len() > 0 { Some(args) } else { None },
+                pool_size,
+                targets,
+                cfg_file,
+            },
+            watch_event_sender,
+            watch_receiver,
+        )
         .await?;
 
     if !ok {

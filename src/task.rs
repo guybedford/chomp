@@ -22,27 +22,27 @@ use crate::chompfile::{Chompfile, InvalidationCheck};
 use crate::engines::CmdPool;
 use crate::server::FileEvent;
 use crate::ExtensionEnvironment;
-use futures::future::Shared;
-use std::collections::BTreeMap;
-use std::env::current_dir;
-use pathdiff::diff_paths;
-use std::fs::canonicalize;
-use std::path::Path;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::mpsc::UnboundedSender;
 use async_recursion::async_recursion;
 use capturing_glob::{glob, Pattern};
+use futures::future::Shared;
 use futures::future::{select_all, Future, FutureExt};
 use notify::DebouncedEvent;
 use notify::RecommendedWatcher;
+use pathdiff::diff_paths;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::env::current_dir;
+use std::fs::canonicalize;
 use std::io::ErrorKind::NotFound;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::UnboundedSender;
 extern crate notify;
 use crate::engines::replace_env_vars_static;
 use crate::engines::ExecState;
@@ -53,7 +53,6 @@ use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 use tokio::fs;
 use tokio::time;
-
 
 #[derive(Debug)]
 pub struct Task<'a> {
@@ -172,17 +171,21 @@ fn find_interpolate(s: &str) -> Result<Option<(usize, bool)>> {
     }
 }
 
-fn get_interpolate_match (interpolate: &str, path: &str) -> String {
+fn get_interpolate_match(interpolate: &str, path: &str) -> String {
     let prefix_len = interpolate.find('#').unwrap();
     let suffix_len = interpolate.len() - interpolate.rfind('#').unwrap() - 1;
     path[prefix_len..path.len() - suffix_len].to_string()
 }
 
-fn check_interpolate_exclude (task: &Task, path: &str) -> bool {
+fn check_interpolate_exclude(task: &Task, path: &str) -> bool {
     // If the interpolated dependency matches its own task's target glob space, then we exclude it
     // We can enable further custom ignores here in future
     if let Some(interpolation_target) = task.targets.iter().find(|&t| t.contains('#')) {
-        let target_glob = if interpolation_target.contains("##") { interpolation_target.replace("##", "(**/*)") } else { interpolation_target.replace('#', "(*)") };
+        let target_glob = if interpolation_target.contains("##") {
+            interpolation_target.replace("##", "(**/*)")
+        } else {
+            interpolation_target.replace('#', "(*)")
+        };
         if Pattern::new(&target_glob).unwrap().matches(&path) {
             return true;
         }
@@ -565,7 +568,6 @@ impl<'a> Runner<'a> {
         let num: usize = self.nodes.len();
         let task = &self.tasks[task_num];
 
-
         let is_interpolate_target = task.deps.iter().find(|&d| d.contains('#')).is_some();
 
         // map target name
@@ -590,12 +592,10 @@ impl<'a> Runner<'a> {
             }
         }
 
-
         // map interpolation for primary interpolation job
         if is_interpolate_target && interpolate.is_none() {
             self.interpolate_nodes.push(num);
         }
-
 
         let mut job = Job::new(task_num, interpolate.clone());
 
@@ -778,7 +778,10 @@ impl<'a> Runner<'a> {
         let job = match job.state {
             JobState::Failed | JobState::Fresh => {
                 let task = &self.tasks[job.task];
-                if matches!(task.chomp_task.watch_invalidation, Some(WatchInvalidation::SkipRunning)) {
+                if matches!(
+                    task.chomp_task.watch_invalidation,
+                    Some(WatchInvalidation::SkipRunning)
+                ) {
                     if let Some(mtime) = job.mtime {
                         if mtime > now() - Duration::from_secs(1) {
                             return Ok(());
@@ -796,7 +799,10 @@ impl<'a> Runner<'a> {
                     queued.remove_job(job_num, JobState::Running, Some(cmd_num));
                     let display_name = job.display_name(&self.tasks);
                     let task = &self.tasks[job.task];
-                    if matches!(task.chomp_task.watch_invalidation, Some(WatchInvalidation::SkipRunning)) {
+                    if matches!(
+                        task.chomp_task.watch_invalidation,
+                        Some(WatchInvalidation::SkipRunning)
+                    ) {
                         let job = self.get_job_mut(job_num).unwrap();
                         job.state = JobState::Fresh;
                         return Ok(());
@@ -808,7 +814,7 @@ impl<'a> Runner<'a> {
                 job.state = JobState::Pending;
                 job
             }
-            _ => self.get_job_mut(job_num).unwrap()
+            _ => self.get_job_mut(job_num).unwrap(),
         };
         if job.parents.len() > 0 {
             for parent in job.parents.clone() {
@@ -1052,18 +1058,31 @@ impl<'a> Runner<'a> {
         self.expand_job_deps(job_num, &mut deps);
 
         // relative target for backward compatibility
-        let relative_target = if !target.is_empty() { diff_paths(Path::new(&target), current_dir().unwrap()).unwrap().to_str().unwrap().to_string() } else { "".to_string() };
+        let relative_target = if !target.is_empty() {
+            diff_paths(Path::new(&target), current_dir().unwrap())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        } else {
+            "".to_string()
+        };
         env.insert("TARGET".to_string(), relative_target.to_owned());
         env.insert("TARGETS".to_string(), targets);
 
         let first_dep = deps.get(0);
         // relative dep for backward compatibility
-        let relative_dep = if first_dep.is_some() {diff_paths(Path::new(&first_dep.unwrap()), current_dir().unwrap()).unwrap().to_str().unwrap().to_string()} else { "".to_string() };
+        let relative_dep = if first_dep.is_some() {
+            diff_paths(Path::new(&first_dep.unwrap()), current_dir().unwrap())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        } else {
+            "".to_string()
+        };
 
-        env.insert(
-            "DEP".to_string(),
-            relative_dep
-        );
+        env.insert("DEP".to_string(), relative_dep);
         env.insert("DEPS".to_string(), deps.join(":"));
 
         if task.chomp_task.args.is_some() {
@@ -1442,10 +1461,11 @@ impl<'a> Runner<'a> {
                                 node_num,
                                 mtime,
                                 Some(cmd_time),
-                                matches!(validation, ValidationCheck::NotOk) || matches!(
-                                    validation,
-                                    ValidationCheck::TargetsOnly | ValidationCheck::OkTargets
-                                ) && mtime.is_none(),
+                                matches!(validation, ValidationCheck::NotOk)
+                                    || matches!(
+                                        validation,
+                                        ValidationCheck::TargetsOnly | ValidationCheck::OkTargets
+                                    ) && mtime.is_none(),
                             );
                         }
                         ExecState::Failed => match validation {
@@ -1994,7 +2014,10 @@ impl<'a> Runner<'a> {
         let mut glob_target = String::new();
         glob_target.push_str(&dep[0..interpolate_idx]);
         if double {
-            if !glob_target.starts_with("##") && !glob_target.ends_with('/') && !glob_target.ends_with('\\') {
+            if !glob_target.starts_with("##")
+                && !glob_target.ends_with('/')
+                && !glob_target.ends_with('\\')
+            {
                 return Err(anyhow!("Unable to apply deep globbing to interpolate {}. Deep globbing interpolates are only supported for full paths with '##' immediately following a separator position.", &dep));
             }
             glob_target.push_str("(**/*)");
@@ -2008,8 +2031,9 @@ impl<'a> Runner<'a> {
             match entry {
                 Ok(entry) => {
                     let dep_path = String::from(entry.path().to_str().unwrap().replace('\\', "/"));
-                    let interpolate = &dep_path
-                        [interpolate_idx..dep_path.len() + interpolate_idx + if double { 2 } else { 1 } - dep.len()];
+                    let interpolate = &dep_path[interpolate_idx
+                        ..dep_path.len() + interpolate_idx + if double { 2 } else { 1 }
+                            - dep.len()];
 
                     let task = &self.tasks[parent_task];
                     if check_interpolate_exclude(&task, &dep_path) {
@@ -2084,13 +2108,24 @@ impl<'a> Runner<'a> {
                     let job = self.get_job(*job_num).unwrap();
                     let task_num = job.task;
                     let job_task = &self.tasks[task_num];
-                    if let Some(interpolation_dep) = job_task.deps.iter().find(|&t| t.contains('#')) {
-                        let dep_glob = if interpolation_dep.contains("##") { interpolation_dep.replace("##", "(**/*)") } else { interpolation_dep.replace('#', "(*)") };
+                    if let Some(interpolation_dep) = job_task.deps.iter().find(|&t| t.contains('#'))
+                    {
+                        let dep_glob = if interpolation_dep.contains("##") {
+                            interpolation_dep.replace("##", "(**/*)")
+                        } else {
+                            interpolation_dep.replace('#', "(*)")
+                        };
                         if Pattern::new(&dep_glob).unwrap().matches(&expanded_target) {
                             if !check_interpolate_exclude(&job_task, &expanded_target) {
-                                let interpolate = get_interpolate_match(&interpolation_dep, &expanded_target);
+                                let interpolate =
+                                    get_interpolate_match(&interpolation_dep, &expanded_target);
                                 let input = replace_interpolate(interpolation_dep, &interpolate);
-                                expansions.push((input.to_owned(), interpolate, *job_num, task_num));
+                                expansions.push((
+                                    input.to_owned(),
+                                    interpolate,
+                                    *job_num,
+                                    task_num,
+                                ));
                             }
                         }
                     }
