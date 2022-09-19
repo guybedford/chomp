@@ -25,6 +25,7 @@ use crate::ExtensionEnvironment;
 use futures::future::Shared;
 use std::collections::BTreeMap;
 use std::env::current_dir;
+use pathdiff::diff_paths;
 use std::fs::canonicalize;
 use std::path::Path;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -1050,14 +1051,18 @@ impl<'a> Runner<'a> {
 
         self.expand_job_deps(job_num, &mut deps);
 
-        env.insert("TARGET".to_string(), target);
+        // relative target for backward compatibility
+        let relative_target = if !target.is_empty() { diff_paths(Path::new(&target), current_dir().unwrap()).unwrap().to_str().unwrap().to_string() } else { "".to_string() };
+        env.insert("TARGET".to_string(), relative_target.to_owned());
         env.insert("TARGETS".to_string(), targets);
+
+        let first_dep = deps.get(0);
+        // relative dep for backward compatibility
+        let relative_dep = if first_dep.is_some() {diff_paths(Path::new(&first_dep.unwrap()), current_dir().unwrap()).unwrap().to_str().unwrap().to_string()} else { "".to_string() };
+
         env.insert(
             "DEP".to_string(),
-            match deps.get(0) {
-                Some(dep) => dep.to_string(),
-                None => String::from(""),
-            },
+            relative_dep
         );
         env.insert("DEPS".to_string(), deps.join(":"));
 
