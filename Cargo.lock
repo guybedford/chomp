@@ -132,6 +132,7 @@ dependencies = [
  "clap",
  "convert_case 0.5.0",
  "derivative",
+ "directories",
  "dirs",
  "futures",
  "hyper",
@@ -140,6 +141,7 @@ dependencies = [
  "mime_guess",
  "notify",
  "num_cpus",
+ "pathdiff",
  "percent-encoding",
  "regex",
  "serde",
@@ -268,6 +270,15 @@ checksum = "f2fb860ca6fafa5552fb6d0e816a69c8e49f0908bf524e30a90d97c85892d506"
 dependencies = [
  "block-buffer 0.10.2",
  "crypto-common",
+]
+
+[[package]]
+name = "directories"
+version = "4.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f51c5d4ddabd36886dd3e1438cb358cdcb0d7c499cb99cb4ac2e38e18b5cb210"
+dependencies = [
+ "dirs-sys",
 ]
 
 [[package]]
@@ -988,6 +999,12 @@ dependencies = [
  "smallvec",
  "windows-sys",
 ]
+
+[[package]]
+name = "pathdiff"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8835116a5c179084a830efb3adc117ab007512b535bc1a21c991d3b32a6b44dd"
 
 [[package]]
 name = "percent-encoding"

@@ -18,7 +18,6 @@ mod cmd;
 mod deno;
 mod node;
 
-use std::path::Path;
 use crate::chompfile::ChompEngine;
 use crate::chompfile::TaskStdio;
 use crate::engines::deno::deno_runner;
@@ -35,13 +34,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashSet;
+use std::path::Path;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Duration;
 use std::time::Instant;
+use tokio::fs;
 use tokio::process::Child;
 use tokio::time::sleep;
-use tokio::fs;
 
 pub fn replace_env_vars_static(arg: &str, env: &BTreeMap<String, String>) -> String {
     let mut out_arg = String::new();
@@ -277,7 +277,8 @@ impl<'a> CmdPool<'a> {
                         env: cmd.env.clone(),
                         stdio: Some(cmd.stdio.clone()),
                         ids: vec![cmd.id],
-                    }).await;
+                    })
+                    .await;
                 }
 
                 this.batch_future = None;
@@ -368,7 +369,7 @@ impl<'a> CmdPool<'a> {
         echo: bool,
     ) -> usize {
         let id = self.cmd_num;
-        let run =  if matches!(engine, ChompEngine::Shell) && replacements {
+        let run = if matches!(engine, ChompEngine::Shell) && replacements {
             replace_env_vars_static(run, &env)
         } else {
             run.to_string()

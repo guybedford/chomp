@@ -143,7 +143,7 @@ pub fn expand_template_tasks(
             invalidation: Some(task.invalidation.clone().unwrap_or_default()),
             validation: Some(task.validation.clone().unwrap_or_default()),
             dep: None,
-            deps: Some(task.deps_vec()?),
+            deps: Some(task.deps_vec(&chompfile)?),
             args: task.args.clone(),
             echo: task.echo.clone(),
             display: task.display,
