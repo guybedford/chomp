@@ -1068,7 +1068,17 @@ impl<'a> Runner<'a> {
             "".to_string()
         };
         env.insert("TARGET".to_string(), relative_target.to_owned());
-        env.insert("TARGETS".to_string(), targets);
+
+        let relative_targets = if !targets.is_empty() {
+            diff_paths(Path::new(&targets), current_dir().unwrap())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        } else {
+            "".to_string()
+        };
+        env.insert("TARGETS".to_string(), relative_targets);
 
         let first_dep = deps.get(0);
         // relative dep for backward compatibility
@@ -1081,9 +1091,16 @@ impl<'a> Runner<'a> {
         } else {
             "".to_string()
         };
-
         env.insert("DEP".to_string(), relative_dep);
-        env.insert("DEPS".to_string(), deps.join(":"));
+
+        let relative_deps = deps.iter().map(|d| {
+            diff_paths(Path::new(d), current_dir().unwrap())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        }).collect::<Vec<String>>();
+        env.insert("DEPS".to_string(), relative_deps.join(":"));
 
         if task.chomp_task.args.is_some() {
             for arg in task.chomp_task.args.as_ref().unwrap() {
