@@ -6,7 +6,7 @@ _chompfile.toml_
 ```toml
 version = 0.1
 
-default_task = 'echo'
+default-task = 'echo'
 
 [[task]]
 name = 'echo'
