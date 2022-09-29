@@ -24,7 +24,7 @@ use crate::extensions::init_js_platform;
 use crate::extensions::ExtensionEnvironment;
 use crate::task::Runner;
 use anyhow::{anyhow, Result};
-use clap::{App, Arg};
+use clap::{Arg, ArgAction, Command};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 extern crate num_cpus;
@@ -73,111 +73,117 @@ async fn main() -> Result<()> {
     let version = "0.2.6";
     #[cfg(debug_assertions)]
     let version = "0.2.6-debug";
-    let matches = App::new("Chomp")
+    let matches = Command::new("Chomp")
         .version(version)
         .arg(
-            Arg::with_name("watch")
+            Arg::new("watch")
                 .short('w')
                 .long("watch")
-                .help("Watch the input files for changes"),
+                .help("Watch the input files for changes")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("serve")
+            Arg::new("serve")
                 .short('s')
                 .long("serve")
-                .help("Run a local dev server"),
+                .help("Run a local dev server")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("server-root")
+            Arg::new("server-root")
                 .short('R')
                 .long("server-root")
                 .help("Server root path")
-                .takes_value(true),
         )
         .arg(
-            Arg::with_name("port")
+            Arg::new("port")
                 .short('p')
                 .long("port")
                 .value_name("PORT")
                 .help("Custom port to serve")
-                .takes_value(true),
         )
         .arg(
-            Arg::with_name("jobs")
+            Arg::new("jobs")
                 .short('j')
                 .long("jobs")
                 .value_name("N")
                 .help("Maximum number of jobs to run in parallel")
-                .takes_value(true),
         )
         .arg(
-            Arg::with_name("config")
+            Arg::new("config")
                 .short('c')
                 .long("config")
                 .value_name("CONFIG")
                 .default_value("chompfile.toml")
                 .help("Custom chompfile path")
-                .takes_value(true),
         )
         .arg(
-            Arg::with_name("list")
+            Arg::new("list")
                 .short('l')
                 .long("list")
-                .help("List the available chompfile tasks"),
+                .help("List the available chompfile tasks")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("format")
+            Arg::new("format")
                 .short('F')
                 .long("format")
-                .help("Format and save the chompfile.toml"),
+                .help("Format and save the chompfile.toml")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("eject_templates")
+            Arg::new("eject_templates")
                 .long("eject")
-                .help("Ejects templates into tasks saving the rewritten chompfile.toml"),
+                .help("Ejects templates into tasks saving the rewritten chompfile.toml")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("init")
+            Arg::new("init")
                 .short('i')
                 .long("init")
-                .help("Initialize a new chompfile.toml if it does not exist"),
+                .help("Initialize a new chompfile.toml if it does not exist")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("import_scripts")
+            Arg::new("import_scripts")
                 .short('I')
                 .long("import-scripts")
-                .help("Import from npm \"scripts\" into the chompfile.toml"),
+                .help("Import from npm \"scripts\" into the chompfile.toml")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("clear_cache")
+            Arg::new("clear_cache")
                 .short('C')
                 .long("clear-cache")
-                .help("Clear URL extension cache"),
+                .help("Clear URL extension cache")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("rerun")
+            Arg::new("rerun")
                 .short('r')
                 .long("rerun")
-                .help("Rerun the target tasks even if cached"),
+                .help("Rerun the target tasks even if cached")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("force")
+            Arg::new("force")
                 .short('f')
                 .long("force")
-                .help("Force rebuild targets"),
+                .help("Force rebuild targets")
+                .action(ArgAction::SetTrue),
         )
         .arg(
-            Arg::with_name("target")
+            Arg::new("target")
                 .value_name("TARGET")
                 .help("Generate a target or list of targets")
-                .multiple(true),
+                .action(ArgAction::Append)
         )
         .arg(
-            Arg::with_name("arg")
+            Arg::new("arg")
                 .last(true)
                 .value_name("ARGS")
                 .help("Custom task args")
-                .multiple(true),
+                .action(ArgAction::Append)
         )
         .get_matches();
 
@@ -191,10 +197,10 @@ async fn main() -> Result<()> {
 
     let mut targets: Vec<String> = Vec::new();
     let mut use_default_target = true;
-    match matches.values_of("target") {
+    match matches.get_many::<String>("target") {
         Some(target) => {
             for item in target {
-                targets.push(String::from(item));
+                targets.push(item.to_string());
             }
         }
         None => {}
@@ -214,15 +220,15 @@ async fn main() -> Result<()> {
         match fs::read_to_string(&cfg_file) {
             Ok(source) => source,
             Err(_) => {
-                if matches.is_present("init") {
+                if matches.get_flag("init") {
                     created = true;
-                    if matches.is_present("import_scripts") {
+                    if matches.get_flag("import_scripts") {
                         String::from(CHOMP_EMPTY)
                     } else {
                         String::from(CHOMP_INIT)
                     }
                 } else {
-                    if matches.is_present("serve") {
+                    if matches.get_flag("serve") {
                         String::from(CHOMP_EMPTY)
                     } else {
                         return Err(anyhow!(
@@ -265,7 +271,7 @@ async fn main() -> Result<()> {
     };
     assert!(env::set_current_dir(&cwd).is_ok());
 
-    if matches.is_present("clear_cache") {
+    if matches.get_flag("clear_cache") {
         http_client::clear_cache().await?;
         println!("\x1b[1;32m√\x1b[0m Cleared remote URL extension cache.");
         if targets.len() == 0 {
@@ -275,8 +281,8 @@ async fn main() -> Result<()> {
 
     init_js_platform();
 
-    let pool_size = match matches.value_of("jobs") {
-        Some(jobs) => jobs.parse()?,
+    let pool_size = match matches.get_one::<usize>("jobs") {
+        Some(&jobs) => jobs,
         None => num_cpus::get(),
     };
 
@@ -290,7 +296,7 @@ async fn main() -> Result<()> {
             replace_env_vars_static(value, &global_env),
         );
     }
-    if matches.is_present("eject_templates") {
+    if matches.get_flag("eject_templates") {
         global_env.insert("CHOMP_EJECT".to_string(), "1".to_string());
     }
     global_env.insert("CHOMP_POOL_SIZE".to_string(), pool_size.to_string());
@@ -386,13 +392,13 @@ async fn main() -> Result<()> {
     let (watch_sender, watch_receiver) = unbounded_channel();
     let mut serve_options = chompfile.server.clone();
     {
-        if let Some(root) = matches.value_of("server-root") {
+        if let Some(root) = matches.get_one::<String>("server-root") {
             serve_options.root = root.to_string();
         }
-        if let Some(port) = matches.value_of("port") {
-            serve_options.port = port.parse().unwrap();
+        if let Some(&port) = matches.get_one::<u16>("port") {
+            serve_options.port = port;
         }
-        if matches.is_present("serve") {
+        if matches.get_flag("serve") {
             use_default_target = false;
             tokio::spawn(server::serve(
                 serve_options,
@@ -403,14 +409,14 @@ async fn main() -> Result<()> {
     }
 
     let mut args: Vec<String> = Vec::new();
-    if let Some(arg) = matches.values_of("arg") {
+    if let Some(arg) = matches.get_many::<String>("arg") {
         for item in arg {
-            args.push(String::from(item));
+            args.push(item.to_string());
         }
     }
 
-    if matches.is_present("import_scripts") {
-        if matches.is_present("eject_templates") {
+    if matches.get_flag("import_scripts") {
+        if matches.get_flag("eject_templates") {
             return Err(anyhow!(
                 "Cannot use --import-scripts and --eject-templates together."
             ));
@@ -468,13 +474,13 @@ async fn main() -> Result<()> {
     }
     chompfile.task.append(&mut template_tasks);
 
-    if matches.is_present("list") {
+    if matches.get_flag("list") {
         if targets.len() > 0 {
             return Err(anyhow!("--list does not take any arguments."));
         }
-        if matches.is_present("eject_templates")
-            || matches.is_present("format")
-            || matches.is_present("init")
+        if matches.get_flag("eject_templates")
+            || matches.get_flag("format")
+            || matches.get_flag("init")
         {
             return Err(anyhow!(
                 "Cannot use --list with --eject-templates, --format or --init."
@@ -501,12 +507,12 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    if matches.is_present("format")
-        || matches.is_present("eject_templates")
-        || matches.is_present("init")
+    if matches.get_flag("format")
+        || matches.get_flag("eject_templates")
+        || matches.get_flag("init")
     {
         use_default_target = false;
-        if matches.is_present("eject_templates") {
+        if matches.get_flag("eject_templates") {
             if !has_templates {
                 return Err(anyhow!(
                     "\x1b[1m{}\x1b[0m has no templates to eject",
@@ -518,7 +524,7 @@ async fn main() -> Result<()> {
         }
 
         fs::write(&cfg_file, toml::to_string_pretty(&chompfile)?)?;
-        if matches.is_present("eject_templates") {
+        if matches.get_flag("eject_templates") {
             println!(
                 "\x1b[1;32m√\x1b[0m \x1b[1m{}\x1b[0m template tasks ejected.",
                 cfg_file.to_str().unwrap()
@@ -530,7 +536,7 @@ async fn main() -> Result<()> {
                 if created { "created" } else { "updated" }
             );
         }
-        if matches.is_present("eject_templates") || targets.len() == 0 {
+        if matches.get_flag("eject_templates") || targets.len() == 0 {
             return Ok(());
         }
     }
@@ -548,14 +554,14 @@ async fn main() -> Result<()> {
         &chompfile,
         &mut extension_env,
         pool_size,
-        matches.is_present("serve") || matches.is_present("watch"),
+        matches.get_flag("serve") || matches.get_flag("watch"),
     )?;
     let ok = runner
         .run(
             task::RunOptions {
-                watch: matches.is_present("serve") || matches.is_present("watch"),
-                force: matches.is_present("force"),
-                rerun: matches.is_present("rerun"),
+                watch: matches.get_flag("serve") || matches.get_flag("watch"),
+                force: matches.get_flag("force"),
+                rerun: matches.get_flag("rerun"),
                 args: if args.len() > 0 { Some(args) } else { None },
                 pool_size,
                 targets,
