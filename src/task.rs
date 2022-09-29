@@ -1100,7 +1100,7 @@ impl<'a> Runner<'a> {
                 .unwrap()
                 .to_string()
         }).collect::<Vec<String>>();
-        env.insert("DEPS".to_string(), relative_deps.join(":"));
+        env.insert("DEPS".to_string(), relative_deps.join(";"));
 
         if task.chomp_task.args.is_some() {
             for arg in task.chomp_task.args.as_ref().unwrap() {
