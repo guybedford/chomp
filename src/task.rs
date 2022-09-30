@@ -2394,7 +2394,7 @@ impl<'a> Runner<'a> {
     }
 }
 
-pub fn relative_path(name: &String, cwd: &String) -> String {
+pub fn relative_path(name: &str, cwd: &str) -> String {
     if name.starts_with(':') || (!name.contains('/') && !name.contains("\\")) {
         name.to_owned()
     } else {
