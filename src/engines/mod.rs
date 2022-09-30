@@ -23,7 +23,7 @@ use crate::chompfile::TaskStdio;
 use crate::engines::deno::deno_runner;
 use crate::engines::node::node_runner;
 use crate::extensions::BatcherResult;
-use crate::task::check_target_mtimes;
+use crate::task::{check_target_mtimes, relative_path};
 use crate::ExtensionEnvironment;
 use anyhow::Result;
 use anyhow::{anyhow, Error};
@@ -298,7 +298,7 @@ impl<'a> CmdPool<'a> {
             let cmd = &self.cmds[&id];
             self.cmd_execs.insert(*id, exec_num);
             if let Some(name) = &cmd.name {
-                println!("\x1b[1m🞂 {}\x1b[0m", name);
+                println!("\x1b[1m🞂 {}\x1b[0m", relative_path(name));
             }
             for target in &cmd.targets {
                 let target_path = Path::new(target);
