@@ -298,7 +298,7 @@ impl<'a> CmdPool<'a> {
             let cmd = &self.cmds[&id];
             self.cmd_execs.insert(*id, exec_num);
             if let Some(name) = &cmd.name {
-                println!("\x1b[1m🞂 {}\x1b[0m", relative_path(name));
+                println!("\x1b[1m🞂 {}\x1b[0m", relative_path(name, &self.cwd));
             }
             for target in &cmd.targets {
                 let target_path = Path::new(target);

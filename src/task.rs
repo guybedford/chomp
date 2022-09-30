@@ -739,7 +739,7 @@ impl<'a> Runner<'a> {
                 }
                 std::io::stdout().flush().unwrap();
             } else if let Some(cmd_time) = cmd_time {
-                name = relative_path(&name);
+                name = relative_path(&name, &self.cwd);
                 if failed {
                     println!(
                         "\x1b[1;31mx\x1b[0m {} \x1b[34m[{:?}]\x1b[0m",
@@ -752,7 +752,7 @@ impl<'a> Runner<'a> {
                     );
                 }
             } else {
-                name = relative_path(&name);
+                name = relative_path(&name, &self.cwd);
                 if failed {
                     println!("\x1b[1;31mx\x1b[0m {}", name);
                 } else if mtime.is_some() {
@@ -1061,14 +1061,14 @@ impl<'a> Runner<'a> {
 
         // relative target for backward compatibility
         let relative_target = if !target.is_empty() {
-            relative_path(&target)
+            relative_path(&target, &self.cwd)
         } else {
             "".to_string()
         };
         env.insert("TARGET".to_string(), relative_target.to_owned());
 
         let relative_targets = if !targets.is_empty() {
-            relative_path(&targets)
+            relative_path(&targets, &self.cwd)
         } else {
             "".to_string()
         };
@@ -1077,14 +1077,14 @@ impl<'a> Runner<'a> {
         let first_dep = deps.get(0);
         // relative dep for backward compatibility
         let relative_dep = if first_dep.is_some() {
-            relative_path(&first_dep.unwrap())
+            relative_path(&first_dep.unwrap(), &self.cwd)
         } else {
             "".to_string()
         };
         env.insert("DEP".to_string(), relative_dep);
 
         let relative_deps = deps.iter().map(|d| {
-            relative_path(d)
+            relative_path(d, &self.cwd)
         }).collect::<Vec<String>>();
         env.insert("DEPS".to_string(), relative_deps.join(":"));
 
@@ -2394,14 +2394,13 @@ impl<'a> Runner<'a> {
     }
 }
 
-pub fn relative_path(name: &String) -> String {
+pub fn relative_path(name: &String, cwd: &String) -> String {
     if name.starts_with(':') || (!name.contains('/') && !name.contains("\\")) {
         name.to_owned()
     } else {
-        diff_paths(Path::new(&name), current_dir().unwrap())
+        diff_paths(Path::new(&name), Path::new(cwd))
             .unwrap()
-            .to_str()
-            .unwrap()
+            .to_string_lossy()
             .to_string()
     }
 }
