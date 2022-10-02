@@ -236,9 +236,11 @@ impl<'a> Job {
         }
     }
 
-    fn display_name(&self, tasks: &Vec<Task<'a>>) -> String {
+    fn display_name(&self, tasks: &Vec<Task<'a>>, cwd: &str) -> String {
         let task = &tasks[self.task];
-        if self.interpolate.is_some() {
+        let mut skip_relative_path = true;
+        let name = if self.interpolate.is_some() {
+            skip_relative_path = false;
             if task.targets.len() > 0 {
                 match task.targets.iter().find(|&t| t.contains('#')) {
                     Some(interpolate_target) => {
@@ -256,6 +258,7 @@ impl<'a> Job {
                 )
             }
         } else if self.targets.len() > 0 {
+            skip_relative_path = false;
             self.targets.first().unwrap().to_string()
         } else if let Some(name) = &task.name {
             String::from(format!(":{}", name))
@@ -263,7 +266,9 @@ impl<'a> Job {
             String::from(format!("{}", run))
         } else {
             String::from(format!("[task {}]", self.task))
-        }
+        };
+
+        if skip_relative_path { name } else { relative_path(&name, cwd) }
     }
 }
 
@@ -721,7 +726,7 @@ impl<'a> Runner<'a> {
             )
             || self.chompfile.echo
         {
-            let mut name = job.display_name(&self.tasks);
+            let mut name = job.display_name(&self.tasks, &self.cwd);
             let primary = job.parents.len() == 0;
             if primary {
                 let mut name_bold = String::from("\x1b[1m");
@@ -797,7 +802,7 @@ impl<'a> Runner<'a> {
                     // Could possibly consider a JobState::MaybeTerminate
                     // as a kind of Pending analog which may or may not rerun
                     queued.remove_job(job_num, JobState::Running, Some(cmd_num));
-                    let display_name = job.display_name(&self.tasks);
+                    let display_name = job.display_name(&self.tasks, &self.cwd);
                     let task = &self.tasks[job.task];
                     if matches!(
                         task.chomp_task.watch_invalidation,
@@ -924,7 +929,7 @@ impl<'a> Runner<'a> {
                         {
                             println!(
                                 "  \x1b[1m{}\x1b[0m invalidated",
-                                job.display_name(&self.tasks),
+                                job.display_name(&self.tasks, &self.cwd),
                             );
                         }
                         false
@@ -959,8 +964,8 @@ impl<'a> Runner<'a> {
                                         {
                                             println!(
                                                 "  \x1b[1m{}\x1b[0m invalidated by {}",
-                                                job.display_name(&self.tasks),
-                                                dep.display_name(&self.tasks)
+                                                job.display_name(&self.tasks, &self.cwd),
+                                                dep.display_name(&self.tasks, &self.cwd)
                                             );
                                         }
                                         invalidated
@@ -980,7 +985,7 @@ impl<'a> Runner<'a> {
                                         {
                                             println!(
                                                 "  \x1b[1m{}\x1b[0m invalidated by {}",
-                                                job.display_name(&self.tasks),
+                                                job.display_name(&self.tasks, &self.cwd),
                                                 dep.name
                                             );
                                         }
@@ -1059,22 +1064,14 @@ impl<'a> Runner<'a> {
 
         // relative target for backward compatibility
         let relative_target = if !target.is_empty() {
-            diff_paths(Path::new(&target), current_dir().unwrap())
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string()
+            relative_path(&target, &self.cwd)
         } else {
             "".to_string()
         };
         env.insert("TARGET".to_string(), relative_target.to_owned());
 
         let relative_targets = if !targets.is_empty() {
-            diff_paths(Path::new(&targets), current_dir().unwrap())
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string()
+            relative_path(&targets, &self.cwd)
         } else {
             "".to_string()
         };
@@ -1083,22 +1080,14 @@ impl<'a> Runner<'a> {
         let first_dep = deps.get(0);
         // relative dep for backward compatibility
         let relative_dep = if first_dep.is_some() {
-            diff_paths(Path::new(&first_dep.unwrap()), current_dir().unwrap())
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string()
+            relative_path(&first_dep.unwrap(), &self.cwd)
         } else {
             "".to_string()
         };
         env.insert("DEP".to_string(), relative_dep);
 
         let relative_deps = deps.iter().map(|d| {
-            diff_paths(Path::new(d), current_dir().unwrap())
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string()
+            relative_path(d, &self.cwd)
         }).collect::<Vec<String>>();
         env.insert("DEPS".to_string(), relative_deps.join(":"));
 
@@ -1126,7 +1115,7 @@ impl<'a> Runner<'a> {
                 Some(TaskDisplay::InitStatus) | Some(TaskDisplay::InitOnly) | None
             ) || echo
             {
-                Some(job.display_name(&self.tasks))
+                Some(job.display_name(&self.tasks, &self.cwd))
             } else {
                 None
             };
@@ -1915,7 +1904,7 @@ impl<'a> Runner<'a> {
                 }
                 let mut is_interpolate = None;
                 let mut double_interpolate = false;
-                let display_name = job.display_name(&self.tasks);
+                let display_name = job.display_name(&self.tasks, &self.cwd);
 
                 let task_num = job.task;
                 let task = &self.tasks[job.task];
@@ -2367,14 +2356,14 @@ impl<'a> Runner<'a> {
                 None => {
                     return Err(anyhow!(
                         "Task \x1b[1m{}\x1b[0m doesn't take any arguments.",
-                        self.get_job(job_num).unwrap().display_name(&self.tasks)
+                        self.get_job(job_num).unwrap().display_name(&self.tasks, &self.cwd)
                     ));
                 }
             };
             if task_args_len < args.len() {
                 return Err(anyhow!(
                     "Task \x1b[1m{}\x1b[0m only takes {} arguments, while {} were provided.",
-                    self.get_job(job_num).unwrap().display_name(&self.tasks),
+                    self.get_job(job_num).unwrap().display_name(&self.tasks, &self.cwd),
                     task_args_len,
                     args.len()
                 ));
@@ -2406,4 +2395,11 @@ impl<'a> Runner<'a> {
 
         Ok(all_ok)
     }
+}
+
+pub fn relative_path(name: &str, cwd: &str) -> String {
+    diff_paths(Path::new(&name), Path::new(cwd))
+        .unwrap()
+        .to_string_lossy()
+        .to_string()
 }
