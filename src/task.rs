@@ -2398,8 +2398,14 @@ impl<'a> Runner<'a> {
 }
 
 pub fn relative_path(name: &str, cwd: &str) -> String {
-    diff_paths(Path::new(&name), Path::new(cwd))
+    let path = diff_paths(Path::new(&name), Path::new(cwd))
         .unwrap()
         .to_string_lossy()
-        .to_string()
+        .to_string();
+
+    if path.contains('\\') {
+        path.replace('\\', "/")
+    } else {
+        path
+    }
 }
