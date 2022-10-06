@@ -18,37 +18,37 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [target.'cfg(target_os="windows")'.dependencies.winapi]
-version = "0.3.4"
+version = "0.3"
 features = ["consoleapi", "errhandlingapi", "fileapi", "handleapi"]
 
 [dependencies]
-anyhow = "1.0.58"
-async-recursion = "1.0.0"
-capturing-glob = "0.1.1"
-base64 = "0.13.0"
-clap = "3.2.14"
-convert_case = "0.5.0"
-derivative = "2.2.0"
-dirs = "4.0.0"
-futures = "0.3.21"
-hyper = { version = "0.14.20", features = ["full"] }
-hyper-tls = "0.5.0"
-lazy_static = "1.4.0"
-mime_guess = "2.0.4"
-notify = "4.0.17"
-num_cpus = "1.13.1"
-percent-encoding = "2.1.0"
-regex = "1.6"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_v8 = "0.55.0"
-sha2 = "0.10.2"
+anyhow = "1"
+async-recursion = "1"
+capturing-glob = "0"
+base64 = "0"
+clap = "4"
+convert_case = "0"
+derivative = "2"
+dirs = "4"
+futures = "0"
+hyper = { version = "0", features = ["full"] }
+hyper-tls = "0"
+lazy_static = "1"
+mime_guess = "2"
+notify = "4"
+num_cpus = "1"
+percent-encoding = "2"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_v8 = "0"
+sha2 = "0"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-util = "0.7"
 toml = "0.5"
 uuid = { version = "1", features = ["v4"] }
-v8 = "0.47.0"
+v8 = "0.51"
 warp = "0.3"
-directories = "4.0.1"
-pathdiff = "0.2.1"
+directories = "4"
+pathdiff = "0"
