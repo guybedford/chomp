@@ -104,6 +104,7 @@ pub struct CmdOp {
 pub struct BatchCmd {
     pub id: Option<usize>,
     pub run: String,
+    #[serde(default)]
     pub echo: bool,
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
