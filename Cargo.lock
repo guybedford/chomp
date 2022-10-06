@@ -123,14 +123,14 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chompbuild"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "async-recursion",
  "base64",
  "capturing-glob",
  "clap",
- "convert_case 0.5.0",
+ "convert_case",
  "derivative",
  "directories",
  "dirs",
@@ -187,12 +187,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
-name = "convert_case"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb4a24b1aaf0fd0ce8b45161144d6f42cd91677fd5940fd431183eb023b3a2b8"
-
-[[package]]
 name = "core-foundation"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -244,7 +238,7 @@ version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
 dependencies = [
- "convert_case 0.4.0",
+ "convert_case",
  "proc-macro2",
  "quote",
  "rustc_version",
