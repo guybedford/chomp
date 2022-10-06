@@ -70,9 +70,9 @@ fn uri_parse(uri_str: &str) -> Option<Uri> {
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(not(debug_assertions))]
-    let version = "0.2.6";
+    let version = "0.2.7";
     #[cfg(debug_assertions)]
-    let version = "0.2.6-debug";
+    let version = "0.2.7-debug";
     let matches = Command::new("Chomp")
         .version(version)
         .arg(
