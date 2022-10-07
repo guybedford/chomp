@@ -211,18 +211,18 @@ impl ChompTaskMaybeTemplated {
             watch_invalidation: None,
         }
     }
-    pub fn targets_vec(&self) -> Result<Vec<String>> {
+    pub fn targets_vec(&self, cwd: &str) -> Result<Vec<String>> {
         if let Some(ref target) = self.target {
-            let target_str = resolve_path(target);
+            let target_str = resolve_path(target, cwd);
             Ok(vec![target_str])
         } else if let Some(ref targets) = self.targets {
-            let targets = targets.iter().map(|t| resolve_path(&t)).collect();
+            let targets = targets.iter().map(|t| resolve_path(&t, cwd)).collect();
             Ok(targets)
         } else {
             Ok(vec![])
         }
     }
-    pub fn deps_vec(&self, chompfile: &Chompfile) -> Result<Vec<String>> {
+    pub fn deps_vec(&self, chompfile: &Chompfile, cwd: &str) -> Result<Vec<String>> {
         let names = chompfile
             .task
             .iter()
@@ -234,7 +234,7 @@ impl ChompTaskMaybeTemplated {
             let dep_str = if names.contains(&dep) || skip_special_chars(dep) {
                 dep.to_string()
             } else {
-                resolve_path(dep)
+                resolve_path(dep, cwd)
             };
             Ok(vec![dep_str])
         } else if let Some(ref deps) = self.deps {
@@ -244,7 +244,7 @@ impl ChompTaskMaybeTemplated {
                     if names.contains(&dep) || skip_special_chars(dep) {
                         dep.to_owned()
                     } else {
-                        resolve_path(dep)
+                        resolve_path(dep, cwd)
                     }
                 })
                 .collect();
@@ -317,8 +317,8 @@ impl Into<ChompTaskMaybeTemplated> for ChompTaskMaybeTemplatedJs {
     }
 }
 
-fn resolve_path(target: &String) -> String {
-    path_from(current_dir().unwrap(), target.as_str())
+fn resolve_path(target: &String, cwd: &str) -> String {
+    path_from(cwd, target.as_str())
         .to_str()
         .unwrap()
         .to_string()
