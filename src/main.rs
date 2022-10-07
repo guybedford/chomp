@@ -466,7 +466,7 @@ async fn main() -> Result<()> {
     }
 
     let (mut has_templates, mut template_tasks) =
-        expand_template_tasks(&chompfile, &mut extension_env)?;
+        expand_template_tasks(&chompfile, &mut extension_env, cwd.to_string_lossy().to_string().as_str())?;
     chompfile.task = Vec::new();
     for task in extension_env.get_tasks().drain(..) {
         has_templates = true;

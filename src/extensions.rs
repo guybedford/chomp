@@ -98,6 +98,7 @@ fn create_template_options(
 pub fn expand_template_tasks(
     chompfile: &Chompfile,
     extension_env: &mut ExtensionEnvironment,
+    cwd: &str,
 ) -> Result<(bool, Vec<ChompTaskMaybeTemplated>)> {
     let mut out_tasks = Vec::new();
     let mut has_templates = false;
@@ -139,11 +140,11 @@ pub fn expand_template_tasks(
             cwd: task.cwd.clone(),
             name: task.name.clone(),
             target: None,
-            targets: Some(task.targets_vec()?),
+            targets: Some(task.targets_vec(cwd)?),
             invalidation: Some(task.invalidation.clone().unwrap_or_default()),
             validation: Some(task.validation.clone().unwrap_or_default()),
             dep: None,
-            deps: Some(task.deps_vec(&chompfile)?),
+            deps: Some(task.deps_vec(&chompfile, cwd)?),
             args: task.args.clone(),
             echo: task.echo.clone(),
             display: task.display,
