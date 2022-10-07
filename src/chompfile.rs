@@ -18,11 +18,7 @@ use anyhow::Result;
 use directories::UserDirs;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    env::current_dir,
-    path::{Component, Path, PathBuf},
-};
+use std::{collections::HashMap, path::{Component, Path, PathBuf}};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
