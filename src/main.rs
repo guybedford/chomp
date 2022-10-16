@@ -48,8 +48,6 @@ const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.27/"
 
 const CHOMP_INIT: &str = r#"version = 0.1
 
-default-task = 'build'
-
 [[task]]
 name = 'build'
 run = 'echo \"Build script goes here\"'
