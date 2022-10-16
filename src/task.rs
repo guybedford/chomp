@@ -843,9 +843,7 @@ impl<'a> Runner<'a> {
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
     ) -> Result<bool> {
-        println!("INVALIDATE");
         let path_str = path.to_string_lossy().replace('\\', "/");
-        dbg!(&self.file_nodes);
         match self.file_nodes.get(&path_str) {
             Some(&node_num) => match self.nodes[node_num] {
                 Node::Job(_) => {
