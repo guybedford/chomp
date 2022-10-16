@@ -6,8 +6,6 @@ _chompfile.toml_
 ```toml
 version = 0.1
 
-default-task = 'echo'
-
 [[task]]
 name = 'echo'
 run = 'echo "Chomp"'
@@ -15,7 +13,7 @@ run = 'echo "Chomp"'
 
 _<div style="text-align: center">An example Chompfile.</div>_
 
-Running `chomp echo` or `chomp` will output the echo command.
+Running `chomp echo` will output the echo command.
 
 ## Task API
 
