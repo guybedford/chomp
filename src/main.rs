@@ -465,7 +465,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let cwd_str = cwd.to_string_lossy().to_string();
+    let cwd_str = cwd.to_string_lossy().replace('\\', "/");
     let (mut has_templates, mut template_tasks) =
         expand_template_tasks(&chompfile, &mut extension_env, &cwd_str)?;
     chompfile.task = Vec::new();

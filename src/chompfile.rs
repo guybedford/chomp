@@ -315,9 +315,8 @@ impl Into<ChompTaskMaybeTemplated> for ChompTaskMaybeTemplatedJs {
 
 fn resolve_path(target: &String, cwd: &str) -> String {
     path_from(cwd, target.as_str())
-        .to_str()
-        .unwrap()
-        .to_string()
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 /// https://stackoverflow.com/questions/68231306/stdfscanonicalize-for-files-that-dont-exist
 /// build a usable path from a user input which may be absolute
