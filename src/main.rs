@@ -543,10 +543,7 @@ async fn main() -> Result<()> {
     }
 
     let targets = if targets.len() == 0 && use_default_target {
-        match &chompfile.default_task {
-            Some(default_task) => vec![default_task.clone()],
-            None => return Err(anyhow!("No default task provided. Set:\x1b[36m\n\n  default-task = '[taskname]'\n\n\x1b[0min the \x1b[1mchompfile.toml\x1b[0m to configure a default build task.")),
-        }
+        vec![chompfile.default_task.to_owned().unwrap_or(String::from("build"))]
     } else {
         targets
     };

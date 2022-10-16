@@ -16,14 +16,12 @@ chompfile.toml
 ```toml
 version = 0.1
 
-default-task = 'build'
-
 [[task]]
 name = 'build'
 run = 'echo "Chomp Chomp"'
 ```
 
-In the command line, type:
+In the command line, type `chomp build` or just `chomp` (_"build"_ is the default task when none is given):
 
 ```sh
 $ chomp
