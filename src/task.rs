@@ -141,7 +141,11 @@ impl File {
     fn init(&mut self, watcher: Option<&mut RecommendedWatcher>) {
         self.state = FileState::Initialized;
         if let Some(watcher) = watcher {
-            match watcher.watch(&self.name, RecursiveMode::Recursive) {
+            #[cfg(target_os = "windows")]
+            let name = self.name.replace('/', "\\");
+            #[cfg(not(target_os = "windows"))]
+            let name = &self.name;
+            match watcher.watch(&name, RecursiveMode::Recursive) {
                 Ok(_) => {}
                 Err(_) => {
                     // eprintln!("Unable to watch {}", self.name);
@@ -534,13 +538,13 @@ impl<'a> Runner<'a> {
         watch: bool,
     ) -> Result<Runner<'a>> {
         let cwd_buf = current_dir()?;
-        let cwd = cwd_buf.to_str().unwrap();
+        let cwd = cwd_buf.to_str().unwrap().replace('\\', "/");
 
-        let cmd_pool: CmdPool = CmdPool::new(pool_size, String::from(cwd), extension_env);
+        let cmd_pool: CmdPool = CmdPool::new(pool_size, String::from(&cwd), extension_env);
         let mut runner = Runner {
             watch,
             // ui,
-            cwd: String::from(cwd),
+            cwd: String::from(&cwd),
             cmd_pool,
             chompfile,
             nodes: Vec::new(),
@@ -551,8 +555,8 @@ impl<'a> Runner<'a> {
         };
 
         for task in &runner.chompfile.task {
-            let targets = task.targets_vec(cwd)?;
-            let deps = task.deps_vec(&chompfile, cwd)?;
+            let targets = task.targets_vec(&cwd)?;
+            let deps = task.deps_vec(&chompfile, &cwd)?;
             let env = create_task_env(&task, &chompfile, task.env_replace.unwrap_or(true));
             let task = Task {
                 name: task.name.clone(),
@@ -835,17 +839,12 @@ impl<'a> Runner<'a> {
 
     fn invalidate_path(
         &mut self,
-        path: PathBuf,
+        path: &PathBuf,
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
     ) -> Result<bool> {
-        let path_str = path.to_str().unwrap();
-        if !path_str.starts_with(&self.cwd) {
-            return Err(anyhow!("Expected path within cwd"));
-        }
-        let rel_str = &path_str[self.cwd.len() + 1..];
-        let sanitized_path = rel_str.replace("\\", "/");
-        match self.file_nodes.get(&sanitized_path) {
+        let path_str = path.to_string_lossy().replace('\\', "/");
+        match self.file_nodes.get(&path_str) {
             Some(&node_num) => match self.nodes[node_num] {
                 Node::Job(_) => {
                     self.invalidate_job(node_num, queued, redrives)?;
@@ -2293,7 +2292,7 @@ impl<'a> Runner<'a> {
             | DebouncedEvent::Create(path)
             | DebouncedEvent::Write(path)
             | DebouncedEvent::Rename(_, path) => {
-                self.invalidate_path(path.clone(), queued, redrives)
+                self.invalidate_path(path, queued, redrives)
             }
             DebouncedEvent::Rescan => panic!("Watcher rescan"),
             DebouncedEvent::Error(err, maybe_path) => {
@@ -2314,20 +2313,8 @@ impl<'a> Runner<'a> {
     ) -> Result<bool> {
         let (tx, rx) = channel();
         let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
-        let normalized_targets: Vec<String> = opts
-            .targets
-            .iter()
-            .map(|t| {
-                let normalized = t.replace('\\', "/");
-                if normalized.starts_with("./") {
-                    normalized[2..].to_string()
-                } else {
-                    normalized
-                }
-            })
-            .collect();
         let mut job_nums = HashSet::new();
-        for target in normalized_targets {
+        for target in opts.targets {
             let jobs = self
                 .expand_target(&mut watcher, &target, false, None)
                 .await?;
