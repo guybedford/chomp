@@ -44,7 +44,7 @@ mod task;
 
 use std::path::PathBuf;
 
-const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.27/";
+const CHOMP_CORE: &str = "https://ga.jspm.io/npm:@chompbuild/extensions@0.1.28/";
 
 const CHOMP_INIT: &str = r#"version = 0.1
 
@@ -68,9 +68,9 @@ fn uri_parse(uri_str: &str) -> Option<Uri> {
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(not(debug_assertions))]
-    let version = "0.2.9";
+    let version = "0.2.10";
     #[cfg(debug_assertions)]
-    let version = "0.2.9-debug";
+    let version = "0.2.10-debug";
     let matches = Command::new("Chomp")
         .version(version)
         .arg(
