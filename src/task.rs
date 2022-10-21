@@ -1624,10 +1624,10 @@ impl<'a> Runner<'a> {
             };
         }
 
-        let target = &resolve_path(target, self.cwd.as_str());
+        let resolved_target = &resolve_path(target, self.cwd.as_str());
 
         // Match by exact file name
-        match self.file_nodes.get(target) {
+        match self.file_nodes.get(resolved_target) {
             Some(&job_num) => Ok(job_num),
             // Then by interpolate
             None => {
