@@ -14,11 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::chompfile::ChompTaskMaybeTemplated;
-use crate::chompfile::TaskDisplay;
-use crate::chompfile::ValidationCheck;
-use crate::chompfile::WatchInvalidation;
-use crate::chompfile::{Chompfile, InvalidationCheck};
+use crate::chompfile::{ChompTaskMaybeTemplated, TaskDisplay, ValidationCheck, WatchInvalidation, Chompfile, InvalidationCheck, resolve_path};
 use crate::engines::CmdPool;
 use crate::server::FileEvent;
 use crate::ExtensionEnvironment;
@@ -1627,6 +1623,8 @@ impl<'a> Runner<'a> {
                 None => return Err(anyhow!("No {} task found.", target)),
             };
         }
+
+        let target = &resolve_path(target, self.cwd.as_str());
 
         // Match by exact file name
         match self.file_nodes.get(target) {

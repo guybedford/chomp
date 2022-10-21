@@ -313,8 +313,8 @@ impl Into<ChompTaskMaybeTemplated> for ChompTaskMaybeTemplatedJs {
     }
 }
 
-fn resolve_path(target: &String, cwd: &str) -> String {
-    path_from(cwd, target.as_str())
+pub fn resolve_path(target: &str, cwd: &str) -> String {
+    path_from(cwd, target)
         .to_string_lossy()
         .replace('\\', "/")
 }
