@@ -29,6 +29,11 @@ deps = [':test[0-9]*']
 [[task]]
 name = 'test1'
 display = 'none'
+run = '../target/debug/chomp output/test1.txt'
+
+[[task]]
+name = 'test-chomp-path-arg'
+display = 'none'
 target = 'output/test1.txt'
 run = 'echo "Chomp Chomp" > $TARGET'
 template = 'assert'
