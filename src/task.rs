@@ -14,11 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::chompfile::ChompTaskMaybeTemplated;
-use crate::chompfile::TaskDisplay;
-use crate::chompfile::ValidationCheck;
-use crate::chompfile::WatchInvalidation;
-use crate::chompfile::{Chompfile, InvalidationCheck};
+use crate::chompfile::{ChompTaskMaybeTemplated, TaskDisplay, ValidationCheck, WatchInvalidation, Chompfile, InvalidationCheck, resolve_path};
 use crate::engines::CmdPool;
 use crate::server::FileEvent;
 use crate::ExtensionEnvironment;
@@ -1628,8 +1624,10 @@ impl<'a> Runner<'a> {
             };
         }
 
+        let resolved_target = &resolve_path(target, self.cwd.as_str());
+
         // Match by exact file name
-        match self.file_nodes.get(target) {
+        match self.file_nodes.get(resolved_target) {
             Some(&job_num) => Ok(job_num),
             // Then by interpolate
             None => {
@@ -1641,13 +1639,13 @@ impl<'a> Runner<'a> {
                         let (interpolate_idx, double) = find_interpolate(interpolate)?.unwrap();
                         let lhs = &interpolate[0..interpolate_idx];
                         let rhs = &interpolate[interpolate_idx + if double { 2 } else { 1 }..];
-                        if target.starts_with(lhs)
-                            && target.len() > lhs.len() + rhs.len()
-                            && target.ends_with(rhs)
+                        if resolved_target.starts_with(lhs)
+                            && resolved_target.len() > lhs.len() + rhs.len()
+                            && resolved_target.ends_with(rhs)
                         {
                             interpolate_match = Some((
                                 *job_num,
-                                &target[interpolate_idx..target.len() - rhs.len()],
+                                &resolved_target[interpolate_idx..resolved_target.len() - rhs.len()],
                             ));
                             if lhs.len() >= interpolate_lhs_match_len
                                 && rhs.len() > interpolate_rhs_match_len
