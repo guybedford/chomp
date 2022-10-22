@@ -1639,13 +1639,14 @@ impl<'a> Runner<'a> {
                         let (interpolate_idx, double) = find_interpolate(interpolate)?.unwrap();
                         let lhs = &interpolate[0..interpolate_idx];
                         let rhs = &interpolate[interpolate_idx + if double { 2 } else { 1 }..];
-                        if target.starts_with(lhs)
-                            && target.len() > lhs.len() + rhs.len()
-                            && target.ends_with(rhs)
+                        dbg!((lhs, rhs));
+                        if resolved_target.starts_with(lhs)
+                            && resolved_target.len() > lhs.len() + rhs.len()
+                            && resolved_target.ends_with(rhs)
                         {
                             interpolate_match = Some((
                                 *job_num,
-                                &target[interpolate_idx..target.len() - rhs.len()],
+                                &resolved_target[interpolate_idx..resolved_target.len() - rhs.len()],
                             ));
                             if lhs.len() >= interpolate_lhs_match_len
                                 && rhs.len() > interpolate_rhs_match_len
