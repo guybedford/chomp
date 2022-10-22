@@ -14,9 +14,9 @@ run = 'cargo build --release --locked'
 
 [[task]]
 name = 'test'
-dep = 'build'
+deps = ['build', 'install']
 cwd = 'test'
-run = '../target/debug/chomp test'
+run = 'chomp test'
 
 [[task]]
 name = 'install'
