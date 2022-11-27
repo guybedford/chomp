@@ -284,6 +284,4 @@ run = 'node ./node_modules/@swc/cli/bin/swc.js $DEP -o $TARGET --no-swcrc --sour
 
 # License
 
-GPLv3
-
-For licensing discussion, see https://github.com/guybedford/chomp/issues/62.
+Apache-2.0
