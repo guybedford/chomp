@@ -27,6 +27,7 @@ use anyhow::{anyhow, Result};
 use clap::{Arg, ArgAction, Command};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
+use std::path::Path;
 extern crate num_cpus;
 use crate::engines::replace_env_vars_static;
 use hyper::Uri;
@@ -204,7 +205,10 @@ async fn main() -> Result<()> {
         None => {}
     }
 
-    let mut cfg_file = canonicalize(matches.get_one::<String>("config").unwrap()).unwrap();
+    let cfg_path = Path::new(matches.get_one::<String>("config").unwrap());
+    let cfg_dir = cfg_path.parent().unwrap().to_str().unwrap();
+    let mut cfg_file = canonicalize(if cfg_dir.len() == 0 { "." } else { cfg_dir }).unwrap();
+    cfg_file.push(cfg_path.file_name().unwrap());
 
     let mut created = false;
     let chompfile_source = {
