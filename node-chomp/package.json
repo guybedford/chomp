@@ -14,7 +14,7 @@
     "make"
   ],
   "author": "Guy Bedford",
-  "license": "GPL-3.0",
+  "license": "Apache-2.0",
   "dependencies": {
     "bin-wrapper": "^4.1.0"
   },
