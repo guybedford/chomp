@@ -1081,9 +1081,10 @@ impl<'a> Runner<'a> {
         };
         env.insert("DEP".to_string(), relative_dep);
 
-        let relative_deps = deps.iter().map(|d| {
+        let mut relative_deps = deps.iter().map(|d| {
             relative_path(d, &self.cwd)
         }).collect::<Vec<String>>();
+        relative_deps.sort();
         env.insert("DEPS".to_string(), relative_deps.join(":"));
 
         if task.chomp_task.args.is_some() {
