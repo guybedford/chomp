@@ -15,6 +15,7 @@ jobs:
           profile: minimal
           toolchain: stable
       - name: Setup Chomp
+        version: 0.2.11
         uses: guybedford/chomp-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
