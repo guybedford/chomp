@@ -1,6 +1,6 @@
 version = 0.1
 
-default-task = 'test'
+default-task = 'build'
 
 [[task]]
 name = 'build'

@@ -106,6 +106,7 @@ async fn main() -> Result<()> {
                 .short('j')
                 .long("jobs")
                 .value_name("N")
+                .value_parser(clap::value_parser!(usize))
                 .help("Maximum number of jobs to run in parallel")
         )
         .arg(
