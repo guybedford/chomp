@@ -49,7 +49,12 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     let pool = cmd_pool as *mut CmdPool;
     let echo = cmd.echo;
     cmd.echo = false;
-    let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&cmd_pool.cwd), &cmd, false);
+    let child = create_cmd(
+        cmd.cwd.as_ref().unwrap_or(&cmd_pool.cwd),
+        &cmd_pool.path,
+        &cmd,
+        false,
+    );
     let future = async move {
         let cmd_pool = unsafe { &mut *pool };
         let mut exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();

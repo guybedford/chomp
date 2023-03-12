@@ -100,7 +100,12 @@ fn set_cmd_stdio(command: &mut Command, stdio: TaskStdio) {
 }
 
 #[cfg(target_os = "windows")]
-pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, fastpath_fallback: bool) -> Option<Child> {
+pub fn create_cmd(
+    cwd: &str,
+    path: &str,
+    batch_cmd: &BatchCmd,
+    fastpath_fallback: bool,
+) -> Option<Child> {
     let run = batch_cmd.run.trim();
     lazy_static! {
         static ref CMD: Regex = Regex::new(
@@ -123,14 +128,6 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, fastpath_fallback: bool) -
         )
         .unwrap();
     }
-    let mut path: String = env::var("PATH").unwrap_or_default();
-    if path.len() > 0 && !path.ends_with(';') {
-        path += ";";
-    }
-    path.push_str(cwd);
-    path += "\\.bin;";
-    path.push_str(cwd);
-    path += "\\node_modules\\.bin;";
     if batch_cmd.echo {
         println!("{}", &run);
     }
@@ -263,7 +260,12 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, fastpath_fallback: bool) -
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, fastpath_fallback: bool) -> Option<Child> {
+pub fn create_cmd(
+    cwd: &str,
+    path: &str,
+    batch_cmd: &BatchCmd,
+    fastpath_fallback: bool,
+) -> Option<Child> {
     let run = batch_cmd.run.trim();
     lazy_static! {
         static ref CMD: Regex = Regex::new(
@@ -286,14 +288,6 @@ pub fn create_cmd(cwd: &String, batch_cmd: &BatchCmd, fastpath_fallback: bool) -
         )
         .unwrap();
     }
-    let mut path: String = env::var("PATH").unwrap_or_default();
-    if path.len() > 0 && !path.ends_with(':') {
-        path += ":";
-    }
-    path.push_str(cwd);
-    path += "/.bin:";
-    path.push_str(cwd);
-    path += "/node_modules/.bin";
 
     if batch_cmd.echo {
         println!("{}", run);

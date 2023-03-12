@@ -24,6 +24,8 @@ use percent_encoding::percent_encode;
 use percent_encoding::NON_ALPHANUMERIC;
 use std::time::Instant;
 
+use base64::{engine::general_purpose, Engine as _};
+
 // Custom node loader to mimic current working directory despite loading from a tmp file
 // Note: We dont have to percent encode as we're not using `,! characters
 // If this becomes a problem, switch to base64 encoding rather
@@ -40,7 +42,7 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     cmd.run = format!(
     "node --no-warnings --loader \"data:text/javascript,{}\" \"data:text/javascript;base64,{}\"",
     percent_encode(NODE_LOADER.to_string().as_bytes(), NON_ALPHANUMERIC),
-    base64::encode(cmd.run.as_bytes()).to_string()
+    general_purpose::STANDARD.encode(cmd.run.as_bytes())
   );
     let echo = cmd.echo;
     cmd.echo = false;
@@ -48,7 +50,12 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     let exec_num = cmd_pool.exec_num;
     cmd_pool.exec_cnt = cmd_pool.exec_cnt + 1;
     let pool = cmd_pool as *mut CmdPool;
-    let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&cmd_pool.cwd), &cmd, false);
+    let child = create_cmd(
+        cmd.cwd.as_ref().unwrap_or(&cmd_pool.cwd),
+        &cmd_pool.path,
+        &cmd,
+        false,
+    );
     let future = async move {
         let cmd_pool = unsafe { &mut *pool };
         let mut exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();

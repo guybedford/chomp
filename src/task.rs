@@ -14,7 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use crate::chompfile::{ChompTaskMaybeTemplated, TaskDisplay, ValidationCheck, WatchInvalidation, Chompfile, InvalidationCheck, resolve_path};
+use crate::chompfile::{
+    resolve_path, ChompTaskMaybeTemplated, Chompfile, InvalidationCheck, TaskDisplay,
+    ValidationCheck, WatchInvalidation,
+};
 use crate::engines::CmdPool;
 use crate::server::FileEvent;
 use crate::ExtensionEnvironment;
@@ -268,7 +271,11 @@ impl<'a> Job {
             String::from(format!("[task {}]", self.task))
         };
 
-        if skip_relative_path { name } else { relative_path(&name, cwd) }
+        if skip_relative_path {
+            name
+        } else {
+            relative_path(&name, cwd)
+        }
     }
 }
 
@@ -1081,9 +1088,10 @@ impl<'a> Runner<'a> {
         };
         env.insert("DEP".to_string(), relative_dep);
 
-        let mut relative_deps = deps.iter().map(|d| {
-            relative_path(d, &self.cwd)
-        }).collect::<Vec<String>>();
+        let mut relative_deps = deps
+            .iter()
+            .map(|d| relative_path(d, &self.cwd))
+            .collect::<Vec<String>>();
         relative_deps.sort();
         env.insert("DEPS".to_string(), relative_deps.join(":"));
 
@@ -1646,7 +1654,8 @@ impl<'a> Runner<'a> {
                         {
                             interpolate_match = Some((
                                 *job_num,
-                                &resolved_target[interpolate_idx..resolved_target.len() - rhs.len()],
+                                &resolved_target
+                                    [interpolate_idx..resolved_target.len() - rhs.len()],
                             ));
                             if lhs.len() >= interpolate_lhs_match_len
                                 && rhs.len() > interpolate_rhs_match_len
@@ -2290,9 +2299,7 @@ impl<'a> Runner<'a> {
             DebouncedEvent::Remove(path)
             | DebouncedEvent::Create(path)
             | DebouncedEvent::Write(path)
-            | DebouncedEvent::Rename(_, path) => {
-                self.invalidate_path(path, queued, redrives)
-            }
+            | DebouncedEvent::Rename(_, path) => self.invalidate_path(path, queued, redrives),
             DebouncedEvent::Rescan => panic!("Watcher rescan"),
             DebouncedEvent::Error(err, maybe_path) => {
                 panic!("WATCHER ERROR {:?} {:?}", err, maybe_path.clone())
@@ -2342,14 +2349,18 @@ impl<'a> Runner<'a> {
                 None => {
                     return Err(anyhow!(
                         "Task \x1b[1m{}\x1b[0m doesn't take any arguments.",
-                        self.get_job(job_num).unwrap().display_name(&self.tasks, &self.cwd)
+                        self.get_job(job_num)
+                            .unwrap()
+                            .display_name(&self.tasks, &self.cwd)
                     ));
                 }
             };
             if task_args_len < args.len() {
                 return Err(anyhow!(
                     "Task \x1b[1m{}\x1b[0m only takes {} arguments, while {} were provided.",
-                    self.get_job(job_num).unwrap().display_name(&self.tasks, &self.cwd),
+                    self.get_job(job_num)
+                        .unwrap()
+                        .display_name(&self.tasks, &self.cwd),
                     task_args_len,
                     args.len()
                 ));
