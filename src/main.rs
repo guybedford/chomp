@@ -92,14 +92,14 @@ async fn main() -> Result<()> {
             Arg::new("server-root")
                 .short('R')
                 .long("server-root")
-                .help("Server root path")
+                .help("Server root path"),
         )
         .arg(
             Arg::new("port")
                 .short('p')
                 .long("port")
                 .value_name("PORT")
-                .help("Custom port to serve")
+                .help("Custom port to serve"),
         )
         .arg(
             Arg::new("jobs")
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
                 .long("jobs")
                 .value_name("N")
                 .value_parser(clap::value_parser!(usize))
-                .help("Maximum number of jobs to run in parallel")
+                .help("Maximum number of jobs to run in parallel"),
         )
         .arg(
             Arg::new("config")
@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
                 .long("config")
                 .value_name("CONFIG")
                 .default_value("chompfile.toml")
-                .help("Custom chompfile path")
+                .help("Custom chompfile path"),
         )
         .arg(
             Arg::new("list")
@@ -176,14 +176,14 @@ async fn main() -> Result<()> {
             Arg::new("target")
                 .value_name("TARGET")
                 .help("Generate a target or list of targets")
-                .action(ArgAction::Append)
+                .action(ArgAction::Append),
         )
         .arg(
             Arg::new("arg")
                 .last(true)
                 .value_name("ARGS")
                 .help("Custom task args")
-                .action(ArgAction::Append)
+                .action(ArgAction::Append),
         )
         .get_matches();
 
@@ -511,9 +511,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    if matches.get_flag("format")
-        || matches.get_flag("eject_templates")
-        || matches.get_flag("init")
+    if matches.get_flag("format") || matches.get_flag("eject_templates") || matches.get_flag("init")
     {
         use_default_target = false;
         if matches.get_flag("eject_templates") {
@@ -546,7 +544,10 @@ async fn main() -> Result<()> {
     }
 
     let targets = if targets.len() == 0 && use_default_target {
-        vec![chompfile.default_task.to_owned().unwrap_or(String::from("build"))]
+        vec![chompfile
+            .default_task
+            .to_owned()
+            .unwrap_or(String::from("build"))]
     } else {
         targets
     };

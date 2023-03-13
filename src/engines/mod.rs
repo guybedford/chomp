@@ -34,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashSet;
+use std::env;
 use std::path::Path;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -83,6 +84,7 @@ pub struct CmdPool<'a> {
     batching: BTreeSet<usize>,
     cmd_execs: BTreeMap<usize, usize>,
     cwd: String,
+    path: String,
     pool_size: usize,
     batch_future: Option<Shared<Pin<Box<dyn Future<Output = Result<(), Rc<Error>>> + 'a>>>>,
 }
@@ -137,9 +139,37 @@ impl<'a> CmdPool<'a> {
         cwd: String,
         extension_env: &'a mut ExtensionEnvironment,
     ) -> CmdPool<'a> {
+        let mut path: String = env::var("PATH").unwrap_or_default();
+        #[cfg(not(target_os = "windows"))]
+        if path.len() > 0 && !path.ends_with(':') {
+            path += ":";
+        }
+        #[cfg(target_os = "windows")]
+        if path.len() > 0 && !path.ends_with(';') {
+            path += ";";
+        }
+        path.push_str(&cwd);
+        #[cfg(not(target_os = "windows"))]
+        {
+            path += "/.bin:";
+        }
+        #[cfg(target_os = "windows")]
+        {
+            path += "\\.bin;";
+        }
+        path.push_str(&cwd);
+        #[cfg(not(target_os = "windows"))]
+        {
+            path += "/node_modules/.bin";
+        }
+        #[cfg(target_os = "windows")]
+        {
+            path += "\\node_modules\\.bin;";
+        }
         CmdPool {
             cmd_num: 0,
             cwd,
+            path,
             cmds: BTreeMap::new(),
             exec_num: 0,
             exec_cnt: 0,
@@ -316,7 +346,12 @@ impl<'a> CmdPool<'a> {
             ChompEngine::Shell => {
                 let start_time = Instant::now();
                 self.exec_cnt = self.exec_cnt + 1;
-                let child = create_cmd(cmd.cwd.as_ref().unwrap_or(&self.cwd), &cmd, true);
+                let child = create_cmd(
+                    cmd.cwd.as_ref().unwrap_or(&self.cwd),
+                    &self.path,
+                    &cmd,
+                    true,
+                );
                 let future = async move {
                     let this = unsafe { &mut *pool };
                     let mut exec = &mut this.execs.get_mut(&exec_num).unwrap();

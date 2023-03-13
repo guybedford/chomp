@@ -18,7 +18,10 @@ use anyhow::Result;
 use directories::UserDirs;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::{Component, Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    path::{Component, Path, PathBuf},
+};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -314,9 +317,7 @@ impl Into<ChompTaskMaybeTemplated> for ChompTaskMaybeTemplatedJs {
 }
 
 pub fn resolve_path(target: &str, cwd: &str) -> String {
-    path_from(cwd, target)
-        .to_string_lossy()
-        .replace('\\', "/")
+    path_from(cwd, target).to_string_lossy().replace('\\', "/")
 }
 /// https://stackoverflow.com/questions/68231306/stdfscanonicalize-for-files-that-dont-exist
 /// build a usable path from a user input which may be absolute
