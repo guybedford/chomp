@@ -1,6 +1,6 @@
 [package]
 name = "chompbuild"
-version = "0.2.12"
+version = "0.2.13"
 authors = ["Guy Bedford <guybedford@gmail.com>"]
 edition = "2021"
 license = "Apache-2.0"
@@ -15,8 +15,6 @@ description = "Make-like parallel task runner with a JS extension system"
 name = "chomp"
 path = "src/main.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [target.'cfg(target_os="windows")'.dependencies.winapi]
 version = "0.3"
 features = ["consoleapi", "errhandlingapi", "fileapi", "handleapi"]
@@ -25,7 +23,7 @@ features = ["consoleapi", "errhandlingapi", "fileapi", "handleapi"]
 anyhow = "1"
 async-recursion = "1"
 capturing-glob = "0"
-base64 = "0"
+base64 = "0.21"
 clap = "4"
 convert_case = "0"
 derivative = "2"
