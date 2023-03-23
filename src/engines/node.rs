@@ -19,11 +19,11 @@ use crate::engines::create_cmd;
 use crate::engines::CmdPool;
 use crate::engines::Exec;
 use crate::engines::{BatchCmd, ExecState};
+use base64::{engine::general_purpose, Engine as _};
 use futures::future::FutureExt;
 use percent_encoding::percent_encode;
 use percent_encoding::NON_ALPHANUMERIC;
 use std::time::Instant;
-use base64::{engine::general_purpose, Engine as _};
 
 // Custom node loader to mimic current working directory despite loading from a tmp file
 // Note: We dont have to percent encode as we're not using `,! characters

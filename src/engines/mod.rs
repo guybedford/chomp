@@ -139,33 +139,25 @@ impl<'a> CmdPool<'a> {
         cwd: String,
         extension_env: &'a mut ExtensionEnvironment,
     ) -> CmdPool<'a> {
-        let mut path: String = env::var("PATH").unwrap_or_default();
         #[cfg(not(target_os = "windows"))]
-        if path.len() > 0 && !path.ends_with(':') {
-            path += ":";
-        }
-        #[cfg(target_os = "windows")]
-        if path.len() > 0 && !path.ends_with(';') {
-            path += ";";
-        }
-        path.push_str(&cwd);
-        #[cfg(not(target_os = "windows"))]
-        {
+        let path = {
+            let mut path = String::from(&cwd);
             path += "/.bin:";
-        }
-        #[cfg(target_os = "windows")]
-        {
-            path += "\\.bin;";
-        }
-        path.push_str(&cwd);
-        #[cfg(not(target_os = "windows"))]
-        {
+            path.push_str(&cwd);
             path += "/node_modules/.bin";
-        }
+            path += ":";
+            path.push_str(&env::var("PATH").unwrap_or_default());
+            path
+        };
         #[cfg(target_os = "windows")]
-        {
+        let path = {
+            let mut path = cwd.replace('/', "\\");
+            path += "\\.bin;";
+            path.push_str(&cwd.replace('/', "\\"));
             path += "\\node_modules\\.bin;";
-        }
+            path.push_str(&env::var("PATH").unwrap_or_default());
+            path
+        };
         CmdPool {
             cmd_num: 0,
             cwd,
