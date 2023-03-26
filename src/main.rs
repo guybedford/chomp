@@ -398,8 +398,8 @@ async fn main() -> Result<()> {
         if let Some(root) = matches.get_one::<String>("server-root") {
             serve_options.root = root.to_string();
         }
-        if let Some(&port) = matches.get_one::<u16>("port") {
-            serve_options.port = port;
+        if let Some(port) = matches.get_one::<String>("port") {
+            serve_options.port = port.parse::<u16>().unwrap();
         }
         if matches.get_flag("serve") {
             use_default_target = false;
