@@ -4,9 +4,9 @@
 [![Discord](https://img.shields.io/badge/chat-on%20disord-green.svg?logo=discord)](https://discord.gg/5E9zrhguTy)
 
 
-Chomp is frontend task runner with advance featured and a focus on _ease-of-use_ and _**not** 'getting in the way'_!
+Chomp is frontend task runner with advance featured focused on _ease-of-use_ and _**not** 'getting in the way'_!
 
-## Why is Chomp so easy to use?
+## Why is Chomp easy to use?
 
 Chomps setups itself up with a single commmand!
 
@@ -14,7 +14,7 @@ Chomps setups itself up with a single commmand!
 chomp --init --import-scripts
 ```
 
-Now you can run any task in your project's npm scripts using Chomp!
+Now you can run any of your npm scripts using Chomp!
 
 - _Where you ran `npm run <task>` before, now run `chomp <task>`!_
 
@@ -22,27 +22,31 @@ The only difference is, with Chomp—it's faster. And, with a few more tweaks, y
 
 ## What features does Chomp provide?
 
-Chomp is an advanced task runner. It provides features similar to [turbo](https://turbo.build/repo) and [nx](https://nx.dev/) but focuses on ease of use; *not monorepos.
+Chomp is an advanced task runner. It provides features similar to [turbo](https://turbo.build/repo) and [nx](https://nx.dev/) but focuses on ease of use, *not monorepos.
 
 ### Parallelism
-  - Chomp [runs tasks in parallel](./docs/task.md#serial-dependencies), based on an extecuted task's dependencies!
+
+Chomp [runs tasks in parallel](./docs/task.md#serial-dependencies), based on an extecuted task's dependencies!
 ### Watch/Serve
-  - Chomp [watches any task](./docs/task.md#watched-rebuilds) by including a `--watch` or `--serve` option! Read more about the power of [`--watch`](./docs/task.md#watched-rebuilds) and [`--serve`](./docs/task.md#static-server).
+
+Chomp [watches any task](./docs/task.md#watched-rebuilds) by including a `--watch` or `--serve` option! Read more about the power of [`--watch`](./docs/task.md#watched-rebuilds) and [`--serve`](./docs/task.md#static-server).
 ### A JS extension system
-  - Chomp has a [JS extension system](./docs/extensions.md) that allows you to extend Chomp with your own custom tasks
+
+Chomp has a [JS extension system](./docs/extensions.md) that allows you to extend Chomp with your own custom tasks
 ### Smart caching
-  - Chomp [caches tasks](./docs/task.md#task-caching) based on task dependencies like other tasks or updated files. You don't have to worry about it!
+
+Chomp [caches tasks](./docs/task.md#task-caching) based on task dependencies like other tasks or updated files. You don't have to worry about it!
 
 > \*Chomp works for monrepos but it's achitectured for ease of use and not getting in the way first.
 ## Why is Chomp right for me?
 
 1. You get an advanced task runner with a single command!
-1. You enable and manage advanced features with single line updates!
+1. You enable and manage advanced task runner features with single line updates!
 1. You don't have to re-invent your project.
 
-Chomp a great option for frontend projects where the goal is getting common advance task runner features, like smart caching, without the complexity and overhead!
+Chomp a great option for frontend projects where the goal is getting advance task runner features, like smart caching, without complexity and overhead!
 
-Additionally, you get these features with 0 coding pattern changes. Chomp builds off of a project's established tasks without breaking them. **_AKA, you can still run `npm run <task>`; you just don't Chomp's rich feature set!_**
+Additionally, you get these features with 0 coding pattern changes. Chomp builds off of a project's established tasks without breaking them. _AKA, you can still run `npm run <task>`. You just don't Chomp's rich feature set!_.
 
 ## Install
 
