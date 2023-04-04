@@ -4,21 +4,21 @@
 [![Discord](https://img.shields.io/badge/chat-on%20disord-green.svg?logo=discord)](https://discord.gg/5E9zrhguTy)
 
 
-Chomp is frontend task runner with advance featured focused on _ease-of-use_ and _**not** 'getting in the way'_!
+Chomp is frontend task runner with advance featured focused on _ease-of-use_ and _not getting in the way_!
 
 ## Why is Chomp easy to use?
 
-Chomps setups itself up with a single commmand!
+Chomps sets itself up with a single commmand!
 
 ```bash
 chomp --init --import-scripts
 ```
 
-Now you can run any of your npm scripts using Chomp!
+Now you can run your npm scripts using Chomp!
 
-- _Where you ran `npm run <task>` before, now run `chomp <task>`!_
+- _Where you ran `npm run <task>` before, now you can run `chomp <task>`!_
 
-The only difference is, with Chomp—it's faster. And, with a few more tweaks, you get smart caching, parallelism, and more!
+The only difference is, with Chomp—it's faster. And, with a few more tweaks, you can enable smart caching, parallelism, and more!
 
 ## What features does Chomp provide?
 
