@@ -6,7 +6,7 @@
 
 Chomp is frontend task runner with advance featured focused on _ease-of-use_ and _not getting in the way_!
 
-## Why is Chomp easy to use?
+## One-line migration from npm scripts
 
 Chomps sets itself up with a single commmand!
 
