@@ -46,7 +46,7 @@ Chomp [caches tasks](./docs/task.md#task-caching) based on task dependencies lik
 
 Chomp a great option for frontend projects where the goal is getting advance task runner features, like smart caching, without complexity and overhead!
 
-Additionally, you get these features with 0 coding pattern changes. Chomp builds off of a project's established tasks without breaking them. _AKA, you can still run `npm run <task>`. You just don't Chomp's rich feature set!_.
+Additionally, you get these features with 0 coding pattern changes. Chomp can run a project's established `package.json` scripts without breaking them. _i.e `npm run <task>` becomes `chomp <task>` and behaves the same, and further features can be opted in to as needed._
 
 ## Install
 
