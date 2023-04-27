@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AI powered Digital Experience ">
+
+    <title>ZipVolt &ndash; Changing the future of charging</title>
+
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+    <!-- <link rel="manifest" href="/site.webmanifest"> -->
+    <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#f4c9f3">
+    <meta name="msapplication-TileColor" content="#f4c9f3">
+    <meta name="theme-color" content="#f4c9f3">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://ga.jspm.io">
+    <link rel="preload" href="https://ga.jspm.io/npm:@acab/reset.css@0.5.3/index.css" as="style" />
+    <link rel="stylesheet" href="https://ga.jspm.io/npm:@acab/reset.css@0.5.3/index.css">
+
+    <link rel="preload"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;900&family=Manrope&family=Vollkorn&display=swap"
+        as="style" />
+    <link rel="preload" href="css/custom-properties.css" as="style" />
+    <link rel="preload" href="css/style.css" as="style" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;900&family=Manrope&family=Edu+QLD+Beginner:wght@700&family=Gloock&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="css/custom-properties.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <main>
+        <zipvolt-logo>
+            <h1>ZipVolt</h1>
+        </zipvolt-logo>
+        <zipvolt-hero>
+            <h2>Changing the future of charging</h2>
+
+            <div class="platform-teaser">
+                <zipvolt-contact-form>
+                    <p>Leave us your e-mail to join the waitlist.</p>
+                    <form action="/waitlist" method="POST" enctype="application/x-www-form-urlencoded"
+                        data-static-form-name="waitlist">
+
+                        <input type="email" name="email" placeholder="email" maxlength="50" required autofocus>
+                        <button type="submit">Join waitlist</button>
+                    </form>
+                    <p>No promo e-mail, No Spam, only one time notification when we are ready 🤞</p>
+                </zipvolt-contact-form>
+
+                <zipvolt-contact-form-submit class="hide">
+                    <p>Thank you for your interest. We will get in touch shortly.</p>
+                </zipvolt-contact-form-submit>
+            </div>
+        </zipvolt-hero>
+    </main>
+    <script>
+        const waitlistForm = document.querySelector('[data-static-form-name="waitlist"]')
+
+        waitlistForm.onsubmit = async (event) => {
+            try {
+                event.preventDefault();
+
+            const formData = new FormData(event.currentTarget);
+            const data = Object.fromEntries(formData);
+
+            const { action, method } = event.currentTarget;
+
+            const response = await fetch(action, { method, body: JSON.stringify(data) });
+            const responseData = await response.json();
+
+            document.querySelectorAll("zipvolt-contact-form, zipvolt-contact-form-submit").forEach(element => {
+                element.classList.toggle('hide');
+            });
+            } catch (error) {
+                console.error(error);
+            }
+        };
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,54 @@
+h1,
+h2 {
+    font-size: var(--step-5);
+}
+
+h2 {
+    font-size: var(--step-3);
+}
+
+h3 {
+    font-size: var(--step-3);
+}
+
+h4 {
+    font-size: var(--step-2);
+}
+
+
+h5 {
+    font-size: var(--step-1);
+}
+
+
+h6 {
+    font-size: var(--step-0);
+}
+
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: 'Gloock', serif;
+}
+/* body{
+    background: url('../images/background-2.jpeg') no-repeat center center;
+    background-size: cover;
+} */
+main{
+    padding: var(--gap);
+    text-align: center;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: calc(var(--gap) * 2)
+}
+
+/* .platform-teaser {
+    display: block;
+    position: fixed;
+    bottom: var(--gap);
+} */
