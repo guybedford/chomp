@@ -4,13 +4,13 @@
 [![Discord](https://img.shields.io/badge/chat-on%20disord-green.svg?logo=discord)](https://discord.gg/5E9zrhguTy)
 
 
-Chomp is frontend task runner with advance featured focused on _ease-of-use_ and _not getting in the way_!
+Chomp is a frontend task runner with advanced features focused on _ease-of-use_ and _not getting in the way_!
 
 1. An advanced task runner with a single command!
 1. Easily adapt existing projects / task systems - no need for a rewrite.
-1. You enable and manage advanced task runner features with single line updates.
+1. You enable and manage advanced task runner features with single-line updates.
 
-Chomp a great option for frontend projects where the goal is getting advance task runner features, like smart caching, without complexity and overhead.
+Chomp is a great option for frontend projects where the goal is getting advanced task runner features (like smart caching) without complexity and overhead.
 
 ## One-line migration from npm scripts
 
@@ -22,7 +22,7 @@ chomp --init --import-scripts
 
 Now you can run your npm scripts using Chomp!
 
-> i.e `npm run <task>` becomes `chomp <task>` and behaves the same, and further features can be opted in to as needed.
+> i.e `npm run <task>` becomes `chomp <task>` and behaves the same, and you can opt in to further features as needed.
 
 The only difference is, with Chomp — it's faster. And, with a few more tweaks, you can enable smart caching, parallelism, and more!
 
@@ -46,7 +46,7 @@ Chomp has a [JS extension system](./docs/extensions.md) that allows you to exten
 
 Chomp [caches tasks](./docs/task.md#task-caching) based on task dependencies like other tasks or updated files. You don't have to worry about it!
 
-> \*Chomp works for monrepos but it's achitectured for ease of use and not getting in the way first.
+> \*Chomp works for monrepos but it's architected for ease of use and not getting in the way first.
 
 ## Install
 
@@ -66,7 +66,7 @@ npm install -g chomp
 
 Common platform binaries are also available for [all releases](https://github.com/guybedford/chomp/releases).
 
-To quickly setup Chomp in a GitHub Actions CI workflow, see the [Chomp GitHub Action](https://github.com/guybedford/chomp-action).
+To quickly set up Chomp in a GitHub Actions CI workflow, see the [Chomp GitHub Action](https://github.com/guybedford/chomp-action).
 
 ## Documentation
 
@@ -93,7 +93,7 @@ $ chomp -Ii
 √ chompfile.toml created with 2 package.json script tasks imported.
 ```
 
-Then use `chomp <name>` instead of `npm run <name>`, and enjoy the new features of task dependence, incremental builds and parallelism!
+Then use `chomp <name>` instead of `npm run <name>`, and enjoy the new features of task dependence, incremental builds, and parallelism!
 
 ### Hello World
 
@@ -166,9 +166,9 @@ $ cat hello.txt
 Hello Chomp
 ```
 
-Array [`deps`](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-dependence) can be defined for targets, whose targets will then be run first with [invalidation based on target / deps mtime comparisons](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-caching) per the standard Makefile approach.
+The [`deps`](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-dependence) array can be defined for targets, whose targets will then be run first with [invalidation based on target / deps mtime comparisons](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-caching) per the standard Makefile approach.
 
-In Windows, Powershell is used and Bash on posix systems. Since both `echo` and `>` are defined on both systems the above works cross-platform (Powershell is automatically put into UTF-8 mode for `>` to work similarly).
+Powershell is used on Windows, while Bash is used on POSIX systems. Since both `echo` and `>` are defined on both systems, the examples above work cross-platform (Powershell is automatically put into UTF-8 mode for `>` to work similarly).
 
 Note that `&&` and `||` are not supported in Powershell, so multiline scripts and `;` are preferred instead.
 
@@ -201,17 +201,17 @@ run = '''
 '''
 ```
 
-Tasks are run with full parallelism permitted by the task graph, which can be controlled via the [`-j` flag](https://github.com/guybedford/chomp/blob/main/docs/cli.md#jobs) to limit the number of simultaneous executions.
+Tasks are run with maximum parallelism as permitted by the task graph, which can be controlled via the [`-j` flag](https://github.com/guybedford/chomp/blob/main/docs/cli.md#jobs) to limit the number of simultaneous executions.
 
 Using the [`--watch` flag](https://github.com/guybedford/chomp/blob/main/docs/cli.md#watch) watches all dependencies and applies incremental rebuilds over invalidations only.
 
-Or using `chomp hello --serve` runs a [static file server](https://github.com/guybedford/chomp/blob/main/docs/task.md#static-server) with watched rebuilds.
+Or, using `chomp hello --serve` runs a [static file server](https://github.com/guybedford/chomp/blob/main/docs/task.md#static-server) with watched rebuilds.
 
 See the [task documentation](https://github.com/guybedford/chomp/blob/main/docs/task.md) for further details.
 
 #### Monorepos
 
-There is no first-class monorepo support, but some simple techniques can achieve the use cases.
+There is no first-class monorepo support in chomp, but some simple techniques can achieve the same result.
 
 For example, consider a monorepo where `packages/[pkgname]/chompfile.toml` defines per-package tasks.
 
@@ -226,9 +226,9 @@ run = 'chomp -c $DEP test'
 
 `chomp test` will then use [task interpolation](https://github.com/guybedford/chomp/blob/main/docs/task.md#task-interpolation) to run the multiple sub-package test tasks in parallel. A similar approach can also be used for a [basic unit testing](https://github.com/guybedford/chomp/blob/main/docs/task.md#testing).
 
-Adding [`serial = 'true'`](https://github.com/guybedford/chomp/blob/main/docs/task.md#serial-dependencies) the interpolation can be made to run in series rather than in parallel.
+By adding [`serial = 'true'`](https://github.com/guybedford/chomp/blob/main/docs/task.md#serial-dependencies), the interpolation can be made to run in series rather than in parallel.
 
-Cross-project dependencies are [not currently supported](https://github.com/guybedford/chomp/issues/119). Instead if `packages/a/chompfile.toml`'s build task depends on `packages/b/chompfile.toml`'s build task to run first, then `packages/a/chompfile.toml` might look like:
+Cross-project dependencies are [not currently supported](https://github.com/guybedford/chomp/issues/119). Instead, if `packages/a/chompfile.toml`'s build task depends on `packages/b/chompfile.toml`'s build task to run first, then `packages/a/chompfile.toml` might look like:
 
 ```toml
 [[task]]
@@ -241,7 +241,7 @@ name = 'build:deps'
 run = 'chomp -c ../a build'
 ```
 
-This would still be fast so long as `packages/a/chompfile.toml`'s `build` task has its targets and dependencies properly configured to do zero work if the all target mtimes are greater than their dependencies.
+This would still be fast, so long as `packages/a/chompfile.toml`'s `build` task has its targets and dependencies properly configured to do zero work if the all target mtimes are greater than their dependencies.
 
 ### Extensions
 
@@ -281,9 +281,9 @@ deps = ['src/##.ts']
 
 In the above, all `src/**/*.ts` files will be globbed, have SWC run on them, and output into `lib/[file].js` along with their source maps.
 
-The `##` and `#` interpolation syntax are special because unlike glob dependencies (which are also supported), they must be a 1-1 relation from dependency to target.
+The `##` and `#` interpolation syntax is special because, unlike glob dependencies (which are also supported), there must be a 1:1 relationship between a dependency and its target.
 
-Only files not existing or whose `src` mtimes are invalidated (or SWC itself is updated) will be rebuilt.
+Only non-existent files, or files whose `src` mtimes are invalidated will be rebuilt. If SWC itself is updated, all files that depend on it will be re-built.
 
 Specific files or patterns can be built directly by name as well, skipping all other build work:
 
