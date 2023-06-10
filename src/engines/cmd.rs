@@ -18,6 +18,7 @@ use crate::chompfile::TaskStdio;
 use crate::engines::BatchCmd;
 use regex::Regex;
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
