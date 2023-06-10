@@ -86,11 +86,8 @@ jobs:
         profile: minimal
         toolchain: stable
 
-    - uses: actions-rs/cargo@v1
-      with:
-        use-cross: true
-        command: build
-        args: --release --bin ${{ matrix.artifact_name }} --locked --no-default-features --features=rustls
+    - name: Build
+      run: cargo build --release --locked
 
     - name: Archive release
       shell: bash
