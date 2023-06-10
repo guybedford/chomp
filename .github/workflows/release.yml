@@ -86,10 +86,13 @@ jobs:
         profile: minimal
         toolchain: stable
 
-    - name: Build
-      run: cargo build --release --locked
+    - uses: actions-rs/cargo@v1
+      with:
+        use-cross: true
+        command: build
+        args: --release --bin ${{ matrix.artifact_name }} --locked --no-default-features --features=rustls
 
-    - name: archive release
+    - name: Archive release
       shell: bash
       run: |
         cp "target/release/${{ matrix.artifact_name }}" "${{ matrix.artifact_name }}"
