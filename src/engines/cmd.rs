@@ -18,6 +18,7 @@ use crate::chompfile::TaskStdio;
 use crate::engines::BatchCmd;
 use regex::Regex;
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -50,7 +51,7 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
             }
         }
     }
-    for (name, value) in std::env::vars() {
+    for (name, value) in env::vars() {
         let name = name.to_uppercase();
         if !out_arg.contains(&name) {
             continue;

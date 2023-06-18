@@ -1,6 +1,6 @@
 {
   "name": "chomp",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "'JS Make' - parallel task runner CLI for the frontend ecosystem with a JS extension system",
   "bin": {
     "chomp": "index.js"
