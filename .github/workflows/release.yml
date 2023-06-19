@@ -57,7 +57,7 @@ jobs:
         ]
         include:
           - name: linux
-            os: ubuntu-18.04
+            os: ubuntu-latest
             artifact_name: chomp
             asset_name: chomp-linux
             asset_extension: .tar.gz
