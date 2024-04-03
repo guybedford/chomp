@@ -1,6 +1,6 @@
 [package]
 name = "chompbuild"
-version = "0.2.17"
+version = "0.2.18"
 authors = ["Guy Bedford <guybedford@gmail.com>"]
 edition = "2021"
 license = "Apache-2.0"
