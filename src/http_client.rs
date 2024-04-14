@@ -16,7 +16,7 @@
 
 use anyhow::{anyhow, Result};
 use dirs::home_dir;
-use hyper::{Client, Uri};
+use hyper::{client::HttpConnector, Client, Uri};
 use hyper_tls::HttpsConnector;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -89,7 +89,7 @@ pub async fn fetch_uri_cached(uri_str: &str, uri: Uri) -> Result<String> {
 
     println!("\x1b[34;1mFetch\x1b[0m {}", &uri_str);
     let https = HttpsConnector::new();
-    let client = Client::builder().build::<HttpsConnector<_>, hyper::Body>(https);
+    let client = Client::builder().build::<HttpsConnector<HttpConnector>, hyper::Body>(https);
 
     let res = client.get(uri).await?;
     if res.status() != 200 {
