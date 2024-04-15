@@ -53,7 +53,7 @@ Chomp [caches tasks](./docs/task.md#task-caching) based on task dependencies lik
 If you use [Cargo](https://rustup.rs/), run:
 
 ```
-cargo install chompbuild
+cargo install chompbuild --locked
 ```
 
 If you don't use Cargo, run:
