@@ -29,8 +29,8 @@ convert_case = "0"
 derivative = "2"
 dirs = "4"
 futures = "0"
-hyper = { version = "0", features = ["full"] }
-hyper-tls = "0"
+hyper = { version = "0.14", features = ["full"] }
+hyper-tls = "0.5"
 lazy_static = "1"
 mime_guess = "2"
 notify = "4"

@@ -346,7 +346,7 @@ impl<'a> CmdPool<'a> {
                 );
                 let future = async move {
                     let this = unsafe { &mut *pool };
-                    let mut exec = &mut this.execs.get_mut(&exec_num).unwrap();
+                    let exec = &mut this.execs.get_mut(&exec_num).unwrap();
                     exec.state = match exec.child.as_mut().unwrap().wait().await {
                         Ok(status) => {
                             if status.success() {
