@@ -1,7 +1,7 @@
 # CHOMP
 
 [![Crates.io](https://img.shields.io/badge/crates.io-chompbuild-green.svg)](https://crates.io/crates/chompbuild)
-[![Discord](https://img.shields.io/badge/chat-on%20disord-green.svg?logo=discord)](https://discord.gg/5E9zrhguTy)
+[![Discord](https://img.shields.io/badge/chat-on%20discord-green.svg?logo=discord)](https://discord.gg/5E9zrhguTy)
 
 
 Chomp is a frontend task runner with advanced features focused on _ease-of-use_ and _not getting in the way_!
