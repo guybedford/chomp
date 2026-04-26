@@ -25,8 +25,7 @@ use async_recursion::async_recursion;
 use capturing_glob::{glob, Pattern};
 use futures::future::Shared;
 use futures::future::{select_all, Future, FutureExt};
-use notify::DebouncedEvent;
-use notify::RecommendedWatcher;
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
 use pathdiff::diff_paths;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -43,12 +42,18 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 extern crate notify;
+
+// Path-only event from the file watcher. The notify-debouncer-mini debouncer collapses
+// rapid filesystem events down to a single per-path notification, so the kind is irrelevant
+// to chomp — we just need to know which path changed.
+pub type WatchEvent = PathBuf;
+
 use crate::engines::replace_env_vars_static;
 use crate::engines::ExecState;
 use anyhow::{anyhow, Result};
 use derivative::Derivative;
 use futures::executor;
-use notify::{watcher, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 use tokio::fs;
 use tokio::time;
@@ -137,14 +142,14 @@ impl File {
         }
     }
 
-    fn init(&mut self, watcher: Option<&mut RecommendedWatcher>) {
+    fn init(&mut self, watcher: Option<&mut dyn Watcher>) {
         self.state = FileState::Initialized;
         if let Some(watcher) = watcher {
             #[cfg(target_os = "windows")]
             let name = self.name.replace('/', "\\");
             #[cfg(not(target_os = "windows"))]
             let name = &self.name;
-            match watcher.watch(&name, RecursiveMode::Recursive) {
+            match watcher.watch(Path::new(&name), RecursiveMode::Recursive) {
                 Ok(_) => {}
                 Err(_) => {
                     // eprintln!("Unable to watch {}", self.name);
@@ -1186,7 +1191,7 @@ impl<'a> Runner<'a> {
         futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>>,
         queued: &mut QueuedStateTransitions,
         parent: Option<usize>,
-        watch_listener: UnboundedSender<DebouncedEvent>,
+        watch_listener: UnboundedSender<WatchEvent>,
     ) -> Result<JobOrFileState> {
         match self.nodes[job_num] {
             Node::Job(ref mut job) => {
@@ -1421,7 +1426,7 @@ impl<'a> Runner<'a> {
         force: bool,
         futures: &mut Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>>,
         queued: &mut QueuedStateTransitions,
-        watch_listener: UnboundedSender<DebouncedEvent>,
+        watch_listener: UnboundedSender<WatchEvent>,
     ) -> Result<()> {
         if !queued.state_transitions.remove(&transition) {
             return Ok(());
@@ -1462,9 +1467,8 @@ impl<'a> Runner<'a> {
                                 path.push(&target);
                                 #[cfg(target_os = "windows")]
                                 path.push(target.replace('/', "\\"));
-                                let evt = DebouncedEvent::Write(path);
                                 watch_listener
-                                    .send(evt)
+                                    .send(path)
                                     .expect("Unable to send watcher event to server channel");
                             }
                             self.mark_complete(
@@ -1552,7 +1556,7 @@ impl<'a> Runner<'a> {
 
     async fn lookup_task_name(
         &mut self,
-        watcher: &mut RecommendedWatcher,
+        watcher: &mut dyn Watcher,
         task: &str,
     ) -> Result<Option<usize>> {
         match self.task_jobs.get(task) {
@@ -1621,7 +1625,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn lookup_target(
         &mut self,
-        watcher: &mut RecommendedWatcher,
+        watcher: &mut dyn Watcher,
         target: &str,
         glob_files: bool,
     ) -> Result<usize> {
@@ -1706,7 +1710,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn lookup_glob_target(
         &mut self,
-        watcher: &mut RecommendedWatcher,
+        watcher: &mut dyn Watcher,
         target: &str,
         glob_files: bool,
     ) -> Result<Vec<usize>> {
@@ -1869,7 +1873,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn expand_target(
         &mut self,
-        watcher: &mut RecommendedWatcher,
+        watcher: &mut dyn Watcher,
         target: &str,
         glob_files: bool,
         drives: Option<usize>,
@@ -1889,7 +1893,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn expand_job(
         &mut self,
-        watcher: &mut RecommendedWatcher,
+        watcher: &mut dyn Watcher,
         job_num: usize,
         parent: Option<usize>,
     ) -> Result<()> {
@@ -2018,7 +2022,7 @@ impl<'a> Runner<'a> {
 
     async fn expand_interpolate(
         &mut self,
-        watcher: &mut RecommendedWatcher,
+        watcher: &mut dyn Watcher,
         dep: String,
         parent_job: usize,
         parent_task: usize,
@@ -2074,7 +2078,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn expand_interpolate_match(
         &mut self,
-        watcher: &mut RecommendedWatcher,
+        watcher: &mut dyn Watcher,
         dep_path: &str,
         interpolate: &str,
         parent_job: usize,
@@ -2169,11 +2173,11 @@ impl<'a> Runner<'a> {
     // find the job for the target, and drive its completion
     async fn drive_jobs(
         &mut self,
-        watcher: &mut RecommendedWatcher,
+        watcher: &mut dyn Watcher,
         jobs: &HashSet<usize>,
         force: bool,
-        rx: Receiver<DebouncedEvent>,
-        watch_listener: UnboundedSender<DebouncedEvent>,
+        rx: Receiver<WatchEvent>,
+        watch_listener: UnboundedSender<WatchEvent>,
         mut writer: UnboundedReceiver<FileEvent>,
     ) -> Result<()> {
         let mut futures: Vec<Pin<Box<dyn Future<Output = StateTransition> + 'a>>> = Vec::new();
@@ -2253,9 +2257,9 @@ impl<'a> Runner<'a> {
 
     async fn check_watcher(
         &mut self,
-        watcher: &mut RecommendedWatcher,
-        rx: &Receiver<DebouncedEvent>,
-        watch_listener: UnboundedSender<DebouncedEvent>,
+        watcher: &mut dyn Watcher,
+        rx: &Receiver<WatchEvent>,
+        watch_listener: UnboundedSender<WatchEvent>,
         writer: &mut UnboundedReceiver<FileEvent>,
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
@@ -2285,28 +2289,16 @@ impl<'a> Runner<'a> {
                 }
             };
         }
-        let evt = match rx.try_recv() {
-            Ok(evt) => evt,
+        let path = match rx.try_recv() {
+            Ok(path) => path,
             Err(TryRecvError::Empty) => {
                 return Ok(false);
             }
             Err(TryRecvError::Disconnected) => panic!("Watcher disconnected"),
         };
-        let result = match &evt {
-            DebouncedEvent::NoticeWrite(_)
-            | DebouncedEvent::NoticeRemove(_)
-            | DebouncedEvent::Chmod(_) => Ok(false),
-            DebouncedEvent::Remove(path)
-            | DebouncedEvent::Create(path)
-            | DebouncedEvent::Write(path)
-            | DebouncedEvent::Rename(_, path) => self.invalidate_path(path, queued, redrives),
-            DebouncedEvent::Rescan => panic!("Watcher rescan"),
-            DebouncedEvent::Error(err, maybe_path) => {
-                panic!("WATCHER ERROR {:?} {:?}", err, maybe_path.clone())
-            }
-        };
+        let result = self.invalidate_path(&path, queued, redrives);
         watch_listener
-            .send(evt)
+            .send(path)
             .expect("Unable to send watcher event to server channel");
         result
     }
@@ -2314,15 +2306,26 @@ impl<'a> Runner<'a> {
     pub async fn run(
         &mut self,
         opts: RunOptions,
-        watch_listener: UnboundedSender<DebouncedEvent>,
+        watch_listener: UnboundedSender<WatchEvent>,
         watch_writer: UnboundedReceiver<FileEvent>,
     ) -> Result<bool> {
         let (tx, rx) = channel();
-        let mut watcher = watcher(tx, Duration::from_millis(250)).unwrap();
+        let mut debouncer = new_debouncer(
+            Duration::from_millis(250),
+            move |result: DebounceEventResult| match result {
+                Ok(events) => {
+                    for event in events {
+                        let _ = tx.send(event.path);
+                    }
+                }
+                Err(errors) => panic!("Watcher errors: {:?}", errors),
+            },
+        )
+        .unwrap();
         let mut job_nums = HashSet::new();
         for target in opts.targets {
             let jobs = self
-                .expand_target(&mut watcher, &target, false, None)
+                .expand_target(debouncer.watcher(), &target, false, None)
                 .await?;
             for job in jobs {
                 if opts.rerun {
@@ -2372,7 +2375,7 @@ impl<'a> Runner<'a> {
         }
 
         self.drive_jobs(
-            &mut watcher,
+            debouncer.watcher(),
             &job_nums,
             opts.force,
             rx,

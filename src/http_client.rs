@@ -16,8 +16,12 @@
 
 use anyhow::{anyhow, Result};
 use dirs::home_dir;
-use hyper::{client::HttpConnector, Client, Uri};
+use http_body_util::{BodyExt, Empty};
+use hyper::body::Bytes;
+use hyper::Uri;
 use hyper_tls::HttpsConnector;
+use hyper_util::client::legacy::{connect::HttpConnector, Client};
+use hyper_util::rt::TokioExecutor;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tokio::fs;
@@ -89,14 +93,15 @@ pub async fn fetch_uri_cached(uri_str: &str, uri: Uri) -> Result<String> {
 
     println!("\x1b[34;1mFetch\x1b[0m {}", &uri_str);
     let https = HttpsConnector::new();
-    let client = Client::builder().build::<HttpsConnector<HttpConnector>, hyper::Body>(https);
+    let client: Client<HttpsConnector<HttpConnector>, Empty<Bytes>> =
+        Client::builder(TokioExecutor::new()).build(https);
 
     let res = client.get(uri).await?;
     if res.status() != 200 {
         return Err(anyhow!("{} for extension URL {}", res.status(), uri_str));
     }
 
-    let body_bytes = hyper::body::to_bytes(res.into_body()).await?;
+    let body_bytes = res.into_body().collect().await?.to_bytes();
     let result = String::from_utf8(body_bytes.to_vec()).unwrap();
     write_cache(&hash, &result).await?;
     Ok(result)

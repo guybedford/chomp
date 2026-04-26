@@ -23,31 +23,34 @@ features = ["consoleapi", "errhandlingapi", "fileapi", "handleapi"]
 anyhow = "1"
 async-recursion = "1"
 capturing-glob = "0"
-base64 = "0.21"
+base64 = "0.22"
 clap = "4"
-convert_case = "0"
+convert_case = "0.11"
 derivative = "2"
-dirs = "4"
+dirs = "6"
 futures = "0"
-hyper = { version = "0.14", features = ["full"] }
-hyper-tls = "0.5"
+hyper = { version = "1", features = ["client", "http1", "http2"] }
+hyper-tls = "0.6"
+hyper-util = { version = "0.1", features = ["client-legacy", "tokio", "http1", "http2"] }
+http-body-util = "0.1"
+bytes = "1"
 lazy_static = "1"
 mime_guess = "2"
-notify = "4"
+notify = "8"
+notify-debouncer-mini = "0.7"
 num_cpus = "1"
 percent-encoding = "2"
 regex = "1"
-rustls = { version = "0.20", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_v8 = "0.181.0"
-sha2 = "0"
+sha2 = "0.11"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-util = "0.7"
-toml = "0.5"
+toml = "0.8"
 uuid = { version = "1", features = ["v4"] }
 v8 = "0.89"
-warp = "0.3"
-directories = "4"
+warp = { version = "0.4", features = ["server", "websocket"] }
+directories = "6"
 pathdiff = "0"
