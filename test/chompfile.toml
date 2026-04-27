@@ -179,3 +179,64 @@ run = '''
   FAIL
   echo "THIS SHOULD NOT LOG"
 '''
+
+# -- Test (#183) --
+# A task whose interpolated dep is the interpolated target of another task should
+# trigger the producer to create the file rather than failing with "File not found".
+# A named-only interpolation task (no `#` in deps) should also be reachable as a
+# plain dep reference.
+[[task]]
+name = 'test8'
+serial = true
+deps = ['t8:clean', 't8:assert']
+
+[[task]]
+name = 't8:clean'
+display = 'none'
+stdio = 'none'
+validation = 'none'
+run = 'rm -r output/dist output/test8-one.txt output/test8-two.txt'
+
+# Each assert task pulls a `t8:build:#` instance by NAME with NO `:` prefix —
+# exercises lookup_task_name resolving an interpolated-name task as a plain dep
+# (the previous behaviour treated it as a missing file).
+[[task]]
+name = 't8:assert'
+display = 'none'
+deps = ['t8:assert-one', 't8:assert-two']
+
+[[task]]
+name = 't8:assert-one'
+display = 'none'
+target = './output/test8-one.txt'
+deps = ['t8:build:one']
+run = 'cp output/dist/one/config.yml $TARGET'
+template = 'assert'
+[task.template-options]
+expect-equals = '''name: one
+'''
+
+[[task]]
+name = 't8:assert-two'
+display = 'none'
+target = './output/test8-two.txt'
+deps = ['t8:build:two']
+run = 'cp output/dist/two/config.yml $TARGET'
+template = 'assert'
+[task.template-options]
+expect-equals = '''name: two
+'''
+
+# `t8:build:#` is reached as a plain dep (no `:` prefix) by the assert tasks
+# above. Its interpolated dep is itself the interpolated target of the cp task
+# below — that must trigger the cp task to produce the file rather than erroring
+# with "File not found".
+[[task]]
+name = 't8:build:#'
+display = 'none'
+dep = './output/dist/#/config.yml'
+
+[[task]]
+target = './output/dist/#/config.yml'
+dep = './fixtures/many/#/config.yml'
+run = 'cp $DEP $TARGET'
