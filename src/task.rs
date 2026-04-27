@@ -585,7 +585,13 @@ impl<'a> Runner<'a> {
         let num: usize = self.nodes.len();
         let task = &self.tasks[task_num];
 
-        let is_interpolate_target = task.deps.iter().find(|&d| d.contains('#')).is_some();
+        // A task is interpolation-parameterised if `#` appears anywhere it can fan out:
+        // deps, targets, or name. Previously only deps were checked, so a task like
+        // `name = 'build:#'` with no `#` deps was never registered as an interpolation
+        // root and `chomp build:foo` couldn't reach it (#183).
+        let is_interpolate_target = task.deps.iter().any(|d| d.contains('#'))
+            || task.targets.iter().any(|t| t.contains('#'))
+            || task.name.as_deref().map_or(false, |n| n.contains('#'));
 
         // map target name
         if let Some(ref name) = task.name {
@@ -601,11 +607,16 @@ impl<'a> Runner<'a> {
                     self.task_jobs.insert(name, num);
                 }
             } else if name.contains('#') {
-                // interpolate individual names only expanded when using "#" in the name
+                // interpolate individual names only expanded when using "#" in the name.
+                // Reuse an existing job for this (task, interpolate) pair — without this
+                // dedup, tasks that have an interpolated name but no target to register
+                // in file_nodes would create a new node on every visit, recursing forever
+                // when their dep is itself the target of another interpolation task (#183).
                 let name = replace_interpolate(name, interpolate.as_ref().unwrap());
-                if !self.task_jobs.contains_key(&name) {
-                    self.task_jobs.insert(name, num);
+                if let Some(&existing) = self.task_jobs.get(&name) {
+                    return Ok((existing, false));
                 }
+                self.task_jobs.insert(name, num);
             }
         }
 
@@ -1559,60 +1570,40 @@ impl<'a> Runner<'a> {
         watcher: &mut dyn Watcher,
         task: &str,
     ) -> Result<Option<usize>> {
-        match self.task_jobs.get(task) {
-            Some(&job_num) => Ok(Some(job_num)),
-            None => {
-                // Check for interpolated task names
-                let mut interpolate_match = None;
-                let mut interpolate_lhs_match_len = 0;
-                let mut interpolate_rhs_match_len = 0;
-                for job_num in &self.interpolate_nodes {
-                    let job = self.get_job(*job_num).unwrap();
-                    let job_task = &self.tasks[job.task];
-                    if let Some(name) = &job_task.name {
-                        if let Some((interpolate_idx, double)) = find_interpolate(name)? {
-                            let lhs = &name[0..interpolate_idx];
-                            let rhs = &name[interpolate_idx + if double { 2 } else { 1 }..];
-                            if task.starts_with(lhs)
-                                && task.len() > lhs.len() + rhs.len()
-                                && task.ends_with(rhs)
-                            {
-                                interpolate_match = Some((
-                                    *job_num,
-                                    &task[interpolate_idx..task.len() - rhs.len()],
-                                ));
-                                if lhs.len() >= interpolate_lhs_match_len
-                                    && rhs.len() > interpolate_rhs_match_len
-                                {
-                                    interpolate_lhs_match_len = lhs.len();
-                                    interpolate_rhs_match_len = rhs.len();
-                                }
-                            }
-                        }
-                    }
-                }
-                match interpolate_match {
-                    Some((job_num, interpolate)) => {
-                        let task_deps = &self.tasks[self.get_job(job_num).unwrap().task].deps;
-                        let input = replace_interpolate(
-                            task_deps.iter().find(|dep| dep.contains("#")).unwrap(),
-                            interpolate,
-                        );
-                        let num = self
-                            .expand_interpolate_match(
-                                watcher,
-                                &input,
-                                interpolate,
-                                job_num,
-                                self.get_job(job_num).unwrap().task,
-                            )
-                            .await?;
-                        Ok(Some(num))
-                    }
-                    None => Ok(None),
+        if let Some(&job_num) = self.task_jobs.get(task) {
+            return Ok(Some(job_num));
+        }
+        // Check for interpolated task names. Most specific (longest lhs+rhs) wins.
+        let mut best: Option<(usize, String, usize)> = None;
+        for &job_num in &self.interpolate_nodes {
+            let job_task = &self.tasks[self.get_job(job_num).unwrap().task];
+            let name = match &job_task.name {
+                Some(n) => n,
+                None => continue,
+            };
+            let (interpolate_idx, double) = match find_interpolate(name)? {
+                Some(v) => v,
+                None => continue,
+            };
+            let lhs = &name[0..interpolate_idx];
+            let rhs = &name[interpolate_idx + if double { 2 } else { 1 }..];
+            if task.starts_with(lhs) && task.len() > lhs.len() + rhs.len() && task.ends_with(rhs) {
+                let value = task[interpolate_idx..task.len() - rhs.len()].to_string();
+                let specificity = lhs.len() + rhs.len();
+                if best.as_ref().map_or(true, |(_, _, s)| specificity > *s) {
+                    best = Some((job_num, value, specificity));
                 }
             }
         }
+        if let Some((parent_job, interpolate, _)) = best {
+            let task_num = self.get_job(parent_job).unwrap().task;
+            let input = self.interpolate_dep_input(task_num, &interpolate);
+            let num = self
+                .expand_interpolate_match(watcher, input.as_deref(), &interpolate, parent_job, task_num)
+                .await?;
+            return Ok(Some(num));
+        }
+        Ok(None)
     }
 
     fn get_interpolate_target(&self, interpolate_job: usize) -> Option<&String> {
@@ -1620,6 +1611,45 @@ impl<'a> Runner<'a> {
             .targets
             .iter()
             .find(|&target| target.contains('#'))
+    }
+
+    // Scan interpolate_nodes for a task whose interpolated target pattern matches `target`.
+    // Returns (parent_interpolate_job, extracted_interpolate_value). When several patterns
+    // match, the most specific (longest lhs+rhs) wins so e.g. `dst/sub/#/file.js` beats
+    // `dst/#/file.js` for a path under `dst/sub/`.
+    fn match_interpolate_target(&self, target: &str) -> Result<Option<(usize, String)>> {
+        let mut best: Option<(usize, String, usize)> = None;
+        for &job_num in &self.interpolate_nodes {
+            let pattern = match self.get_interpolate_target(job_num) {
+                Some(p) => p,
+                None => continue,
+            };
+            let (interpolate_idx, double) = find_interpolate(pattern)?.unwrap();
+            let lhs = &pattern[0..interpolate_idx];
+            let rhs = &pattern[interpolate_idx + if double { 2 } else { 1 }..];
+            if target.starts_with(lhs)
+                && target.len() > lhs.len() + rhs.len()
+                && target.ends_with(rhs)
+            {
+                let value = target[interpolate_idx..target.len() - rhs.len()].to_string();
+                let specificity = lhs.len() + rhs.len();
+                if best.as_ref().map_or(true, |(_, _, s)| specificity > *s) {
+                    best = Some((job_num, value, specificity));
+                }
+            }
+        }
+        Ok(best.map(|(j, v, _)| (j, v)))
+    }
+
+    // Compute the interpolated dep input for an interpolate task. Returns None when the
+    // task has no `#` in its deps (i.e. it interpolates only on name or target), in which
+    // case expand_interpolate_match runs without setting up an interpolated dep.
+    fn interpolate_dep_input(&self, task_num: usize, interpolate: &str) -> Option<String> {
+        self.tasks[task_num]
+            .deps
+            .iter()
+            .find(|d| d.contains('#'))
+            .map(|d| replace_interpolate(d, interpolate))
     }
 
     #[async_recursion(?Send)]
@@ -1640,70 +1670,26 @@ impl<'a> Runner<'a> {
         let resolved_target = &resolve_path(target, self.cwd.as_str());
 
         // Match by exact file name
-        match self.file_nodes.get(resolved_target) {
-            Some(&job_num) => Ok(job_num),
-            // Then by interpolate
-            None => {
-                let mut interpolate_match = None;
-                let mut interpolate_lhs_match_len = 0;
-                let mut interpolate_rhs_match_len = 0;
-                for job_num in &self.interpolate_nodes {
-                    if let Some(interpolate) = self.get_interpolate_target(*job_num) {
-                        let (interpolate_idx, double) = find_interpolate(interpolate)?.unwrap();
-                        let lhs = &interpolate[0..interpolate_idx];
-                        let rhs = &interpolate[interpolate_idx + if double { 2 } else { 1 }..];
-                        if resolved_target.starts_with(lhs)
-                            && resolved_target.len() > lhs.len() + rhs.len()
-                            && resolved_target.ends_with(rhs)
-                        {
-                            interpolate_match = Some((
-                                *job_num,
-                                &resolved_target
-                                    [interpolate_idx..resolved_target.len() - rhs.len()],
-                            ));
-                            if lhs.len() >= interpolate_lhs_match_len
-                                && rhs.len() > interpolate_rhs_match_len
-                            {
-                                interpolate_lhs_match_len = lhs.len();
-                                interpolate_rhs_match_len = rhs.len();
-                            }
-                        }
-                    }
-                }
-                match interpolate_match {
-                    Some((job_num, interpolate)) => {
-                        let task_deps = &self.tasks[self.get_job(job_num).unwrap().task].deps;
-                        let input = replace_interpolate(
-                            task_deps.iter().find(|dep| dep.contains("#")).unwrap(),
-                            interpolate,
-                        );
-                        let num = self
-                            .expand_interpolate_match(
-                                watcher,
-                                &input,
-                                interpolate,
-                                job_num,
-                                self.get_job(job_num).unwrap().task,
-                            )
-                            .await?;
-                        Ok(num)
-                    }
-                    None => {
-                        // fallback to task name
-                        match self.lookup_task_name(watcher, target).await? {
-                            Some(job_num) => Ok(job_num),
-                            // Otherwise add as a file dependency
-                            None => {
-                                if glob_files {
-                                    Ok(self.add_file(String::from(target))?)
-                                } else {
-                                    Err(anyhow!("No target task '{}' defined in the Chompfile. \nRun \x1b[36mchomp --list\x1b[0m to see the available named targets.", target))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        if let Some(&job_num) = self.file_nodes.get(resolved_target) {
+            return Ok(job_num);
+        }
+        // Then by interpolate target
+        if let Some((parent_job, interpolate)) = self.match_interpolate_target(resolved_target)? {
+            let task_num = self.get_job(parent_job).unwrap().task;
+            let input = self.interpolate_dep_input(task_num, &interpolate);
+            return self
+                .expand_interpolate_match(watcher, input.as_deref(), &interpolate, parent_job, task_num)
+                .await;
+        }
+        // Then by task name (covers interpolate task names too via lookup_task_name)
+        if let Some(job_num) = self.lookup_task_name(watcher, target).await? {
+            return Ok(job_num);
+        }
+        // Otherwise add as a file dependency
+        if glob_files {
+            Ok(self.add_file(String::from(target))?)
+        } else {
+            Err(anyhow!("No target task '{}' defined in the Chompfile. \nRun \x1b[36mchomp --list\x1b[0m to see the available named targets.", target))
         }
     }
 
@@ -1868,6 +1854,57 @@ impl<'a> Runner<'a> {
         }
 
         Ok(found)
+    }
+
+    // DFS cycle check from `root`. Build DAGs must be acyclic to be unrolled, and
+    // drive_all blindly recurses into job.deps with only a self-edge guard, so an
+    // indirect cycle (e.g. two tasks each claiming the same target) blows the stack
+    // at execution time. Detect it once after expansion with a tri-colour DFS so we
+    // surface a clear error instead.
+    fn check_acyclic(&self, root: usize) -> Result<()> {
+        // (node, dep_index) — the dep_index is the next dep to visit.
+        let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
+        let mut on_stack: HashSet<usize> = HashSet::new();
+        let mut done: HashSet<usize> = HashSet::new();
+        on_stack.insert(root);
+        while let Some(&(node, idx)) = stack.last() {
+            let deps: &[usize] = match &self.nodes[node] {
+                Node::Job(j) => &j.deps,
+                Node::File(_) => &[],
+            };
+            if idx >= deps.len() {
+                stack.pop();
+                on_stack.remove(&node);
+                done.insert(node);
+                continue;
+            }
+            let dep = deps[idx];
+            stack.last_mut().unwrap().1 = idx + 1;
+            if dep == node || done.contains(&dep) {
+                continue;
+            }
+            if !on_stack.insert(dep) {
+                let cycle: Vec<String> = stack
+                    .iter()
+                    .skip_while(|(n, _)| *n != dep)
+                    .map(|(n, _)| self.node_display(*n))
+                    .chain(std::iter::once(self.node_display(dep)))
+                    .collect();
+                return Err(anyhow!(
+                    "Circular dependency detected:\n  {}",
+                    cycle.join("\n  → ")
+                ));
+            }
+            stack.push((dep, 0));
+        }
+        Ok(())
+    }
+
+    fn node_display(&self, node: usize) -> String {
+        match &self.nodes[node] {
+            Node::Job(j) => j.display_name(&self.tasks, &self.cwd),
+            Node::File(f) => f.name.clone(),
+        }
     }
 
     #[async_recursion(?Send)]
@@ -2059,7 +2096,7 @@ impl<'a> Runner<'a> {
 
                     self.expand_interpolate_match(
                         watcher,
-                        &dep_path,
+                        Some(&dep_path),
                         interpolate,
                         parent_job,
                         parent_task,
@@ -2079,7 +2116,7 @@ impl<'a> Runner<'a> {
     async fn expand_interpolate_match(
         &mut self,
         watcher: &mut dyn Watcher,
-        dep_path: &str,
+        dep_path: Option<&str>,
         interpolate: &str,
         parent_job: usize,
         parent_task: usize,
@@ -2087,7 +2124,6 @@ impl<'a> Runner<'a> {
         let watch = self.watch;
         let task = &self.tasks[parent_task];
         let targets = task.targets.clone();
-
         let (job_num, new_job) = self.add_job(parent_task, Some(String::from(interpolate)))?;
 
         // Already defined -> skip
@@ -2095,23 +2131,49 @@ impl<'a> Runner<'a> {
             return Ok(job_num);
         }
 
-        let dep_num = if let Some(&existing) = self.file_nodes.get(dep_path) {
-            match self.nodes[existing] {
-                Node::File(ref mut file) => file.parents.push(job_num),
-                Node::Job(ref mut job) => job.parents.push(job_num),
-            }
-            existing
-        } else {
-            let dep_num = self.add_file(dep_path.to_string())?;
-            let file = self.get_file_mut(dep_num).unwrap();
-            file.parents.push(job_num);
-            file.init(if watch { Some(watcher) } else { None });
-            dep_num
-        };
+        if let Some(dep_path) = dep_path {
+            let dep_num = if let Some(&existing) = self.file_nodes.get(dep_path) {
+                match self.nodes[existing] {
+                    Node::File(ref mut file) => file.parents.push(job_num),
+                    Node::Job(ref mut job) => job.parents.push(job_num),
+                }
+                existing
+            } else if let Some((producer_parent, producer_interpolate)) =
+                self.match_interpolate_target(dep_path)?
+            {
+                // dep_path is the interpolated target of another task — drive that task to
+                // produce it instead of treating dep_path as a missing static file (#183).
+                let producer_task = self.get_job(producer_parent).unwrap().task;
+                let producer_input =
+                    self.interpolate_dep_input(producer_task, &producer_interpolate);
+                let producer_job = self
+                    .expand_interpolate_match(
+                        watcher,
+                        producer_input.as_deref(),
+                        &producer_interpolate,
+                        producer_parent,
+                        producer_task,
+                    )
+                    .await?;
+                if let Node::Job(ref mut job) = self.nodes[producer_job] {
+                    if job.parents.iter().find(|&&p| p == job_num).is_none() {
+                        job.parents.push(job_num);
+                    }
+                }
+                producer_job
+            } else {
+                let dep_num = self.add_file(dep_path.to_string())?;
+                let file = self.get_file_mut(dep_num).unwrap();
+                file.parents.push(job_num);
+                file.init(if watch { Some(watcher) } else { None });
+                dep_num
+            };
 
-        let job = self.get_job_mut(job_num).unwrap();
-        job.deps.push(dep_num);
+            let job = self.get_job_mut(job_num).unwrap();
+            job.deps.push(dep_num);
+        }
         // just because an interpolate is expanded, does not mean it is live
+        let job = self.get_job_mut(job_num).unwrap();
         job.state = JobState::Initialized;
 
         let mut expansions = Vec::new();
@@ -2154,8 +2216,14 @@ impl<'a> Runner<'a> {
         let parent = self.get_job_mut(parent_job).unwrap();
         parent.deps.push(job_num);
         for (dep, interpolate, parent_job, parent_task) in expansions.drain(..) {
-            self.expand_interpolate_match(watcher, &dep, &interpolate, parent_job, parent_task)
-                .await?;
+            self.expand_interpolate_match(
+                watcher,
+                Some(&dep),
+                &interpolate,
+                parent_job,
+                parent_task,
+            )
+            .await?;
         }
 
         // non-interpolation parent interpolation template deps are child deps
@@ -2335,6 +2403,9 @@ impl<'a> Runner<'a> {
                 }
                 job_nums.insert(job);
             }
+        }
+        for &job_num in &job_nums {
+            self.check_acyclic(job_num)?;
         }
         // When running with arguments, mutate the task environment to include the arguments
         // Arguments tasks cannot be cached
