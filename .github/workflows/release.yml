@@ -14,16 +14,10 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-      - name: Setup Chomp
-        with:
-          version: 0.2.11
-        uses: guybedford/chomp-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: cargo login ${CRATES_IO_TOKEN}
         env:
           CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-      - run: chomp build:release
+      - run: cargo build --release --locked
       - name: publish chomp
         run: cargo publish
 
