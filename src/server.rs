@@ -46,7 +46,7 @@ async fn client_connection(ws: WebSocket, state: State) {
     client_sender.send(Ok(Message::text("Connected"))).unwrap();
     let id = {
         let clients_vec = &mut state.write().await.clients;
-        let id = if clients_vec.len() > 0 {
+        let id = if !clients_vec.is_empty() {
             clients_vec.last().unwrap().id + 1
         } else {
             1
@@ -114,15 +114,12 @@ pub enum FileEvent {
 
 async fn check_watcher(mut rx: UnboundedReceiver<WatchEvent>, root: &PathBuf, state: State) {
     loop {
-        match rx.recv().await {
-            Some(path) => {
-                let path_str = match path.strip_prefix(root) {
-                    Ok(path) => path.to_str().unwrap(),
-                    Err(_) => continue,
-                };
-                let _ = revalidate(&path, &path_str, state.clone(), true).await;
-            }
-            None => {}
+        if let Some(path) = rx.recv().await {
+            let path_str = match path.strip_prefix(root) {
+                Ok(path) => path.to_str().unwrap(),
+                Err(_) => continue,
+            };
+            let _ = revalidate(&path, path_str, state.clone(), true).await;
         }
     }
 }
@@ -257,8 +254,8 @@ pub async fn serve(
         }
     };
     let root_str = root.to_str().unwrap();
-    let root = if root_str.starts_with(r"\\?\") {
-        PathBuf::from(String::from(&root_str[4..]))
+    let root = if let Some(rest) = root_str.strip_prefix(r"\\?\") {
+        PathBuf::from(String::from(rest))
     } else {
         root
     };
@@ -313,7 +310,7 @@ pub async fn serve(
                 if cached {
                     let mut res = Response::new(Bytes::new());
                     *res.status_mut() = StatusCode::NOT_MODIFIED;
-                    return res;
+                    res
                 } else {
                     file_serve(&path, &root, etag).await
                 }

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+#![allow(clippy::type_complexity, clippy::too_many_arguments)]
+
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
@@ -57,21 +59,17 @@ run = 'echo \"Build script goes here\"'
 const CHOMP_EMPTY: &str = "version = 0.1\n";
 
 fn uri_parse(uri_str: &str) -> Option<Uri> {
-    match uri_str.parse::<Uri>() {
-        Ok(uri) => match uri.scheme_str() {
-            Some(_) => Some(uri),
-            None => None,
-        },
-        Err(_) => None,
-    }
+    let uri = uri_str.parse::<Uri>().ok()?;
+    uri.scheme_str()?;
+    Some(uri)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(not(debug_assertions))]
-    let version = "0.2.23";
+    let version = "0.3.0";
     #[cfg(debug_assertions)]
-    let version = "0.2.23-debug";
+    let version = "0.3.0-debug";
     let matches = Command::new("Chomp")
         .version(version)
         .arg(
@@ -197,18 +195,15 @@ async fn main() -> Result<()> {
 
     let mut targets: Vec<String> = Vec::new();
     let mut use_default_target = true;
-    match matches.get_many::<String>("target") {
-        Some(target) => {
-            for item in target {
-                targets.push(item.to_string());
-            }
+    if let Some(target) = matches.get_many::<String>("target") {
+        for item in target {
+            targets.push(item.to_string());
         }
-        None => {}
     }
 
     let cfg_path = Path::new(matches.get_one::<String>("config").unwrap());
     let cfg_dir = cfg_path.parent().unwrap().to_str().unwrap();
-    let mut cfg_file = canonicalize(if cfg_dir.len() == 0 { "." } else { cfg_dir }).unwrap();
+    let mut cfg_file = canonicalize(if cfg_dir.is_empty() { "." } else { cfg_dir }).unwrap();
     cfg_file.push(cfg_path.file_name().unwrap());
 
     let mut created = false;
@@ -253,7 +248,7 @@ async fn main() -> Result<()> {
 
     let cwd = {
         let mut parent: PathBuf = PathBuf::from(cfg_file.parent().unwrap());
-        if parent.to_str().unwrap().len() == 0 {
+        if parent.to_str().unwrap().is_empty() {
             parent = env::current_dir()?;
         }
         let unc_path = match canonicalize(&parent) {
@@ -277,7 +272,7 @@ async fn main() -> Result<()> {
     if matches.get_flag("clear_cache") {
         http_client::clear_cache().await?;
         println!("\x1b[1;32m√\x1b[0m Cleared remote URL extension cache.");
-        if targets.len() == 0 {
+        if targets.is_empty() {
             return Ok(());
         }
     }
@@ -329,7 +324,7 @@ async fn main() -> Result<()> {
                 None => String::from(CHOMP_CORE),
             };
             if !s.ends_with("/") && !s.ends_with("\\") {
-                s.push_str("/");
+                s.push('/');
             }
             s.push_str(&extensions[i][10..]);
             s.push_str(".js");
@@ -368,24 +363,21 @@ async fn main() -> Result<()> {
             }
         };
         if let Some(extension_source) = extension_source {
-            match extension_env.add_extension(&extension_source, canonical)? {
-                Some(mut new_includes) => {
-                    for ext in new_includes.drain(..) {
-                        // relative includes are relative to the parent
-                        if ext.starts_with("./") {
-                            let mut resolved_str =
-                                canonical[0..canonical.rfind("/").unwrap() + 1].to_string();
-                            resolved_str.push_str(&ext[2..]);
-                            extensions.push(resolved_str);
-                        } else {
-                            extensions.push(ext);
-                        }
+            if let Some(mut new_includes) = extension_env.add_extension(&extension_source, canonical)? {
+                for ext in new_includes.drain(..) {
+                    // relative includes are relative to the parent
+                    if let Some(rest) = ext.strip_prefix("./") {
+                        let mut resolved_str =
+                            canonical[0..canonical.rfind("/").unwrap() + 1].to_string();
+                        resolved_str.push_str(rest);
+                        extensions.push(resolved_str);
+                    } else {
+                        extensions.push(ext);
                     }
                 }
-                None => {}
             }
         }
-        i = i + 1;
+        i += 1;
     }
     extension_env.seal_extensions();
 
@@ -439,7 +431,7 @@ async fn main() -> Result<()> {
             serde_json::Value::Object(scripts) => {
                 for (name, val) in scripts.iter() {
                     if let serde_json::Value::String(run) = &val {
-                        script_tasks = script_tasks + 1;
+                        script_tasks += 1;
                         let mut task = ChompTaskMaybeTemplated::new();
                         task.name = Some(name.to_string());
                         task.run = Some(run.to_string());
@@ -479,7 +471,7 @@ async fn main() -> Result<()> {
     chompfile.task.append(&mut template_tasks);
 
     if matches.get_flag("list") {
-        if targets.len() > 0 {
+        if !targets.is_empty() {
             return Err(anyhow!("--list does not take any arguments."));
         }
         if matches.get_flag("eject_templates")
@@ -492,7 +484,7 @@ async fn main() -> Result<()> {
         }
         for task in &chompfile.task {
             if let Some(name) = &task.name {
-                let matches_some_target = if targets.len() > 0 {
+                let matches_some_target = if !targets.is_empty() {
                     let mut matches_some_target = false;
                     for target in &targets {
                         if name.starts_with(target) {
@@ -538,12 +530,12 @@ async fn main() -> Result<()> {
                 if created { "created" } else { "updated" }
             );
         }
-        if matches.get_flag("eject_templates") || targets.len() == 0 {
+        if matches.get_flag("eject_templates") || targets.is_empty() {
             return Ok(());
         }
     }
 
-    let targets = if targets.len() == 0 && use_default_target {
+    let targets = if targets.is_empty() && use_default_target {
         vec![chompfile
             .default_task
             .to_owned()
@@ -564,7 +556,7 @@ async fn main() -> Result<()> {
                 watch: matches.get_flag("serve") || matches.get_flag("watch"),
                 force: matches.get_flag("force"),
                 rerun: matches.get_flag("rerun"),
-                args: if args.len() > 0 { Some(args) } else { None },
+                args: if !args.is_empty() { Some(args) } else { None },
                 pool_size,
                 targets,
                 cfg_file,

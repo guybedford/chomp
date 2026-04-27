@@ -31,7 +31,7 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     let start_time = Instant::now();
     let uuid = Uuid::new_v4();
     let mut tmp_file = env::temp_dir();
-    tmp_file.push(&format!("{}.ts", uuid.as_simple().to_string()));
+    tmp_file.push(format!("{}.ts", uuid.as_simple()));
     let tmp_file2 = tmp_file.clone();
     cmd.env.insert(
         "CHOMP_MAIN".to_string(),
@@ -45,7 +45,7 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     let write_future = fs::write(tmp_file, cmd.run.to_string());
     cmd.run = DENO_CMD.to_string();
     let exec_num = cmd_pool.exec_num;
-    cmd_pool.exec_cnt = cmd_pool.exec_cnt + 1;
+    cmd_pool.exec_cnt += 1;
     let pool = cmd_pool as *mut CmdPool;
     let echo = cmd.echo;
     cmd.echo = false;
@@ -57,11 +57,9 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     );
     let future = async move {
         let cmd_pool = unsafe { &mut *pool };
-        let mut exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();
+        let exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();
         write_future.await.expect("unable to write temporary file");
-        if exec.child.is_none() {
-            return None;
-        }
+        exec.child.as_ref()?;
         if echo {
             println!("<Deno exec>");
         }
@@ -78,7 +76,7 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
                 _ => panic!("Unexpected exec error {:?}", e),
             },
         };
-        cmd_pool.exec_cnt = cmd_pool.exec_cnt - 1;
+        cmd_pool.exec_cnt -= 1;
         fs::remove_file(&tmp_file2)
             .await
             .expect("unable to cleanup tmp file");
@@ -99,5 +97,5 @@ pub fn deno_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
             state: ExecState::Executing,
         },
     );
-    cmd_pool.exec_num = cmd_pool.exec_num + 1;
+    cmd_pool.exec_num += 1;
 }

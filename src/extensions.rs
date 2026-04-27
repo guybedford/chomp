@@ -30,7 +30,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use v8;
 
 pub struct ExtensionEnvironment {
     isolate: v8::OwnedIsolate,
@@ -86,7 +85,7 @@ fn create_template_options(
     if let Some(default_options) = default_options.get(template) {
         for (key, value) in default_options {
             let converted_key = key.from_case(Case::Kebab).to_case(Case::Camel);
-            if options.get(&converted_key).is_some() {
+            if options.contains_key(&converted_key) {
                 continue;
             }
             options.insert(converted_key, value.clone());
@@ -115,7 +114,7 @@ pub fn expand_template_tasks(
         let mut cloned = task.clone();
         if let Some(ref template) = task.template {
             cloned.template_options = Some(create_template_options(
-                &template,
+                template,
                 &task.template_options,
                 &chompfile.template_options,
                 true,
@@ -124,7 +123,7 @@ pub fn expand_template_tasks(
         task_queue.push_back(cloned);
     }
 
-    while task_queue.len() > 0 {
+    while !task_queue.is_empty() {
         let mut task = task_queue.pop_front().unwrap();
         if task.template.is_none() {
             out_tasks.push(task);
@@ -141,12 +140,12 @@ pub fn expand_template_tasks(
             name: task.name.clone(),
             target: None,
             targets: Some(task.targets_vec(cwd)?),
-            invalidation: Some(task.invalidation.clone().unwrap_or_default()),
-            validation: Some(task.validation.clone().unwrap_or_default()),
+            invalidation: Some(task.invalidation.unwrap_or_default()),
+            validation: Some(task.validation.unwrap_or_default()),
             dep: None,
-            deps: Some(task.deps_vec(&chompfile, cwd)?),
+            deps: Some(task.deps_vec(chompfile, cwd)?),
             args: task.args.clone(),
-            echo: task.echo.clone(),
+            echo: task.echo,
             display: task.display,
             stdio: Some(task.stdio.unwrap_or_default()),
             serial: task.serial,
@@ -160,12 +159,12 @@ pub fn expand_template_tasks(
             watch_invalidation: task.watch_invalidation,
         };
         let mut template_tasks: Vec<ChompTaskMaybeTemplatedJs> =
-            extension_env.run_template(&template, &js_task)?;
+            extension_env.run_template(template, &js_task)?;
         // template functions output a list of tasks
         for mut template_task in template_tasks.drain(..).rev() {
             template_task.template_options = if let Some(ref template) = template_task.template {
                 Some(create_template_options(
-                    &template,
+                    template,
                     &template_task.template_options,
                     &chompfile.template_options,
                     false,
@@ -196,12 +195,12 @@ fn chomp_log(
     let mut i = 0;
     while i < len {
         // TODO: better object logging - currently throws on objects
-        let arg: v8::Local<v8::Value> = args.get(i).try_into().unwrap();
+        let arg: v8::Local<v8::Value> = args.get(i);
         if i > 0 {
             msg.push_str(", ");
         }
         msg.push_str(&arg.to_rust_string_lossy(scope));
-        i = i + 1;
+        i += 1;
     }
     println!("{}", &msg);
 }
@@ -368,7 +367,7 @@ impl ExtensionEnvironment {
         }
     }
 
-    fn handle_scope(&mut self) -> v8::HandleScope {
+    fn handle_scope(&mut self) -> v8::HandleScope<'_> {
         v8::HandleScope::with_context(&mut self.isolate, self.global_context.clone())
     }
 
@@ -396,7 +395,7 @@ impl ExtensionEnvironment {
             let code =
                 v8::String::new(&mut handle_scope, &format!("{{{}}}", extension_source)).unwrap();
             let tc_scope = &mut v8::TryCatch::new(&mut handle_scope);
-            let resource_name = v8::String::new(tc_scope, &filename).unwrap().into();
+            let resource_name = v8::String::new(tc_scope, filename).unwrap().into();
             let source_map = v8::String::new(tc_scope, "").unwrap().into();
             let origin = v8::ScriptOrigin::new(
                 tc_scope,
@@ -420,7 +419,7 @@ impl ExtensionEnvironment {
             };
         }
         let mut extensions = self.get_extensions().borrow_mut();
-        if extensions.includes.len() > 0 {
+        if !extensions.includes.is_empty() {
             Ok(Some(extensions.includes.drain(..).collect()))
         } else {
             Ok(None)
@@ -479,7 +478,7 @@ impl ExtensionEnvironment {
     }
 
     pub fn has_batchers(&self) -> bool {
-        self.get_extensions().borrow().batchers.len() > 0
+        !self.get_extensions().borrow().batchers.is_empty()
     }
 
     pub fn run_batcher(
@@ -509,10 +508,8 @@ impl ExtensionEnvironment {
             None => return Err(v8_exception(tc_scope)),
         };
 
-        let result: Option<BatcherResult> = from_v8(tc_scope, result).expect(&format!(
-            "Unable to deserialize batch for {} due to invalid structure",
-            name
-        ));
+        let result: Option<BatcherResult> = from_v8(tc_scope, result).unwrap_or_else(|_| panic!("Unable to deserialize batch for {} due to invalid structure",
+            name));
         let next = if idx < batchers_len - 1 {
             Some(idx + 1)
         } else {
@@ -529,7 +526,7 @@ impl ExtensionEnvironment {
     }
 }
 
-fn v8_exception<'a>(scope: &mut v8::TryCatch<v8::HandleScope>) -> Error {
+fn v8_exception(scope: &mut v8::TryCatch<v8::HandleScope>) -> Error {
     let exception = scope.exception().unwrap();
     if is_instance_of_error(scope, exception) {
         let exception: v8::Local<v8::Object> = exception.try_into().unwrap();
@@ -538,14 +535,14 @@ fn v8_exception<'a>(scope: &mut v8::TryCatch<v8::HandleScope>) -> Error {
         let stack: Option<v8::Local<v8::String>> = stack.and_then(|s| s.try_into().ok());
         let stack = stack.map(|s| s.to_rust_string_lossy(scope));
         let err_str = stack.unwrap();
-        if err_str.starts_with("Error: ") {
-            anyhow!("{}", &err_str[7..])
-        } else if err_str.starts_with("TypeError: ") {
-            anyhow!("TypeError {}", &err_str[11..])
-        } else if err_str.starts_with("SyntaxError: ") {
-            anyhow!("SyntaxError {}", &err_str[13..])
-        } else if err_str.starts_with("ReferenceError: ") {
-            anyhow!("ReferenceError {}", &err_str[16..])
+        if let Some(rest) = err_str.strip_prefix("Error: ") {
+            anyhow!("{}", rest)
+        } else if let Some(rest) = err_str.strip_prefix("TypeError: ") {
+            anyhow!("TypeError {}", rest)
+        } else if let Some(rest) = err_str.strip_prefix("SyntaxError: ") {
+            anyhow!("SyntaxError {}", rest)
+        } else if let Some(rest) = err_str.strip_prefix("ReferenceError: ") {
+            anyhow!("ReferenceError {}", rest)
         } else {
             anyhow!("{}", &err_str)
         }

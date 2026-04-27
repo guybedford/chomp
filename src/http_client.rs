@@ -44,14 +44,13 @@ pub async fn clear_cache() -> std::io::Result<()> {
 }
 
 pub async fn prep_cache() -> Result<()> {
-    match fs::create_dir_all(chomp_cache_dir()).await {
-        _ => Ok(()),
-    }
+    let _ = fs::create_dir_all(chomp_cache_dir()).await;
+    Ok(())
 }
 
 #[inline(always)]
 fn u4_to_hex_char(c: u8) -> char {
-    return if c < 10 { c + 48 } else { c + 87 } as char;
+    (if c < 10 { c + 48 } else { c + 87 } as char)
 }
 
 pub fn hash(input: &[u8]) -> String {

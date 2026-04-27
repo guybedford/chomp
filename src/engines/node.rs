@@ -47,7 +47,7 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     cmd.echo = false;
     let run_clone = if echo { Some(cmd.run.clone()) } else { None };
     let exec_num = cmd_pool.exec_num;
-    cmd_pool.exec_cnt = cmd_pool.exec_cnt + 1;
+    cmd_pool.exec_cnt += 1;
     let pool = cmd_pool as *mut CmdPool;
     let child = create_cmd(
         cmd.cwd.as_ref().unwrap_or(&cmd_pool.cwd),
@@ -57,10 +57,8 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
     );
     let future = async move {
         let cmd_pool = unsafe { &mut *pool };
-        let mut exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();
-        if exec.child.is_none() {
-            return None;
-        }
+        let exec = &mut cmd_pool.execs.get_mut(&exec_num).unwrap();
+        exec.child.as_ref()?;
         if echo {
             println!("{}", run_clone.as_ref().unwrap());
         }
@@ -77,7 +75,7 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
                 _ => panic!("Unexpected exec error {:?}", e),
             },
         };
-        cmd_pool.exec_cnt = cmd_pool.exec_cnt - 1;
+        cmd_pool.exec_cnt -= 1;
         let end_time = Instant::now();
         // finally we verify that the targets exist
         let mtime = check_target_mtimes(targets, true).await;
@@ -95,5 +93,5 @@ pub fn node_runner(cmd_pool: &mut CmdPool, mut cmd: BatchCmd, targets: Vec<Strin
             state: ExecState::Executing,
         },
     );
-    cmd_pool.exec_num = cmd_pool.exec_num + 1;
+    cmd_pool.exec_num += 1;
 }

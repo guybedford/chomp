@@ -179,7 +179,7 @@ impl<'a> CmdPool<'a> {
         // the child processes, which can leave zombie processes behind
         println!("Terminating {}...", name);
         let exec_num = self.cmd_execs.get(&cmd_num).unwrap();
-        let exec = &mut self.execs.get_mut(&exec_num).unwrap();
+        let exec = &mut self.execs.get_mut(exec_num).unwrap();
         if matches!(exec.state, ExecState::Executing) {
             exec.state = ExecState::Terminating;
             let child = exec.child.as_mut().unwrap();
@@ -198,7 +198,7 @@ impl<'a> CmdPool<'a> {
             let this = unsafe { &mut *pool };
             loop {
                 if let Some(exec_num) = this.cmd_execs.get(&cmd_num) {
-                    let exec = &this.execs[&exec_num];
+                    let exec = &this.execs[exec_num];
                     let result = exec.future.clone().await;
                     if result.is_none() {
                         return Err(Rc::new(match exec.cmd.engine {
@@ -267,8 +267,8 @@ impl<'a> CmdPool<'a> {
                         if let Some(mut exec) = exec.take() {
                             for cmd in exec.drain(..) {
                                 for cmd_num in cmd.ids.iter() {
-                                    this.batching.remove(&cmd_num);
-                                    batch.remove(&cmds[&cmd_num]);
+                                    this.batching.remove(cmd_num);
+                                    batch.remove(&cmds[cmd_num]);
                                 }
                                 batched.push(cmd);
                             }
@@ -298,7 +298,7 @@ impl<'a> CmdPool<'a> {
                         cwd: cmd.cwd.clone(),
                         engine: cmd.engine,
                         env: cmd.env.clone(),
-                        stdio: Some(cmd.stdio.clone()),
+                        stdio: Some(cmd.stdio),
                         ids: vec![cmd.id],
                     })
                     .await;
@@ -318,7 +318,7 @@ impl<'a> CmdPool<'a> {
 
         let mut targets = Vec::new();
         for id in &cmd.ids {
-            let cmd = &self.cmds[&id];
+            let cmd = &self.cmds[id];
             if let Some(name) = &cmd.name {
                 println!("\x1b[1m▶ {}\x1b[0m", name);
             }
@@ -343,7 +343,7 @@ impl<'a> CmdPool<'a> {
         match cmd.engine {
             ChompEngine::Shell => {
                 let start_time = Instant::now();
-                self.exec_cnt = self.exec_cnt + 1;
+                self.exec_cnt += 1;
                 let child = create_cmd(
                     cmd.cwd.as_ref().unwrap_or(&self.cwd),
                     &self.path,
@@ -367,7 +367,7 @@ impl<'a> CmdPool<'a> {
                         },
                     };
                     let end_time = Instant::now();
-                    this.exec_cnt = this.exec_cnt - 1;
+                    this.exec_cnt -= 1;
                     // finally we verify that the targets exist
                     let mtime = check_target_mtimes(targets, true).await;
                     Some((exec.state, mtime, end_time - start_time))
@@ -383,7 +383,7 @@ impl<'a> CmdPool<'a> {
                         state: ExecState::Executing,
                     },
                 );
-                self.exec_num = self.exec_num + 1;
+                self.exec_num += 1;
             }
             ChompEngine::Node => node_runner(self, cmd, targets),
             ChompEngine::Deno => deno_runner(self, cmd, targets),

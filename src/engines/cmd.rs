@@ -36,16 +36,16 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
         let mut env_str = String::from("$");
         env_str.push_str(name);
         if out_arg.contains(&env_str) {
-            out_arg = out_arg.replace(&env_str, &value);
+            out_arg = out_arg.replace(&env_str, value);
             if out_arg.find('$').is_none() {
                 return out_arg;
             }
         }
         let mut env_str_curly = String::from("${");
         env_str_curly.push_str(name);
-        env_str_curly.push_str("}");
+        env_str_curly.push('}');
         if out_arg.contains(&env_str_curly) {
-            out_arg = out_arg.replace(&env_str_curly, &value);
+            out_arg = out_arg.replace(&env_str_curly, value);
             if out_arg.find('$').is_none() {
                 return out_arg;
             }
@@ -66,7 +66,7 @@ fn replace_env_vars(arg: &str, env: &BTreeMap<String, String>) -> String {
         }
         let mut env_str_curly = String::from("${");
         env_str_curly.push_str(&name);
-        env_str_curly.push_str("}");
+        env_str_curly.push('}');
         if out_arg.contains(&env_str_curly) {
             out_arg = out_arg.replace(&env_str_curly, &value);
             if out_arg.find('$').is_none() {
@@ -132,7 +132,7 @@ pub fn create_cmd(
         println!("{}", &run);
     }
     // fast path for direct commands to skip the shell entirely
-    if let Some(capture) = CMD.captures(&run) {
+    if let Some(capture) = CMD.captures(run) {
         let mut cmd = String::from(&capture["cmd"]);
         let mut do_spawn = true;
         // Path-like must be exact
@@ -164,7 +164,7 @@ pub fn create_cmd(
             let mut cmd_with_ext = cmd.to_owned();
             cmd_with_ext.push_str(".cmd");
             let mut command = Command::new(&cmd_with_ext);
-            command.env("PATH", &path);
+            command.env("PATH", path);
             for (name, value) in &batch_cmd.env {
                 command.env(name, value);
             }
@@ -177,7 +177,7 @@ pub fn create_cmd(
                 } else {
                     &arg[1..arg.len()]
                 };
-                if batch_cmd.env.len() > 0 {
+                if !batch_cmd.env.is_empty() {
                     command.arg(replace_env_vars(arg_str, &batch_cmd.env));
                 } else {
                     command.arg(arg_str);
@@ -188,7 +188,7 @@ pub fn create_cmd(
                 Ok(child) => return Some(child),
                 Err(_) => {
                     let mut command = Command::new(&cmd);
-                    command.env("PATH", &path);
+                    command.env("PATH", path);
                     for (name, value) in &batch_cmd.env {
                         command.env(name, value);
                     }
@@ -201,7 +201,7 @@ pub fn create_cmd(
                         } else {
                             &arg[1..arg.len()]
                         };
-                        if batch_cmd.env.len() > 0 {
+                        if !batch_cmd.env.is_empty() {
                             command.arg(replace_env_vars(arg_str, &batch_cmd.env));
                         } else {
                             command.arg(arg_str);
@@ -242,13 +242,13 @@ pub fn create_cmd(
             run_str.push_str(&format!("${}='{}';", name, value.replace("'", "''")));
         }
         run_str.push('\n');
-        run_str.push_str(&run);
+        run_str.push_str(run);
         command.arg(run_str);
     } else {
         command.arg("/d");
         // command.arg("/s");
         command.arg("/c");
-        command.arg(&run);
+        command.arg(run);
     }
     command.env("PATH", path);
     for (name, value) in &batch_cmd.env {

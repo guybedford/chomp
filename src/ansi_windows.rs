@@ -58,5 +58,5 @@ pub fn enable_ansi_support() -> Result<(), u32> {
         }
     }
 
-    return Ok(());
+    Ok(())
 }

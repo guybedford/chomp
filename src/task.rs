@@ -67,6 +67,7 @@ pub struct Task<'a> {
     chomp_task: &'a ChompTaskMaybeTemplated,
 }
 
+#[allow(dead_code)]
 pub struct RunOptions {
     pub args: Option<Vec<String>>,
     pub cfg_file: PathBuf,
@@ -194,11 +195,11 @@ fn check_interpolate_exclude(task: &Task, path: &str) -> bool {
         } else {
             interpolation_target.replace('#', "(*)")
         };
-        if Pattern::new(&target_glob).unwrap().matches(&path) {
+        if Pattern::new(&target_glob).unwrap().matches(path) {
             return true;
         }
     }
-    return false;
+    false
 }
 
 fn replace_interpolate(s: &str, replacement: &str) -> String {
@@ -244,36 +245,34 @@ impl<'a> Job {
         }
     }
 
-    fn display_name(&self, tasks: &Vec<Task<'a>>, cwd: &str) -> String {
+    fn display_name(&self, tasks: &[Task<'a>], cwd: &str) -> String {
         let task = &tasks[self.task];
         let mut skip_relative_path = true;
-        let name = if self.interpolate.is_some() {
+        let name = if let Some(interpolate) = self.interpolate.as_ref() {
             skip_relative_path = false;
-            if task.targets.len() > 0 {
+            if !task.targets.is_empty() {
                 match task.targets.iter().find(|&t| t.contains('#')) {
-                    Some(interpolate_target) => {
-                        replace_interpolate(interpolate_target, &self.interpolate.as_ref().unwrap())
-                    }
+                    Some(interpolate_target) => replace_interpolate(interpolate_target, interpolate),
                     None => replace_interpolate(
                         task.deps.iter().find(|&d| d.contains('#')).unwrap(),
-                        &self.interpolate.as_ref().unwrap(),
+                        interpolate,
                     ),
                 }
             } else {
                 replace_interpolate(
                     task.deps.iter().find(|&d| d.contains('#')).unwrap(),
-                    &self.interpolate.as_ref().unwrap(),
+                    interpolate,
                 )
             }
-        } else if self.targets.len() > 0 {
+        } else if !self.targets.is_empty() {
             skip_relative_path = false;
             self.targets.first().unwrap().to_string()
         } else if let Some(name) = &task.name {
-            String::from(format!(":{}", name))
+            format!(":{}", name)
         } else if let Some(run) = &task.chomp_task.run {
-            String::from(format!("{}", run))
+            run.to_string()
         } else {
-            String::from(format!("[task {}]", self.task))
+            format!("[task {}]", self.task)
         };
 
         if skip_relative_path {
@@ -359,7 +358,7 @@ impl QueuedStateTransitions {
 
 // None = NotFound
 pub async fn check_target_mtimes(targets: Vec<String>, default_latest: bool) -> Option<Duration> {
-    if targets.len() == 0 {
+    if targets.is_empty() {
         if default_latest {
             return Some(now());
         } else {
@@ -389,7 +388,7 @@ pub async fn check_target_mtimes(targets: Vec<String>, default_latest: bool) -> 
     }
     let mut has_missing = false;
     let mut last_mtime = None;
-    while futures.len() > 0 {
+    while !futures.is_empty() {
         let (mtime, _, new_futures) = select_all(futures).await;
         futures = new_futures;
         if mtime.is_none() {
@@ -414,9 +413,9 @@ fn now() -> std::time::Duration {
 // env vars since these are specifically promoted to local variables
 // for the powershell exec
 #[cfg(target_os = "windows")]
-fn create_task_env<'a>(
+fn create_task_env(
     task: &ChompTaskMaybeTemplated,
-    chompfile: &'a Chompfile,
+    chompfile: &Chompfile,
     replacements: bool,
 ) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
@@ -564,13 +563,13 @@ impl<'a> Runner<'a> {
 
         for task in &runner.chompfile.task {
             let targets = task.targets_vec(&cwd)?;
-            let deps = task.deps_vec(&chompfile, &cwd)?;
-            let env = create_task_env(&task, &chompfile, task.env_replace.unwrap_or(true));
+            let deps = task.deps_vec(chompfile, &cwd)?;
+            let env = create_task_env(task, chompfile, task.env_replace.unwrap_or(true));
             let task = Task {
                 name: task.name.clone(),
                 targets,
                 deps,
-                chomp_task: &task,
+                chomp_task: task,
                 env,
             };
 
@@ -591,32 +590,34 @@ impl<'a> Runner<'a> {
         // root and `chomp build:foo` couldn't reach it (#183).
         let is_interpolate_target = task.deps.iter().any(|d| d.contains('#'))
             || task.targets.iter().any(|t| t.contains('#'))
-            || task.name.as_deref().map_or(false, |n| n.contains('#'));
+            || task.name.as_deref().is_some_and(|n| n.contains('#'));
 
         // map target name
         if let Some(ref name) = task.name {
-            if interpolate.is_none() {
-                let name = if is_interpolate_target && name.contains('#') {
-                    // interpolates support "#" in the name as well
-                    // which is treated as blank for the all case
-                    replace_interpolate(name, "")
-                } else {
-                    name.to_string()
-                };
-                if !self.task_jobs.contains_key(&name) {
+            match &interpolate {
+                None => {
+                    let name = if is_interpolate_target && name.contains('#') {
+                        // interpolates support "#" in the name as well
+                        // which is treated as blank for the all case
+                        replace_interpolate(name, "")
+                    } else {
+                        name.to_string()
+                    };
+                    self.task_jobs.entry(name).or_insert(num);
+                }
+                Some(interpolate) if name.contains('#') => {
+                    // interpolate individual names only expanded when using "#" in the name.
+                    // Reuse an existing job for this (task, interpolate) pair — without this
+                    // dedup, tasks that have an interpolated name but no target to register
+                    // in file_nodes would create a new node on every visit, recursing forever
+                    // when their dep is itself the target of another interpolation task (#183).
+                    let name = replace_interpolate(name, interpolate);
+                    if let Some(&existing) = self.task_jobs.get(&name) {
+                        return Ok((existing, false));
+                    }
                     self.task_jobs.insert(name, num);
                 }
-            } else if name.contains('#') {
-                // interpolate individual names only expanded when using "#" in the name.
-                // Reuse an existing job for this (task, interpolate) pair — without this
-                // dedup, tasks that have an interpolated name but no target to register
-                // in file_nodes would create a new node on every visit, recursing forever
-                // when their dep is itself the target of another interpolation task (#183).
-                let name = replace_interpolate(name, interpolate.as_ref().unwrap());
-                if let Some(&existing) = self.task_jobs.get(&name) {
-                    return Ok((existing, false));
-                }
-                self.task_jobs.insert(name, num);
+                Some(_) => {}
             }
         }
 
@@ -679,7 +680,7 @@ impl<'a> Runner<'a> {
         }
 
         self.nodes.push(Node::Job(job));
-        return Ok((num, true));
+        Ok((num, true))
     }
 
     fn add_file(&mut self, file: String) -> Result<usize> {
@@ -750,7 +751,7 @@ impl<'a> Runner<'a> {
             || self.chompfile.echo
         {
             let mut name = job.display_name(&self.tasks, &self.cwd);
-            let primary = job.parents.len() == 0;
+            let primary = job.parents.is_empty();
             if primary {
                 let mut name_bold = String::from("\x1b[1m");
                 name_bold.push_str(&name);
@@ -783,7 +784,7 @@ impl<'a> Runner<'a> {
                     println!("\x1b[1;31mx\x1b[0m {}", name);
                 } else if mtime.is_some() {
                     println!("\x1b[1;32m√\x1b[0m {}", name);
-                } else if task.deps.len() == 0 {
+                } else if task.deps.is_empty() {
                     println!("\x1b[1m●\x1b[0m {} \x1b[34m[exists]\x1b[0m", name);
                 } else {
                     println!("\x1b[1m●\x1b[0m {} \x1b[34m[cached]\x1b[0m", name);
@@ -844,7 +845,7 @@ impl<'a> Runner<'a> {
             }
             _ => self.get_job_mut(job_num).unwrap(),
         };
-        if job.parents.len() > 0 {
+        if !job.parents.is_empty() {
             for parent in job.parents.clone() {
                 if parent == job_num {
                     continue;
@@ -858,7 +859,7 @@ impl<'a> Runner<'a> {
 
     fn invalidate_path(
         &mut self,
-        path: &PathBuf,
+        path: &Path,
         queued: &mut QueuedStateTransitions,
         redrives: &mut HashSet<usize>,
     ) -> Result<bool> {
@@ -895,14 +896,14 @@ impl<'a> Runner<'a> {
                         }
                     }
                     for target in job.targets.iter() {
-                        if !deps.iter().find(|&dep| dep == target).is_some() {
+                        if deps.iter().find(|&dep| dep == target).is_none() {
                             deps.push(target.to_string());
                         }
                     }
                 }
                 Node::File(file) => {
                     let name = &file.name;
-                    if !deps.iter().find(|&dep| dep == name).is_some() {
+                    if deps.iter().find(|&dep| dep == name).is_none() {
                         deps.push(name.to_string());
                     }
                 }
@@ -1042,7 +1043,7 @@ impl<'a> Runner<'a> {
         } else {
             0
         };
-        let target = if task.targets.len() == 0 {
+        let target = if task.targets.is_empty() {
             "".to_string()
         } else if let Some(interpolate) = &job.interpolate {
             replace_interpolate(&task.targets[target_index], interpolate)
@@ -1053,7 +1054,7 @@ impl<'a> Runner<'a> {
         let mut targets = String::new();
         for (idx, t) in task.targets.iter().enumerate() {
             if idx > 0 {
-                targets.push_str(":");
+                targets.push(':');
             }
             if idx == target_index {
                 targets.push_str(&target);
@@ -1095,12 +1096,10 @@ impl<'a> Runner<'a> {
         };
         env.insert("TARGETS".to_string(), relative_targets);
 
-        let first_dep = deps.get(0);
         // relative dep for backward compatibility
-        let relative_dep = if first_dep.is_some() {
-            relative_path(&first_dep.unwrap(), &self.cwd)
-        } else {
-            "".to_string()
+        let relative_dep = match deps.first() {
+            Some(first_dep) => relative_path(first_dep, &self.cwd),
+            None => String::new(),
         };
         env.insert("DEP".to_string(), relative_dep);
 
@@ -1111,12 +1110,10 @@ impl<'a> Runner<'a> {
         relative_deps.sort();
         env.insert("DEPS".to_string(), relative_deps.join(":"));
 
-        if task.chomp_task.args.is_some() {
-            for arg in task.chomp_task.args.as_ref().unwrap() {
+        if let Some(args) = task.chomp_task.args.as_ref() {
+            for arg in args {
                 let k = arg.to_uppercase();
-                if !env.contains_key(&k) {
-                    env.insert(k, String::from(""));
-                }
+                env.entry(k).or_insert_with(|| String::from(""));
             }
         }
 
@@ -1152,8 +1149,8 @@ impl<'a> Runner<'a> {
                     Some(match canonicalize(&cwd) {
                         Ok(cwd) => {
                             let cwd = cwd.to_str().unwrap();
-                            if cwd.starts_with(r"\\?\") {
-                                String::from(&cwd[4..])
+                            if let Some(rest) = cwd.strip_prefix(r"\\?\") {
+                                String::from(rest)
                             } else {
                                 cwd.to_string()
                             }
@@ -1185,9 +1182,7 @@ impl<'a> Runner<'a> {
         Some((
             cmd_num,
             async move {
-                match exec_future.await {
-                    _ => {}
-                };
+                let _ = exec_future.await;
                 StateTransition::from_job(job_num, JobState::Running, Some(cmd_num))
             }
             .boxed_local(),
@@ -1314,14 +1309,11 @@ impl<'a> Runner<'a> {
                         if all_completed {
                             return match self.run_job(job_num, force) {
                                 Some((cmd_num, future)) => {
-                                    match queued.insert_job(
+                                    if queued.insert_job(
                                         job_num,
                                         JobState::Running,
                                         Some(cmd_num),
-                                    ) {
-                                        Some(_) => futures.push(future),
-                                        None => {}
-                                    };
+                                    ).is_some() { futures.push(future) };
                                     Ok(JobOrFileState::Job(JobState::Running))
                                 }
                                 None => {
@@ -1350,9 +1342,7 @@ impl<'a> Runner<'a> {
                             let future = self.cmd_pool.get_exec_future(cmd_num);
                             futures.push(
                                 async move {
-                                    match future.await {
-                                        _ => {}
-                                    };
+                                    let _ = future.await;
                                     transition
                                 }
                                 .boxed_local(),
@@ -1420,7 +1410,7 @@ impl<'a> Runner<'a> {
                     FileState::Found => Ok(JobOrFileState::File(FileState::Found)),
                     FileState::NotFound => {
                         if !self.watch {
-                            return Err(anyhow!("File {} not found", file.name));
+                            Err(anyhow!("File {} not found", file.name))
                         } else {
                             panic!("Watching files not yet created is not yet supported, in depending on {}. This should be supported, please post an issue on GitHub!", file.name);
                         }
@@ -1590,7 +1580,7 @@ impl<'a> Runner<'a> {
             if task.starts_with(lhs) && task.len() > lhs.len() + rhs.len() && task.ends_with(rhs) {
                 let value = task[interpolate_idx..task.len() - rhs.len()].to_string();
                 let specificity = lhs.len() + rhs.len();
-                if best.as_ref().map_or(true, |(_, _, s)| specificity > *s) {
+                if best.as_ref().is_none_or(|(_, _, s)| specificity > *s) {
                     best = Some((job_num, value, specificity));
                 }
             }
@@ -1633,7 +1623,7 @@ impl<'a> Runner<'a> {
             {
                 let value = target[interpolate_idx..target.len() - rhs.len()].to_string();
                 let specificity = lhs.len() + rhs.len();
-                if best.as_ref().map_or(true, |(_, _, s)| specificity > *s) {
+                if best.as_ref().is_none_or(|(_, _, s)| specificity > *s) {
                     best = Some((job_num, value, specificity));
                 }
             }
@@ -1715,12 +1705,12 @@ impl<'a> Runner<'a> {
         let mut target_suffix_len = 0;
         while target_prefix_len < target.len() && !has_glob_chars(&target[0..target_prefix_len + 1])
         {
-            target_prefix_len = target_prefix_len + 1;
+            target_prefix_len += 1;
         }
         while target_suffix_len < target.len()
             && !has_glob_chars(&target[target.len() - target_suffix_len - 1..])
         {
-            target_suffix_len = target_suffix_len + 1;
+            target_suffix_len += 1;
         }
         let target_prefix = &target[0..target_prefix_len];
         let target_suffix = &target[target.len() - target_suffix_len..];
@@ -1772,7 +1762,7 @@ impl<'a> Runner<'a> {
                 }
             }
 
-            if found.len() == 0 {
+            if found.is_empty() {
                 return Err(anyhow!(
                     "No task names found matching the pattern {}",
                     target
@@ -1848,7 +1838,7 @@ impl<'a> Runner<'a> {
                 }
             }
 
-            if found.len() == 0 {
+            if found.is_empty() {
                 return Err(anyhow!("No files or target paths found matching the pattern '{}'.\nTo glob task names, use the task prefix character:\n\n  \x1b[36mchomp :{}\x1b[0m\n", target, target));
             }
         }
@@ -1958,7 +1948,7 @@ impl<'a> Runner<'a> {
                 let task = &self.tasks[job.task];
                 let mut job_targets = Vec::new();
                 for target in task.targets.iter() {
-                    if has_glob_chars(&target) {
+                    if has_glob_chars(target) {
                         return Err(anyhow!("Error processing target '{}' in task {} - glob characters are not supported", &target, &display_name));
                     }
                     if target.contains('#') {
@@ -2025,17 +2015,17 @@ impl<'a> Runner<'a> {
                             ));
                         }
                     } else {
-                        self.expand_target(watcher, &String::from(dep), true, Some(job_num))
+                        self.expand_target(watcher, &dep, true, Some(job_num))
                             .await?;
                     }
                 }
 
-                if is_interpolate.is_some() {
+                if let Some(target) = is_interpolate {
                     if !expanded_interpolate {
                         return Err(anyhow!(
                             "Task {} defines an interpolation target {} without an interpolation dep",
                             &display_name,
-                            is_interpolate.unwrap()
+                            target
                         ));
                     }
                     if dep_double_interpolate != double_interpolate {
@@ -2043,7 +2033,7 @@ impl<'a> Runner<'a> {
                             "Task {} defines a {} interpolate target {} but with a {} interpolation dep. Dependency interpolation must use a '{}' interpolate to match.",
                             &display_name,
                             if double_interpolate { "double" } else { "single" },
-                            is_interpolate.unwrap(),
+                            target,
                             if double_interpolate { "single" } else { "double" },
                             if double_interpolate { "##" } else { "#" }
                         ));
@@ -2080,17 +2070,17 @@ impl<'a> Runner<'a> {
         }
         glob_target.push_str(&dep[interpolate_idx + if double { 2 } else { 1 }..]);
         for entry in
-            glob(&glob_target).expect(&format!("Failed to read glob pattern {}", &glob_target))
+            glob(&glob_target).unwrap_or_else(|_| panic!("Failed to read glob pattern {}", &glob_target))
         {
             match entry {
                 Ok(entry) => {
-                    let dep_path = String::from(entry.path().to_str().unwrap().replace('\\', "/"));
+                    let dep_path = entry.path().to_str().unwrap().replace('\\', "/");
                     let interpolate = &dep_path[interpolate_idx
                         ..dep_path.len() + interpolate_idx + if double { 2 } else { 1 }
                             - dep.len()];
 
                     let task = &self.tasks[parent_task];
-                    if check_interpolate_exclude(&task, &dep_path) {
+                    if check_interpolate_exclude(task, &dep_path) {
                         return Ok(());
                     }
 
@@ -2194,10 +2184,10 @@ impl<'a> Runner<'a> {
                         } else {
                             interpolation_dep.replace('#', "(*)")
                         };
-                        if Pattern::new(&dep_glob).unwrap().matches(&expanded_target) {
-                            if !check_interpolate_exclude(&job_task, &expanded_target) {
+                        if Pattern::new(&dep_glob).unwrap().matches(&expanded_target)
+                            && !check_interpolate_exclude(job_task, &expanded_target) {
                                 let interpolate =
-                                    get_interpolate_match(&interpolation_dep, &expanded_target);
+                                    get_interpolate_match(interpolation_dep, &expanded_target);
                                 let input = replace_interpolate(interpolation_dep, &interpolate);
                                 expansions.push((
                                     input.to_owned(),
@@ -2206,7 +2196,6 @@ impl<'a> Runner<'a> {
                                     task_num,
                                 ));
                             }
-                        }
                     }
                 }
                 let job = self.get_job_mut(job_num).unwrap();
@@ -2270,7 +2259,7 @@ impl<'a> Runner<'a> {
         if self.watch {
             futures.push(Runner::watcher_interval().boxed_local());
         }
-        while futures.len() > 0 {
+        while !futures.is_empty() {
             let (transition, _idx, new_futures) = select_all(futures).await;
             futures = new_futures;
             match transition.state {
@@ -2397,7 +2386,7 @@ impl<'a> Runner<'a> {
                 .await?;
             for job in jobs {
                 if opts.rerun {
-                    let mut job = self.get_job_mut(job).unwrap();
+                    let job = self.get_job_mut(job).unwrap();
                     job.mtime = None;
                     job.state = JobState::Pending;
                 }

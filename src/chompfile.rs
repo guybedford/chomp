@@ -25,7 +25,9 @@ use std::{
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum ChompEngine {
+    #[default]
     Shell,
     Node,
     Deno,
@@ -33,23 +35,22 @@ pub enum ChompEngine {
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum TaskDisplay {
     None,
     Dot,
+    #[default]
     InitStatus,
     StatusOnly,
     InitOnly,
 }
 
-impl Default for TaskDisplay {
-    fn default() -> Self {
-        TaskDisplay::InitStatus
-    }
-}
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum TaskStdio {
+    #[default]
     All,
     NoStdin,
     StdoutOnly,
@@ -57,17 +58,7 @@ pub enum TaskStdio {
     None,
 }
 
-impl Default for TaskStdio {
-    fn default() -> Self {
-        TaskStdio::All
-    }
-}
 
-impl Default for ChompEngine {
-    fn default() -> Self {
-        ChompEngine::Shell
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
@@ -117,15 +108,19 @@ impl Default for ServerOptions {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum InvalidationCheck {
     NotFound,
+    #[default]
     Mtime,
     Always,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum ValidationCheck {
+    #[default]
     OkTargets,
     TargetsOnly,
     OkOnly,
@@ -133,30 +128,17 @@ pub enum ValidationCheck {
     None,
 }
 
-impl Default for ValidationCheck {
-    fn default() -> Self {
-        ValidationCheck::OkTargets
-    }
-}
 
-impl Default for InvalidationCheck {
-    fn default() -> Self {
-        InvalidationCheck::Mtime
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum WatchInvalidation {
+    #[default]
     RestartRunning,
     SkipRunning,
 }
 
-impl Default for WatchInvalidation {
-    fn default() -> Self {
-        WatchInvalidation::RestartRunning
-    }
-}
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
@@ -215,7 +197,7 @@ impl ChompTaskMaybeTemplated {
             let target_str = resolve_path(target, cwd);
             Ok(vec![target_str])
         } else if let Some(ref targets) = self.targets {
-            let targets = targets.iter().map(|t| resolve_path(&t, cwd)).collect();
+            let targets = targets.iter().map(|t| resolve_path(t, cwd)).collect();
             Ok(targets)
         } else {
             Ok(vec![])
@@ -225,8 +207,7 @@ impl ChompTaskMaybeTemplated {
         let names = chompfile
             .task
             .iter()
-            .filter(|&t| t.name.is_some())
-            .map(|t| t.name.as_ref().unwrap())
+            .filter_map(|t| t.name.as_ref())
             .collect::<Vec<_>>();
 
         if let Some(ref dep) = self.dep {
@@ -254,7 +235,7 @@ impl ChompTaskMaybeTemplated {
     }
 }
 
-fn skip_special_chars(s: &String) -> bool {
+fn skip_special_chars(s: &str) -> bool {
     s.contains(':') || s.contains("&prev") || s.contains("&next")
 }
 
@@ -288,30 +269,30 @@ pub struct ChompTaskMaybeTemplatedJs {
     pub env_default: Option<HashMap<String, String>>,
 }
 
-impl Into<ChompTaskMaybeTemplated> for ChompTaskMaybeTemplatedJs {
-    fn into(self) -> ChompTaskMaybeTemplated {
+impl From<ChompTaskMaybeTemplatedJs> for ChompTaskMaybeTemplated {
+    fn from(val: ChompTaskMaybeTemplatedJs) -> Self {
         ChompTaskMaybeTemplated {
-            cwd: self.cwd,
-            name: self.name,
-            args: self.args,
-            target: self.target,
-            targets: self.targets,
-            display: self.display,
-            stdio: self.stdio,
-            invalidation: self.invalidation,
-            validation: self.validation,
-            dep: self.dep,
-            deps: self.deps,
-            echo: self.echo,
-            serial: self.serial,
-            env_replace: self.env_replace,
-            env: self.env,
-            env_default: self.env_default,
-            run: self.run,
-            engine: self.engine,
-            template: self.template,
-            template_options: self.template_options,
-            watch_invalidation: self.watch_invalidation,
+            cwd: val.cwd,
+            name: val.name,
+            args: val.args,
+            target: val.target,
+            targets: val.targets,
+            display: val.display,
+            stdio: val.stdio,
+            invalidation: val.invalidation,
+            validation: val.validation,
+            dep: val.dep,
+            deps: val.deps,
+            echo: val.echo,
+            serial: val.serial,
+            env_replace: val.env_replace,
+            env: val.env,
+            env_default: val.env_default,
+            run: val.run,
+            engine: val.engine,
+            template: val.template,
+            template_options: val.template_options,
+            watch_invalidation: val.watch_invalidation,
         }
     }
 }
@@ -356,7 +337,7 @@ pub fn path_from<P: AsRef<Path>>(base_dir: P, input: &str) -> PathBuf {
 /// This function ensures a given path ending with '/' still
 /// ends with '/' after normalization.
 pub fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
-    let ends_with_slash = path.as_ref().to_str().map_or(false, |s| s.ends_with('/'));
+    let ends_with_slash = path.as_ref().to_str().is_some_and(|s| s.ends_with('/'));
     let mut normalized = PathBuf::new();
     for component in path.as_ref().components() {
         match &component {
