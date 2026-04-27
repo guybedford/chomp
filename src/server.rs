@@ -17,21 +17,22 @@
 // const websocket = new WebSocket('ws://localhost:5776/watch'); websocket.onmessage = evt => console.log(evt.data);
 
 use crate::chompfile::ServerOptions;
+use crate::task::WatchEvent;
+use bytes::Bytes;
 use futures::{future, FutureExt, StreamExt};
-use hyper::{header, Body, Response, StatusCode};
-use notify::DebouncedEvent;
+use hyper::http::{header, Response, StatusCode};
 use percent_encoding::percent_decode_str;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
-use tokio::fs::File;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_util::codec::{BytesCodec, FramedRead};
 use warp::ws::{Message, WebSocket, Ws};
 use warp::Filter;
+
+type ResponseBody = Bytes;
 
 async fn client_connection(ws: WebSocket, state: State) {
     let (sender, mut receiver) = ws.split();
@@ -111,28 +112,16 @@ pub enum FileEvent {
     WatchFile(PathBuf),
 }
 
-async fn check_watcher(mut rx: UnboundedReceiver<DebouncedEvent>, root: &PathBuf, state: State) {
+async fn check_watcher(mut rx: UnboundedReceiver<WatchEvent>, root: &PathBuf, state: State) {
     loop {
         match rx.recv().await {
-            Some(evt) => match evt {
-                DebouncedEvent::NoticeWrite(_)
-                | DebouncedEvent::NoticeRemove(_)
-                | DebouncedEvent::Chmod(_)
-                | DebouncedEvent::Remove(_) => {}
-                DebouncedEvent::Create(path)
-                | DebouncedEvent::Write(path)
-                | DebouncedEvent::Rename(_, path) => {
-                    let path_str = match path.strip_prefix(root) {
-                        Ok(path) => path.to_str().unwrap(),
-                        Err(_) => continue,
-                    };
-                    let _ = revalidate(&path, &path_str, state.clone(), true).await;
-                }
-                DebouncedEvent::Rescan => panic!("Unhandled: Watcher Rescan"),
-                DebouncedEvent::Error(err, maybe_path) => {
-                    panic!("Unhandled: Watcher Error {:?} {:?}", err, maybe_path)
-                }
-            },
+            Some(path) => {
+                let path_str = match path.strip_prefix(root) {
+                    Ok(path) => path.to_str().unwrap(),
+                    Err(_) => continue,
+                };
+                let _ = revalidate(&path, &path_str, state.clone(), true).await;
+            }
             None => {}
         }
     }
@@ -169,23 +158,20 @@ async fn revalidate(
     (Some(hash), true)
 }
 
-fn not_found(resource: &str) -> Response<Body> {
+fn not_found(resource: &str) -> Response<ResponseBody> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .header(
             header::CONTENT_TYPE,
             header::HeaderValue::from_str("text/plain").unwrap(),
         )
-        .body(Body::from(format!("\"{}\" Not Found", resource)))
+        .body(Bytes::from(format!("\"{}\" Not Found", resource)))
         .unwrap()
 }
 
-async fn file_serve(path: &PathBuf, root: &PathBuf, hash: Option<String>) -> Response<Body> {
-    // Serve a file by asynchronously reading it by chunks using tokio-util crate.
-    if let Ok(file) = File::open(path).await {
-        let stream = FramedRead::new(file, BytesCodec::new());
-        let body = Body::wrap_stream(stream);
-        let mut res = Response::new(body);
+async fn file_serve(path: &PathBuf, root: &PathBuf, hash: Option<String>) -> Response<ResponseBody> {
+    if let Ok(contents) = fs::read(path).await {
+        let mut res = Response::new(Bytes::from(contents));
         let guess = mime_guess::from_path(path);
         if let Some(mime) = guess.first() {
             let headers_mut = res.headers_mut();
@@ -215,7 +201,7 @@ async fn file_serve(path: &PathBuf, root: &PathBuf, hash: Option<String>) -> Res
 }
 
 // TODO: gloss
-async fn index_page(path: &mut PathBuf, root: &PathBuf) -> Option<Response<Body>> {
+async fn index_page(path: &mut PathBuf, root: &PathBuf) -> Option<Response<ResponseBody>> {
     path.push("index.html");
     match fs::metadata(&path).await {
         Ok(_) => {}
@@ -243,8 +229,8 @@ async fn index_page(path: &mut PathBuf, root: &PathBuf) -> Option<Response<Body>
                 listing.push_str(&item);
             }
             listing.push_str("</ul>");
-            let mut res = Response::new(Body::from(listing));
-            *res.status_mut() = hyper::StatusCode::OK;
+            let mut res = Response::new(Bytes::from(listing));
+            *res.status_mut() = StatusCode::OK;
             res.headers_mut().insert(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_str("text/html").unwrap(),
@@ -257,7 +243,7 @@ async fn index_page(path: &mut PathBuf, root: &PathBuf) -> Option<Response<Body>
 
 pub async fn serve(
     opts: ServerOptions,
-    watch_receiver: UnboundedReceiver<DebouncedEvent>,
+    watch_receiver: UnboundedReceiver<WatchEvent>,
     watch_sender: UnboundedSender<FileEvent>,
 ) {
     let state: State = Arc::new(RwLock::new(StateStruct::new()));
@@ -325,8 +311,8 @@ pub async fn serve(
                     None => (false, None),
                 };
                 if cached {
-                    let mut res = Response::new(Body::empty());
-                    *res.status_mut() = hyper::StatusCode::NOT_MODIFIED;
+                    let mut res = Response::new(Bytes::new());
+                    *res.status_mut() = StatusCode::NOT_MODIFIED;
                     return res;
                 } else {
                     file_serve(&path, &root, etag).await
@@ -341,7 +327,8 @@ pub async fn serve(
 
     let routes = websocket
         .or(static_assets)
-        .with(warp::cors().allow_any_origin());
+        .with(warp::cors().allow_any_origin())
+        .boxed();
 
     println!(
         "Serving \x1b[1m{}\x1b[0m on \x1b[36mhttp://localhost:{}\x1b[0m...",

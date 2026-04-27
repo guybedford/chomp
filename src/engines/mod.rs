@@ -319,7 +319,6 @@ impl<'a> CmdPool<'a> {
         let mut targets = Vec::new();
         for id in &cmd.ids {
             let cmd = &self.cmds[&id];
-            self.cmd_execs.insert(*id, exec_num);
             if let Some(name) = &cmd.name {
                 println!("\x1b[1m▶ {}\x1b[0m", name);
             }
@@ -330,6 +329,13 @@ impl<'a> CmdPool<'a> {
                 }
                 targets.push(target.to_string());
             }
+        }
+
+        // cmd_execs and execs must be populated together without an await between them:
+        // get_exec_future reads cmd_execs first and then indexes execs, so any yield in between
+        // lets another future observe cmd_execs populated while execs is still missing.
+        for id in &cmd.ids {
+            self.cmd_execs.insert(*id, exec_num);
         }
 
         let pool = self as *mut CmdPool;
