@@ -19,6 +19,7 @@ use crate::chompfile::{
     ValidationCheck, WatchInvalidation,
 };
 use crate::engines::CmdPool;
+use crate::hash_cache::HashCache;
 use crate::server::FileEvent;
 use crate::ExtensionEnvironment;
 use async_recursion::async_recursion;
@@ -251,6 +252,8 @@ pub struct Runner<'a> {
     cmd_pool: CmdPool<'a>,
     chompfile: &'a Chompfile,
     watch: bool,
+    // shared with the dev server; see HashCache. Only consulted while watching.
+    hash_cache: HashCache,
     tasks: Vec<Task<'a>>,
 
     nodes: Vec<Node>,
@@ -574,6 +577,7 @@ impl<'a> Runner<'a> {
         extension_env: &'a mut ExtensionEnvironment,
         pool_size: usize,
         watch: bool,
+        hash_cache: HashCache,
     ) -> Result<Runner<'a>> {
         let cwd_buf = current_dir()?;
         let cwd = cwd_buf.to_str().unwrap().replace('\\', "/");
@@ -581,6 +585,7 @@ impl<'a> Runner<'a> {
         let cmd_pool: CmdPool = CmdPool::new(pool_size, String::from(&cwd), extension_env);
         let mut runner = Runner {
             watch,
+            hash_cache,
             // ui,
             cwd: String::from(&cwd),
             cmd_pool,
@@ -2384,11 +2389,18 @@ impl<'a> Runner<'a> {
             }
             Err(TryRecvError::Disconnected) => panic!("Watcher disconnected"),
         };
-        let result = self.invalidate_path(&path, queued, redrives);
+        // Skip events that don't change the file's contents (a read that bumped mtime, or a
+        // rewrite with identical bytes): no rebuild, and nothing forwarded to the server, so
+        // it doesn't reload either. An unreadable/removed file (None) falls through as a
+        // change. We consumed an event, so return Ok(true) to keep draining the queue.
+        if let Some((_, false)) = self.hash_cache.revalidate(&path) {
+            return Ok(true);
+        }
+        self.invalidate_path(&path, queued, redrives)?;
         watch_listener
             .send(path)
             .expect("Unable to send watcher event to server channel");
-        result
+        Ok(true)
     }
 
     pub async fn run(

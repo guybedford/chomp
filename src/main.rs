@@ -41,6 +41,7 @@ mod ansi_windows;
 mod chompfile;
 mod engines;
 mod extensions;
+mod hash_cache;
 mod http_client;
 mod server;
 mod task;
@@ -385,6 +386,9 @@ async fn main() -> Result<()> {
     let (watch_event_sender, watch_event_receiver) = unbounded_channel();
     // channel for adding new files to watcher
     let (watch_sender, watch_receiver) = unbounded_channel();
+    // in-memory content-hash cache for watched files, shared so the runner and dev server
+    // agree on whether a file's bytes actually changed (only used while watching/serving)
+    let hash_cache = hash_cache::HashCache::new();
     let mut serve_options = chompfile.server.clone();
     {
         if let Some(root) = matches.get_one::<String>("server-root") {
@@ -399,6 +403,7 @@ async fn main() -> Result<()> {
                 serve_options,
                 watch_event_receiver,
                 watch_sender,
+                hash_cache.clone(),
             ));
         }
     }
@@ -549,6 +554,7 @@ async fn main() -> Result<()> {
         &mut extension_env,
         pool_size,
         matches.get_flag("serve") || matches.get_flag("watch"),
+        hash_cache,
     )?;
     let ok = runner
         .run(
