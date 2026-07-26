@@ -25,7 +25,7 @@ use async_recursion::async_recursion;
 use capturing_glob::{glob, Pattern};
 use futures::future::Shared;
 use futures::future::{select_all, Future, FutureExt};
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
+use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdCache};
 use pathdiff::diff_paths;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -43,16 +43,47 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 extern crate notify;
 
-// Path-only event from the file watcher. The notify-debouncer-mini debouncer collapses
-// rapid filesystem events down to a single per-path notification, so the kind is irrelevant
-// to chomp — we just need to know which path changed.
+// Path-only event from the file watcher: chomp only ever acts on the path, so the
+// debouncer callback filters on the event kind (see `is_invalidating_event`) and forwards
+// just the affected path through this channel.
 pub type WatchEvent = PathBuf;
+
+// Whether a filesystem event represents a content change that should invalidate cached
+// tasks. Read/open (`Access`) and metadata-only (`Modify(Metadata)`, e.g. chmod or atime)
+// events are ignored — reading a file must never trigger a rebuild.
+//
+// This restores pre-0.3.0 behaviour. The notify 8 inotify backend additionally watches
+// `OPEN`/`ATTRIB`, so a task that reads its own watched deps (e.g. a bundler reading its
+// sources) emits `Access` events for those paths; without this filter chomp treats them as
+// changes and re-runs the task forever (#188). Unknown/coarse kinds conservatively
+// invalidate rather than risk a stale build.
+fn is_invalidating_event(kind: &EventKind) -> bool {
+    !matches!(
+        kind,
+        EventKind::Access(_) | EventKind::Modify(ModifyKind::Metadata(_))
+    )
+}
+
+// The subset of watcher behaviour chomp needs: registering a path to watch. Target
+// expansion threads this as a trait object so it doesn't have to carry the debouncer's
+// generic parameters. notify-debouncer-full's `Debouncer` proxies `Watcher::watch` itself
+// (the inner watcher is no longer exposed), so we implement this directly against it.
+pub trait Watch {
+    fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()>;
+}
+
+impl<T: Watcher, C: FileIdCache> Watch for Debouncer<T, C> {
+    fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()> {
+        Debouncer::watch(self, path, mode)
+    }
+}
 
 use crate::engines::replace_env_vars_static;
 use crate::engines::ExecState;
 use anyhow::{anyhow, Result};
 use derivative::Derivative;
 use futures::executor;
+use notify::event::{EventKind, ModifyKind};
 use notify::{RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 use tokio::fs;
@@ -143,7 +174,7 @@ impl File {
         }
     }
 
-    fn init(&mut self, watcher: Option<&mut dyn Watcher>) {
+    fn init(&mut self, watcher: Option<&mut dyn Watch>) {
         self.state = FileState::Initialized;
         if let Some(watcher) = watcher {
             #[cfg(target_os = "windows")]
@@ -1557,7 +1588,7 @@ impl<'a> Runner<'a> {
 
     async fn lookup_task_name(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         task: &str,
     ) -> Result<Option<usize>> {
         if let Some(&job_num) = self.task_jobs.get(task) {
@@ -1645,7 +1676,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn lookup_target(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         target: &str,
         glob_files: bool,
     ) -> Result<usize> {
@@ -1686,7 +1717,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn lookup_glob_target(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         target: &str,
         glob_files: bool,
     ) -> Result<Vec<usize>> {
@@ -1900,7 +1931,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn expand_target(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         target: &str,
         glob_files: bool,
         drives: Option<usize>,
@@ -1920,7 +1951,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn expand_job(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         job_num: usize,
         parent: Option<usize>,
     ) -> Result<()> {
@@ -2049,7 +2080,7 @@ impl<'a> Runner<'a> {
 
     async fn expand_interpolate(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         dep: String,
         parent_job: usize,
         parent_task: usize,
@@ -2105,7 +2136,7 @@ impl<'a> Runner<'a> {
     #[async_recursion(?Send)]
     async fn expand_interpolate_match(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         dep_path: Option<&str>,
         interpolate: &str,
         parent_job: usize,
@@ -2230,7 +2261,7 @@ impl<'a> Runner<'a> {
     // find the job for the target, and drive its completion
     async fn drive_jobs(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         jobs: &HashSet<usize>,
         force: bool,
         rx: Receiver<WatchEvent>,
@@ -2314,7 +2345,7 @@ impl<'a> Runner<'a> {
 
     async fn check_watcher(
         &mut self,
-        watcher: &mut dyn Watcher,
+        watcher: &mut dyn Watch,
         rx: &Receiver<WatchEvent>,
         watch_listener: UnboundedSender<WatchEvent>,
         writer: &mut UnboundedReceiver<FileEvent>,
@@ -2369,10 +2400,16 @@ impl<'a> Runner<'a> {
         let (tx, rx) = channel();
         let mut debouncer = new_debouncer(
             Duration::from_millis(250),
+            None,
             move |result: DebounceEventResult| match result {
                 Ok(events) => {
                     for event in events {
-                        let _ = tx.send(event.path);
+                        if !is_invalidating_event(&event.kind) {
+                            continue;
+                        }
+                        for path in &event.paths {
+                            let _ = tx.send(path.clone());
+                        }
                     }
                 }
                 Err(errors) => panic!("Watcher errors: {:?}", errors),
@@ -2382,7 +2419,7 @@ impl<'a> Runner<'a> {
         let mut job_nums = HashSet::new();
         for target in opts.targets {
             let jobs = self
-                .expand_target(debouncer.watcher(), &target, false, None)
+                .expand_target(&mut debouncer, &target, false, None)
                 .await?;
             for job in jobs {
                 if opts.rerun {
@@ -2435,7 +2472,7 @@ impl<'a> Runner<'a> {
         }
 
         self.drive_jobs(
-            debouncer.watcher(),
+            &mut debouncer,
             &job_nums,
             opts.force,
             rx,
@@ -2467,5 +2504,43 @@ pub fn relative_path(name: &str, cwd: &str) -> String {
         path.replace('\\', "/")
     } else {
         path
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_invalidating_event;
+    use notify::event::{
+        AccessKind, AccessMode, CreateKind, DataChange, EventKind, MetadataKind, ModifyKind,
+        RemoveKind, RenameMode,
+    };
+
+    #[test]
+    fn reads_and_metadata_do_not_invalidate() {
+        // Opening a watched file for reading (inotify IN_OPEN) must not trigger a rebuild,
+        // otherwise a task reading its own deps re-runs forever (#188).
+        assert!(!is_invalidating_event(&EventKind::Access(
+            AccessKind::Open(AccessMode::Read)
+        )));
+        assert!(!is_invalidating_event(&EventKind::Access(AccessKind::Read)));
+        assert!(!is_invalidating_event(&EventKind::Access(AccessKind::Any)));
+        // chmod / atime metadata-only changes were ignored before 0.3.0 too.
+        assert!(!is_invalidating_event(&EventKind::Modify(
+            ModifyKind::Metadata(MetadataKind::Any)
+        )));
+    }
+
+    #[test]
+    fn content_changes_invalidate() {
+        assert!(is_invalidating_event(&EventKind::Create(CreateKind::File)));
+        assert!(is_invalidating_event(&EventKind::Modify(ModifyKind::Data(
+            DataChange::Content
+        ))));
+        assert!(is_invalidating_event(&EventKind::Modify(ModifyKind::Name(
+            RenameMode::Both
+        ))));
+        assert!(is_invalidating_event(&EventKind::Remove(RemoveKind::File)));
+        // Unknown/coarse kinds conservatively invalidate rather than risk a stale build.
+        assert!(is_invalidating_event(&EventKind::Any));
     }
 }
