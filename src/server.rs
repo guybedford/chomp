@@ -17,12 +17,12 @@
 // const websocket = new WebSocket('ws://localhost:5776/watch'); websocket.onmessage = evt => console.log(evt.data);
 
 use crate::chompfile::ServerOptions;
+use crate::hash_cache::HashCache;
 use crate::task::WatchEvent;
 use bytes::Bytes;
 use futures::{future, FutureExt, StreamExt};
 use hyper::http::{header, Response, StatusCode};
 use percent_encoding::percent_decode_str;
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
@@ -94,14 +94,12 @@ pub struct Client {
 
 pub struct StateStruct {
     clients: Vec<Client>,
-    file_hashes: BTreeMap<String, String>,
 }
 
 impl StateStruct {
     fn new() -> StateStruct {
         StateStruct {
             clients: Vec::new(),
-            file_hashes: BTreeMap::new(),
         }
     }
 }
@@ -112,47 +110,20 @@ pub enum FileEvent {
     WatchFile(PathBuf),
 }
 
+// Watch events arriving here have already been content-checked by the runner against the
+// shared HashCache, so every path represents a genuine change — just notify HMR clients.
 async fn check_watcher(mut rx: UnboundedReceiver<WatchEvent>, root: &PathBuf, state: State) {
     loop {
         if let Some(path) = rx.recv().await {
             let path_str = match path.strip_prefix(root) {
-                Ok(path) => path.to_str().unwrap(),
+                Ok(path) => path.to_str().unwrap().replace('\\', "/"),
                 Err(_) => continue,
             };
-            let _ = revalidate(&path, path_str, state.clone(), true).await;
+            for client in state.read().await.clients.iter() {
+                let _ = client.sender.send(Ok(Message::text(path_str.clone())));
+            }
         }
     }
-}
-
-async fn revalidate(
-    path: &PathBuf,
-    path_str: &str,
-    state: State,
-    broadcast_updates: bool,
-) -> (Option<String>, bool) {
-    let source = match fs::read(path).await {
-        Ok(src) => src,
-        Err(_) => return (None, true),
-    };
-    let hash = crate::http_client::hash(&source[0..]);
-    let mut state = state.write().await;
-    if let Some(existing_hash) = state.file_hashes.get(path_str) {
-        if hash.eq(existing_hash) {
-            return (Some(hash), false);
-        }
-    }
-    state
-        .file_hashes
-        .insert(path_str.to_string(), hash.to_string());
-    if broadcast_updates {
-        for client in state.clients.iter() {
-            client
-                .sender
-                .send(Ok(Message::text(path_str.replace('\\', "/"))))
-                .expect("error sending websocket");
-        }
-    }
-    (Some(hash), true)
 }
 
 fn not_found(resource: &str) -> Response<ResponseBody> {
@@ -242,6 +213,7 @@ pub async fn serve(
     opts: ServerOptions,
     watch_receiver: UnboundedReceiver<WatchEvent>,
     watch_sender: UnboundedSender<FileEvent>,
+    hash_cache: HashCache,
 ) {
     let state: State = Arc::new(RwLock::new(StateStruct::new()));
     let watcher_state = state.clone();
@@ -262,14 +234,14 @@ pub async fn serve(
     let watcher_root = root.clone();
     let static_assets = warp::path::tail()
         .and(warp::any().map(move || root.clone()))
-        .and(warp::any().map(move || state.clone()))
         .and(warp::any().map(move || watch_sender.clone()))
+        .and(warp::any().map(move || hash_cache.clone()))
         .and(warp::filters::header::optional::<String>("if-none-match"))
         .then(
             |path: warp::path::Tail,
              root: PathBuf,
-             state: State,
              sender: UnboundedSender<FileEvent>,
+             hash_cache: HashCache,
              validate_hash: Option<String>| async move {
                 let subpath = percent_decode_str(path.as_str())
                     .decode_utf8_lossy()
@@ -296,7 +268,13 @@ pub async fn serve(
                         return res;
                     }
                 }
-                let (hash, add_watch) = revalidate(&path, &subpath, state, false).await;
+                // Hash the served file via the shared cache: `add_watch` (a first sighting
+                // or a content change) means the runner isn't watching it yet, so register
+                // it. The hash doubles as the ETag below.
+                let (hash, add_watch) = match hash_cache.revalidate(&path) {
+                    Some((hash, changed)) => (Some(hash), changed),
+                    None => (None, true),
+                };
                 if add_watch {
                     let _ = sender.send(FileEvent::WatchFile(path.clone())).is_ok();
                 }
