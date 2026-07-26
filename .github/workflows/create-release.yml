@@ -1,0 +1,72 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      type:
+        description: 'Release type'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+concurrency: create-release
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  create-release:
+    name: 'Bump, Tag and Push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # RELEASE_TOKEN, not GITHUB_TOKEN: pushes from the default token do not trigger release.yml
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.RELEASE_TOKEN }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Setup Chomp
+        uses: guybedford/chomp-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bump Version
+        run: |
+          VERSION="$(node -e '
+            const { readFileSync, writeFileSync } = require("fs");
+            const toml = readFileSync("Cargo.toml", "utf8");
+            const match = toml.match(/version\s*=\s*"(\d+)\.(\d+)\.(\d+)"/);
+            let [major, minor, patch] = match.slice(1).map(Number);
+            switch (process.argv[1]) {
+              case "major": major++, minor = 0, patch = 0; break;
+              case "minor": minor++, patch = 0; break;
+              default: patch++;
+            }
+            const version = major + "." + minor + "." + patch;
+            writeFileSync("Cargo.toml", toml.replace(match[0], "version = \"" + version + "\""));
+            console.log(version);
+          ' "${{ inputs.type }}")"
+          echo "version=$VERSION" >> $GITHUB_ENV
+      - name: Inline Version
+        run: chomp inline-version -f
+      - name: Update Cargo Lockfile
+        run: cargo update --workspace
+      - name: Update npm Lockfile
+        run: npm install
+        working-directory: node-chomp
+      - name: Commit, Tag and Push
+        run: |
+          git config user.name 'Guy Bedford'
+          git config user.email 'guybedford@gmail.com'
+          git add -A
+          git commit -m "$version"
+          git tag "$version"
+          git push --atomic origin main "$version"
