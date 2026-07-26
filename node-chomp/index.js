@@ -20,4 +20,5 @@ const bin = new BinWrapper({ skipCheck: true })
 
 await bin.run();
 
-spawn(bin.path(), process.argv.slice(2), { stdio: 'inherit' });
+spawn(bin.path(), process.argv.slice(2), { stdio: 'inherit' })
+  .on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
