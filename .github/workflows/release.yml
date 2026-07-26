@@ -100,3 +100,36 @@ jobs:
         file: chomp*${{ matrix.asset_extension }}
         file_glob: true
         tag: ${{ github.ref }}
+
+  publish-npm:
+    name: Publish node-chomp to npm
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    defaults:
+      run:
+        working-directory: node-chomp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing (OIDC) requires npm 11.5.1 or newer
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/}
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag ${TAG_VERSION} does not match node-chomp/package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+
+      - name: Publish chomp
+        run: npm publish
